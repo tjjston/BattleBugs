@@ -1,6 +1,6 @@
 from ast import List
 from typing import Optional
-from anthropic import Anthropic
+from anthropic import Anthropic as anthropic
 from flask import current_app
 from app.models import Bug
 from app.services.llm_service import LLMService

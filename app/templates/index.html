@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}Bug Arena - Home{% endblock %}
+
+{% block content %}
+<div class="jumbotron bg-light p-5 rounded-3 mb-4">
+    <h1 class="display-4">Welcome to Battle Bugs, The Gladiators Arena of Creepy Crawlers</h1>
+    <p class="lead">The ultimate gladiator arena for insects. Submit your bugs, watch them battle, and compete in monthly tournaments!</p>
+    <hr class="my-4">
+    <p>Capture bugs in the wild, give them names, and watch them fight for glory!</p>
+    {% if not current_user.is_authenticated %}
+    <a class="btn btn-primary btn-lg" href="{{ url_for('auth.register') }}" role="button">Join the Arena</a>
+    {% else %}
+    <a class="btn btn-primary btn-lg" href="{{ url_for('bugs.submit_bug') }}" role="button">Submit Your Bug</a>
+    <a class="btn btn-success btn-lg" href="{{ url_for('battles.new_battle') }}" role="button">Start a Battle</a>
+    {% endif %}
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <h2>Top Gladiators</h2>
+        <div class="list-group">
+            {% for bug in top_bugs[:5] %}
+            <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="list-group-item list-group-item-action">
+                <div class="d-flex w-100 justify-content-between">
+                    <h5 class="mb-1">{{ bug.name }}</h5>
+                    <small>{{ bug.wins }}W - {{ bug.losses }}L</small>
+                </div>
+                <p class="mb-1">{{ bug.species or 'Unknown Species' }}</p>
+                <small>Win Rate: {{ "%.1f"|format(bug.win_rate) }}%</small>
+            </a>
+            {% else %}
+            <p class="text-muted">No bugs yet. Be the first to submit one!</p>
+            {% endfor %}
+        </div>
+        {% if top_bugs|length > 5 %}
+        <a href="{{ url_for('main.hall_of_fame') }}" class="btn btn-sm btn-outline-primary mt-2">View Hall of Fame →</a>
+        {% endif %}
+    </div>
+
+    <div class="col-md-6">
+        <h2>⚔️ Recent Battles</h2>
+        <div class="list-group">
+            {% for battle in recent_battles %}
+            <a href="{{ url_for('battles.view_battle', battle_id=battle.id) }}" class="list-group-item list-group-item-action">
+                <div class="d-flex w-100 justify-content-between">
+                    <h5 class="mb-1">{{ battle.bug1.name }} vs {{ battle.bug2.name }}</h5>
+                    <small>{{ battle.battle_date.strftime('%b %d') }}</small>
+                </div>
+                <p class="mb-1">
+                    Winner: <strong>{{ battle.winner.name if battle.winner else 'Draw' }}</strong>
+                </p>
+            </a>
+            {% else %}
+            <p class="text-muted">No battles yet. Start the first one!</p>
+            {% endfor %}
+        </div>
+        {% if recent_battles %}
+        <a href="{{ url_for('battles.list_battles') }}" class="btn btn-sm btn-outline-primary mt-2">View All Battles →</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="mt-5">
+    <h2>How It Works</h2>
+    <div class="row">
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h1>📸</h1>
+                    <h5>1. Capture</h5>
+                    <p>Find bugs in the wild and photograph them</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h1>✍️</h1>
+                    <h5>2. Submit</h5>
+                    <p>Upload your bug and give it a name</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h1>⚔️</h1>
+                    <h5>3. Battle</h5>
+                    <p>Watch generated battles</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h1></h1>
+                    <h5>4. Win Glory</h5>
+                    <p>Compete in monthly tournaments</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

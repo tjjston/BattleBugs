@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}Hall of Fame - Bug Arena{% endblock %}
+
+{% block content %}
+<h1 class="text-center mb-4">🏆 Hall of Fame 🏆</h1>
+
+<div class="row">
+    <div class="col-md-8">
+        <h2>Top Gladiators</h2>
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Bug</th>
+                        <th>Species</th>
+                        <th>Owner</th>
+                        <th>Record</th>
+                        <th>Win Rate</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for bug in top_bugs %}
+                    <tr>
+                        <td>
+                            {% if loop.index == 1 %}🥇
+                            {% elif loop.index == 2 %}🥈
+                            {% elif loop.index == 3 %}🥉
+                            {% else %}{{ loop.index }}{% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">
+                                <strong>{{ bug.name }}</strong>
+                            </a>
+                        </td>
+                        <td>{{ bug.species or 'Unknown' }}</td>
+                        <td>{{ bug.owner.username }}</td>
+                        <td>{{ bug.wins }}W - {{ bug.losses }}L</td>
+                        <td>{{ "%.1f"|format(bug.win_rate) }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <h2>Tournament Champions</h2>
+        {% if tournaments %}
+        <div class="list-group">
+            {% for tournament in tournaments %}
+            <a href="{{ url_for('tournaments.view_tournament', tournament_id=tournament.id) }}" 
+               class="list-group-item list-group-item-action">
+                <div class="d-flex w-100 justify-content-between">
+                    <h5 class="mb-1">{{ tournament.name }}</h5>
+                    <small>{{ tournament.end_date.strftime('%b %Y') if tournament.end_date else 'N/A' }}</small>
+                </div>
+                {% if tournament.winner %}
+                <p class="mb-1">Champion: <strong>{{ tournament.winner.name }}</strong></p>
+                <small>Owned by {{ tournament.winner.owner.username }}</small>
+                {% endif %}
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted">No completed tournaments yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="mt-5">
+    <h2>Arena Statistics</h2>
+    <div class="row text-center">
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h1 class="display-4">{{ top_bugs|length }}</h1>
+                    <p>Total Bugs</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h1 class="display-4">{{ tournaments|length }}</h1>
+                    <p>Tournaments Held</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h1 class="display-4">
+                        {% set total_battles = namespace(count=0) %}
+                        {% for bug in top_bugs %}
+                            {% set total_battles.count = total_battles.count + bug.wins + bug.losses %}
+                        {% endfor %}
+                        {{ (total_battles.count / 2)|int if top_bugs else 0 }}
+                    </h1>
+                    <p>Battles Fought</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h1 class="display-4">
+                        {{ top_bugs[0].win_rate|round|int if top_bugs else 0 }}%
+                    </h1>
+                    <p>Top Win Rate</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

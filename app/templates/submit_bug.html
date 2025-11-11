@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Submit Bug - Bug Arena{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <h2>Submit Your Bug to the Arena 🐛</h2>
+        <p class="text-muted">Found a cool bug? Submit it and watch it compete!</p>
+        
+        <div class="card">
+            <div class="card-body">
+                <form method="POST" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Bug Name *</label>
+                        <input type="text" class="form-control" id="name" name="name" 
+                               placeholder="e.g., Thunder Beetle, Shadow Mantis" required>
+                        <small class="form-text text-muted">Give your bug a cool gladiator name!</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="species" class="form-label">Species</label>
+                        <input type="text" class="form-control" id="species" name="species" 
+                               placeholder="e.g., Beetle, Ant, Grasshopper">
+                        <small class="form-text text-muted">Optional: What type of bug is it?</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <textarea class="form-control" id="description" name="description" rows="3" 
+                                  placeholder="Where did you find it? What makes it special?"></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="image" class="form-label">Bug Photo *</label>
+                        <input type="file" class="form-control" id="image" name="image" 
+                               accept="image/*" required>
+                        <small class="form-text text-muted">Upload a clear photo of your bug (max 16MB)</small>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <strong>Note:</strong> Your bug will be assigned stats for battles. 
+                        The Arena Master will generate epic battle narratives based on its characteristics!
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-lg w-100">
+                        Submit to Arena
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

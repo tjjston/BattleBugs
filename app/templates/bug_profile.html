@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}{{ bug.name }} - Bug Arena{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-4">
+        <div class="card">
+            <img src="{{ url_for('static', filename='../uploads/' + bug.image_path) }}" 
+                 class="card-img-top" alt="{{ bug.name }}">
+            <div class="card-body">
+                <h3 class="card-title">{{ bug.name }}</h3>
+                <p class="text-muted">{{ bug.species or 'Unknown Species' }}</p>
+                
+                <h5>Stats</h5>
+                <div class="mb-2">
+                    <small>Attack</small>
+                    <div class="progress">
+                        <div class="progress-bar bg-danger" style="width: {{ bug.attack * 10 }}%">
+                            {{ bug.attack }}
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <small>Defense</small>
+                    <div class="progress">
+                        <div class="progress-bar bg-primary" style="width: {{ bug.defense * 10 }}%">
+                            {{ bug.defense }}
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <small>Speed</small>
+                    <div class="progress">
+                        <div class="progress-bar bg-success" style="width: {{ bug.speed * 10 }}%">
+                            {{ bug.speed }}
+                        </div>
+                    </div>
+                </div>
+
+                <h5 class="mt-3">Battle Record</h5>
+                <p class="mb-1"><strong>{{ bug.wins }}</strong> Wins - <strong>{{ bug.losses }}</strong> Losses</p>
+                <p class="text-muted">Win Rate: {{ "%.1f"|format(bug.win_rate) }}%</p>
+
+                <small class="text-muted">
+                    Submitted by {{ bug.owner.username }} on {{ bug.submission_date.strftime('%B %d, %Y') }}
+                </small>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        {% if bug.description %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Description</h5>
+                <p>{{ bug.description }}</p>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5>Bug Lore 📜</h5>
+            </div>
+            <div class="card-body">
+                {% if lore %}
+                    {% for entry in lore %}
+                    <div class="mb-3">
+                        <p>{{ entry.lore_text }}</p>
+                        <small class="text-muted">
+                            - {{ entry.author.username }} | 
+                            {{ entry.created_at.strftime('%b %d, %Y') }} | 
+                            ⬆️ {{ entry.upvotes }}
+                        </small>
+                        <hr>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">No lore yet. Be the first to add to this bug's legend!</p>
+                {% endif %}
+
+                {% if current_user.is_authenticated %}
+                <form method="POST" action="{{ url_for('bugs.add_lore', bug_id=bug.id) }}">
+                    <div class="mb-3">
+                        <textarea class="form-control" name="lore" rows="2" 
+                                  placeholder="Add to this bug's lore..."></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-primary">Add Lore</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5>Comments 💬</h5>
+            </div>
+            <div class="card-body">
+                {% if comments %}
+                    {% for comment in comments %}
+                    <div class="mb-3">
+                        <p>{{ comment.text }}</p>
+                        <small class="text-muted">
+                            - {{ comment.author.username }} | 
+                            {{ comment.created_at.strftime('%b %d, %Y') }} | 
+                            ⬆️ {{ comment.upvotes }}
+                        </small>
+                        <hr>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">No comments yet. Be the first!</p>
+                {% endif %}
+
+                {% if current_user.is_authenticated %}
+                <form method="POST" action="{{ url_for('bugs.add_comment', bug_id=bug.id) }}">
+                    <div class="mb-3">
+                        <textarea class="form-control" name="comment" rows="2" 
+                                  placeholder="Add a comment..."></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-primary">Post Comment</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
