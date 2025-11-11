@@ -1,4 +1,4 @@
-# 🐛 Bug Arena - Insect Gladiator Tournament
+# Battle Bugs - Insect Gladiator Tournament
 
 Welcome to Bug Arena! A web application where you and your friends can submit bugs you find in the wild and watch them battle in AI-generated gladiator matches.
 
