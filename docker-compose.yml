@@ -1,1 +1,21 @@
+version: '3.8'
 
+services:
+  web:
+    build: .
+    container_name: battlebug-web
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - ./database:/app/database
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=sqlite:///database/app.db
+      - SECRET_KEY=${SECRET_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    restart: unless-stopped
+    command: python run.py
