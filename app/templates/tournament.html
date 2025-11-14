@@ -1,0 +1,382 @@
+{% extends "base.html" %}
+
+{% block title %}{{ tournament.name }} - Bracket{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="text-center mb-4">{{ tournament.name }} 🏆</h1>
+    
+    <div class="row mb-4">
+        <div class="col-12 text-center">
+            <span class="badge bg-{{ 'warning' if tournament.status == 'upcoming' else 'success' if tournament.status == 'active' else 'secondary' }}">
+                {{ tournament.status|upper }}
+            </span>
+        </div>
+    </div>
+
+    <!-- Simple 8-Bug Bracket -->
+    <div class="bracket-container">
+        <!-- Round 1: Quarterfinals -->
+        <div class="bracket-round">
+            <h4 class="text-center">Quarterfinals</h4>
+            
+            <!-- Match 1 -->
+            <div class="bracket-match" data-match-id="1">
+                <div class="bracket-bug winner" data-bug-id="1" onclick="showBugModal(1)">
+                    <img src="{{ url_for('static', filename='images/bug-placeholder.png') }}" alt="Bug 1">
+                    <div class="bug-info">
+                        <strong>Thunder Beetle</strong>
+                        <small>7W-2L</small>
+                    </div>
+                </div>
+                <div class="vs-divider">VS</div>
+                <div class="bracket-bug" data-bug-id="2" onclick="showBugModal(2)">
+                    <img src="{{ url_for('static', filename='images/bug-placeholder.png') }}" alt="Bug 2">
+                    <div class="bug-info">
+                        <strong>Shadow Mantis</strong>
+                        <small>5W-3L</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Match 2 -->
+            <div class="bracket-match" data-match-id="2">
+                <div class="bracket-bug" data-bug-id="3" onclick="showBugModal(3)">
+                    <img src="{{ url_for('static', filename='images/bug-placeholder.png') }}" alt="Bug 3">
+                    <div class="bug-info">
+                        <strong>Steel Ant</strong>
+                        <small>6W-2L</small>
+                    </div>
+                </div>
+                <div class="vs-divider">VS</div>
+                <div class="bracket-bug winner" data-bug-id="4" onclick="showBugModal(4)">
+                    <img src="{{ url_for('static', filename='images/bug-placeholder.png') }}" alt="Bug 4">
+                    <div class="bug-info">
+                        <strong>Flame Wasp</strong>
+                        <small>8W-1L</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Match 3 -->
+            <div class="bracket-match" data-match-id="3">
+                <div class="bracket-bug" data-bug-id="5" onclick="showBugModal(5)">
+                    <img src="{{ url_for('static', filename='images/bug-placeholder.png') }}" alt="Bug 5">
+                    <div class="bug-info">
+                        <strong>Ice Spider</strong>
+                        <small>4W-4L</small>
+                    </div>
+                </div>
+                <div class="vs-divider">VS</div>
+                <div class="bracket-bug winner" data-bug-id="6" onclick="showBugModal(6)">
+                    <img src="{{ url_for('static', filename='images/bug-placeholder.png') }}" alt="Bug 6">
+                    <div class="bug-info">
+                        <strong>Venom Scorpion</strong>
+                        <small>9W-0L</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Match 4 -->
+            <div class="bracket-match" data-match-id="4">
+                <div class="bracket-bug winner" data-bug-id="7" onclick="showBugModal(7)">
+                    <img src="{{ url_for('static', filename='images/bug-placeholder.png') }}" alt="Bug 7">
+                    <div class="bug-info">
+                        <strong>Rock Beetle</strong>
+                        <small>6W-3L</small>
+                    </div>
+                </div>
+                <div class="vs-divider">VS</div>
+                <div class="bracket-bug" data-bug-id="8" onclick="showBugModal(8)">
+                    <img src="{{ url_for('static', filename='images/bug-placeholder.png') }}" alt="Bug 8">
+                    <div class="bug-info">
+                        <strong>Lightning Moth</strong>
+                        <small>5W-4L</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Round 2: Semifinals -->
+        <div class="bracket-round">
+            <h4 class="text-center">Semifinals</h4>
+            
+            <!-- Semi 1 -->
+            <div class="bracket-match" data-match-id="5">
+                <div class="bracket-bug winner" data-bug-id="1">
+                    <div class="bug-info">
+                        <strong>Thunder Beetle</strong>
+                    </div>
+                </div>
+                <div class="vs-divider">VS</div>
+                <div class="bracket-bug" data-bug-id="4">
+                    <div class="bug-info">
+                        <strong>Flame Wasp</strong>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Semi 2 -->
+            <div class="bracket-match" data-match-id="6">
+                <div class="bracket-bug" data-bug-id="6">
+                    <div class="bug-info">
+                        <strong>Venom Scorpion</strong>
+                    </div>
+                </div>
+                <div class="vs-divider">VS</div>
+                <div class="bracket-bug winner" data-bug-id="7">
+                    <div class="bug-info">
+                        <strong>Rock Beetle</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Round 3: Finals -->
+        <div class="bracket-round bracket-finals">
+            <h4 class="text-center">FINALS</h4>
+            
+            <div class="bracket-match" data-match-id="7">
+                <div class="bracket-bug champion" data-bug-id="1">
+                    <img src="{{ url_for('static', filename='images/bug-placeholder.png') }}" alt="Champion">
+                    <div class="bug-info">
+                        <strong>Thunder Beetle</strong>
+                        <span class="badge bg-warning">🏆 CHAMPION</span>
+                    </div>
+                </div>
+                <div class="vs-divider">VS</div>
+                <div class="bracket-bug" data-bug-id="7">
+                    <img src="{{ url_for('static', filename='images/bug-placeholder.png') }}" alt="Runner-up">
+                    <div class="bug-info">
+                        <strong>Rock Beetle</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bug Info Modal -->
+<div class="modal fade" id="bugModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="bugModalTitle">Bug Name</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="bugModalBody">
+                <div class="row">
+                    <div class="col-md-4">
+                        <img id="bugModalImage" src="" class="img-fluid rounded" alt="Bug">
+                    </div>
+                    <div class="col-md-8">
+                        <h4 id="bugModalName"></h4>
+                        <p class="text-muted" id="bugModalSpecies"></p>
+                        
+                        <h5>Stats</h5>
+                        <div class="mb-2">
+                            <small>Attack</small>
+                            <div class="progress">
+                                <div class="progress-bar bg-danger" id="bugModalAttack"></div>
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <small>Defense</small>
+                            <div class="progress">
+                                <div class="progress-bar bg-primary" id="bugModalDefense"></div>
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <small>Speed</small>
+                            <div class="progress">
+                                <div class="progress-bar bg-success" id="bugModalSpeed"></div>
+                            </div>
+                        </div>
+
+                        <h5 class="mt-3">Record</h5>
+                        <p id="bugModalRecord"></p>
+
+                        <h5>Lore</h5>
+                        <div id="bugModalLore">
+                            <p class="text-muted">No lore yet...</p>
+                        </div>
+
+                        <a id="bugModalLink" href="#" class="btn btn-primary mt-3">View Full Profile</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Bracket Container */
+.bracket-container {
+    display: flex;
+    justify-content: space-around;
+    overflow-x: auto;
+    padding: 20px;
+    min-height: 600px;
+}
+
+/* Each Round Column */
+.bracket-round {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-around;
+    min-width: 250px;
+    padding: 0 20px;
+}
+
+/* Individual Match */
+.bracket-match {
+    background: white;
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 10px 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+.bracket-match:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* Bug Containers */
+.bracket-bug {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.bracket-bug:hover {
+    background-color: #f8f9fa;
+}
+
+.bracket-bug img {
+    width: 50px;
+    height: 50px;
+    object-fit: cover;
+    border-radius: 50%;
+    margin-right: 10px;
+}
+
+.bracket-bug.winner {
+    background-color: #d4edda;
+    border-left: 4px solid #28a745;
+}
+
+.bracket-bug.champion {
+    background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+    border: 2px solid #ffa500;
+}
+
+.bug-info {
+    flex: 1;
+}
+
+.bug-info strong {
+    display: block;
+    font-size: 1.1em;
+}
+
+.bug-info small {
+    color: #6c757d;
+}
+
+/* VS Divider */
+.vs-divider {
+    text-align: center;
+    font-weight: bold;
+    color: #dc3545;
+    margin: 5px 0;
+    padding: 5px 0;
+}
+
+/* Finals Styling */
+.bracket-finals .bracket-match {
+    border: 3px solid gold;
+    background: linear-gradient(to right, #fff9e6, #ffffff);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .bracket-container {
+        flex-direction: column;
+    }
+    
+    .bracket-round {
+        min-width: 100%;
+    }
+}
+
+/* Loading animation for battles in progress */
+.bracket-match.in-progress {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0.7); }
+    50% { box-shadow: 0 0 0 10px rgba(13, 110, 253, 0); }
+}
+</style>
+
+<script>
+// Bug data (in real app, this would come from backend)
+const bugData = {
+    1: {
+        name: 'Thunder Beetle',
+        species: 'Dynastes hercules',
+        image: '{{ url_for("static", filename="images/bug-placeholder.png") }}',
+        attack: 9,
+        defense: 7,
+        speed: 6,
+        wins: 8,
+        losses: 2,
+        lore: 'Born in the depths of a lightning storm, Thunder Beetle channels electricity through its horns.'
+    },
+    // Add more bugs...
+};
+
+function showBugModal(bugId) {
+    const bug = bugData[bugId];
+    if (!bug) return;
+
+    // Populate modal
+    document.getElementById('bugModalTitle').textContent = bug.name;
+    document.getElementById('bugModalName').textContent = bug.name;
+    document.getElementById('bugModalSpecies').textContent = bug.species;
+    document.getElementById('bugModalImage').src = bug.image;
+    document.getElementById('bugModalRecord').textContent = `${bug.wins}W - ${bug.losses}L (${(bug.wins/(bug.wins+bug.losses)*100).toFixed(1)}%)`;
+    
+    // Stats
+    document.getElementById('bugModalAttack').style.width = `${bug.attack * 10}%`;
+    document.getElementById('bugModalAttack').textContent = bug.attack;
+    document.getElementById('bugModalDefense').style.width = `${bug.defense * 10}%`;
+    document.getElementById('bugModalDefense').textContent = bug.defense;
+    document.getElementById('bugModalSpeed').style.width = `${bug.speed * 10}%`;
+    document.getElementById('bugModalSpeed').textContent = bug.speed;
+    
+    // Lore
+    document.getElementById('bugModalLore').innerHTML = `<p>${bug.lore}</p>`;
+    
+    // Link
+    document.getElementById('bugModalLink').href = `/bug/${bugId}`;
+
+    // Show modal
+    new bootstrap.Modal(document.getElementById('bugModal')).show();
+}
+
+// Mark matches in progress
+document.querySelectorAll('.bracket-match').forEach(match => {
+    // Add logic to mark ongoing battles
+});
+</script>
+{% endblock %}
+
+{% block content %}

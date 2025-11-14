@@ -4,51 +4,424 @@
 
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-md-8">
+    <div class="col-md-10">
         <h2>Submit Your Bug to the Arena 🐛</h2>
         <p class="text-muted">Found a cool bug? Submit it and watch it compete!</p>
         
         <div class="card">
             <div class="card-body">
-                <form method="POST" enctype="multipart/form-data">
-                    <div class="mb-3">
-                        <label for="name" class="form-label">Bug Name *</label>
-                        <input type="text" class="form-control" id="name" name="name" 
-                               placeholder="e.g., Thunder Beetle, Shadow Mantis" required>
-                        <small class="form-text text-muted">Give your bug a cool gladiator name!</small>
+                <form method="POST" enctype="multipart/form-data" id="bugSubmissionForm">
+                    
+                    <!-- Step 1: Basic Info -->
+                    <div class="submission-step" id="step1">
+                        <h4>Step 1: Basic Information</h4>
+                        
+                        <div class="mb-3">
+                            <label for="image" class="form-label">Bug Photo *</label>
+                            <input type="file" class="form-control" id="image" name="image" 
+                                   accept="image/*" required>
+                            <small class="form-text text-muted">Upload a clear photo (max 16MB)</small>
+                            <div id="imagePreview" class="mt-2"></div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="nickname" class="form-label">Nickname *</label>
+                            <input type="text" class="form-control" id="nickname" name="nickname" 
+                                   placeholder="e.g., Thunder Beetle, Shadow Mantis" required>
+                            <small class="form-text text-muted">Give your bug a cool gladiator name!</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="description" class="form-label">Story/Description</label>
+                            <textarea class="form-control" id="description" name="description" rows="3" 
+                                      placeholder="Where did you find it? What makes it special?"></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="location_found" class="form-label">Location Found</label>
+                            <input type="text" class="form-control" id="location_found" name="location_found"
+                                   placeholder="e.g., Central Park, NYC">
+                            <small class="form-text text-muted">Optional: Where did you capture this bug?</small>
+                        </div>
+
+                        <button type="button" class="btn btn-primary" onclick="goToStep(2)">
+                            Next: Species Identification →
+                        </button>
                     </div>
 
-                    <div class="mb-3">
-                        <label for="species" class="form-label">Species</label>
-                        <input type="text" class="form-control" id="species" name="species" 
-                               placeholder="e.g., Beetle, Ant, Grasshopper">
-                        <small class="form-text text-muted">Optional: What type of bug is it?</small>
+                    <!-- Step 2: Species Identification -->
+                    <div class="submission-step d-none" id="step2">
+                        <h4>Step 2: Species Identification</h4>
+                        <p class="text-muted">Help us identify your bug scientifically</p>
+
+                        <div class="mb-3">
+                            <label for="speciesSearch" class="form-label">Search Species</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="speciesSearch" 
+                                       placeholder="Search by common or scientific name...">
+                                <button class="btn btn-outline-secondary" type="button" onclick="searchSpecies()">
+                                    🔍 Search
+                                </button>
+                            </div>
+                            <small class="text-muted">Try: "beetle", "ant", or scientific names like "Dynastes hercules"</small>
+                        </div>
+
+                        <div id="speciesResults" class="mb-3"></div>
+
+                        <input type="hidden" id="species_id" name="species_id">
+                        <input type="hidden" id="scientific_name" name="scientific_name">
+                        <input type="hidden" id="common_name" name="common_name">
+
+                        <div class="alert alert-info">
+                            <strong>Not sure?</strong> You can skip this step and identify it later. 
+                            Stats will be randomly generated.
+                        </div>
+
+                        <div class="btn-group w-100">
+                            <button type="button" class="btn btn-secondary" onclick="goToStep(1)">
+                                ← Back
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" onclick="skipSpecies()">
+                                Skip Species ID
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="goToStep(3)">
+                                Next: Customize →
+                            </button>
+                        </div>
                     </div>
 
-                    <div class="mb-3">
-                        <label for="description" class="form-label">Description</label>
-                        <textarea class="form-control" id="description" name="description" rows="3" 
-                                  placeholder="Where did you find it? What makes it special?"></textarea>
+                    <!-- Step 3: Customization -->
+                    <div class="submission-step d-none" id="step3">
+                        <h4>Step 3: Customization (Optional)</h4>
+
+                        <div class="mb-3">
+                            <label class="form-label">Flair/Title</label>
+                            <select class="form-select" id="flair" name="flair">
+                                <option value="">No flair (auto-assigned later)</option>
+                                <option value="🌟 Rising Star">🌟 Rising Star</option>
+                                <option value="⚡ Quick Striker">⚡ Quick Striker</option>
+                                <option value="🛡️ Defender">🛡️ Defender</option>
+                                <option value="🔥 Fierce">🔥 Fierce</option>
+                                <option value="💎 Rare Find">💎 Rare Find</option>
+                                <option value="🎯 Hunter">🎯 Hunter</option>
+                                <option value="👑 Noble">👑 Noble</option>
+                            </select>
+                            <small class="text-muted">This can be changed later based on performance</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Stats Generation</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="stats_method" 
+                                       id="stats_auto" value="auto" checked>
+                                <label class="form-check-label" for="stats_auto">
+                                    Auto-generate (based on species if identified)
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="stats_method" 
+                                       id="stats_manual" value="manual">
+                                <label class="form-check-label" for="stats_manual">
+                                    Manual entry (for advanced users)
+                                </label>
+                            </div>
+                        </div>
+
+                        <div id="manualStatsDiv" class="d-none">
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <label for="manual_attack" class="form-label">Attack (1-10)</label>
+                                    <input type="number" class="form-control" id="manual_attack" 
+                                           name="manual_attack" min="1" max="10" value="5">
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="manual_defense" class="form-label">Defense (1-10)</label>
+                                    <input type="number" class="form-control" id="manual_defense" 
+                                           name="manual_defense" min="1" max="10" value="5">
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="manual_speed" class="form-label">Speed (1-10)</label>
+                                    <input type="number" class="form-control" id="manual_speed" 
+                                           name="manual_speed" min="1" max="10" value="5">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="btn-group w-100 mt-3">
+                            <button type="button" class="btn btn-secondary" onclick="goToStep(2)">
+                                ← Back
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="goToStep(4)">
+                                Review →
+                            </button>
+                        </div>
                     </div>
 
-                    <div class="mb-3">
-                        <label for="image" class="form-label">Bug Photo *</label>
-                        <input type="file" class="form-control" id="image" name="image" 
-                               accept="image/*" required>
-                        <small class="form-text text-muted">Upload a clear photo of your bug (max 16MB)</small>
-                    </div>
+                    <!-- Step 4: Review & Submit -->
+                    <div class="submission-step d-none" id="step4">
+                        <h4>Step 4: Review & Submit</h4>
+                        
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h5>Your Bug Summary</h5>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div id="finalImagePreview"></div>
+                                    </div>
+                                    <div class="col-md-8">
+                                        <p><strong>Nickname:</strong> <span id="review_nickname"></span></p>
+                                        <p><strong>Common Name:</strong> <span id="review_common_name"></span></p>
+                                        <p><strong>Scientific Name:</strong> <span id="review_scientific_name"></span></p>
+                                        <p><strong>Flair:</strong> <span id="review_flair"></span></p>
+                                        <p><strong>Location:</strong> <span id="review_location"></span></p>
+                                        <p><strong>Stats:</strong> <span id="review_stats"></span></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
 
-                    <div class="alert alert-info">
-                        <strong>Note:</strong> Your bug will be assigned stats for battles. 
-                        The Arena Master will generate epic battle narratives based on its characteristics!
-                    </div>
+                        <div class="alert alert-success">
+                            <strong>Ready to submit!</strong> Your bug will enter the arena and be ready for battles.
+                        </div>
 
-                    <button type="submit" class="btn btn-primary btn-lg w-100">
-                        Submit to Arena
-                    </button>
+                        <div class="btn-group w-100">
+                            <button type="button" class="btn btn-secondary" onclick="goToStep(3)">
+                                ← Back
+                            </button>
+                            <button type="submit" class="btn btn-success btn-lg">
+                                ✅ Submit to Arena!
+                            </button>
+                        </div>
+                    </div>
                 </form>
             </div>
         </div>
     </div>
 </div>
+
+<style>
+.submission-step {
+    padding: 20px 0;
+}
+
+#imagePreview img, #finalImagePreview img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.species-result {
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 10px 0;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.species-result:hover {
+    border-color: #667eea;
+    background: #f8f9fa;
+    transform: translateX(5px);
+}
+
+.species-result.selected {
+    border-color: #28a745;
+    background: #d4edda;
+}
+
+.species-result h6 {
+    margin: 0;
+    color: #2c3e50;
+}
+
+.species-result .scientific-name {
+    font-style: italic;
+    color: #6c757d;
+}
+
+.species-result .taxonomy {
+    font-size: 0.9em;
+    color: #6c757d;
+    margin-top: 5px;
+}
+</style>
+
+<script>
+let currentStep = 1;
+let selectedSpecies = null;
+
+// Image preview
+document.getElementById('image').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            document.getElementById('imagePreview').innerHTML = 
+                `<img src="${e.target.result}" alt="Preview">`;
+            document.getElementById('finalImagePreview').innerHTML = 
+                `<img src="${e.target.result}" alt="Preview">`;
+        };
+        reader.readAsDataURL(file);
+    }
+});
+
+// Stats method toggle
+document.querySelectorAll('input[name="stats_method"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        if (this.value === 'manual') {
+            document.getElementById('manualStatsDiv').classList.remove('d-none');
+        } else {
+            document.getElementById('manualStatsDiv').classList.add('d-none');
+        }
+    });
+});
+
+function goToStep(step) {
+    // Validation before moving forward
+    if (step > currentStep) {
+        if (currentStep === 1 && !validateStep1()) {
+            return;
+        }
+    }
+
+    // Hide current step
+    document.getElementById(`step${currentStep}`).classList.add('d-none');
+    
+    // Show new step
+    document.getElementById(`step${step}`).classList.remove('d-none');
+    
+    currentStep = step;
+
+    // Update review if going to step 4
+    if (step === 4) {
+        updateReview();
+    }
+
+    // Scroll to top
+    window.scrollTo(0, 0);
+}
+
+function validateStep1() {
+    const nickname = document.getElementById('nickname').value;
+    const image = document.getElementById('image').files[0];
+    
+    if (!nickname || !image) {
+        alert('Please provide a nickname and image');
+        return false;
+    }
+    return true;
+}
+
+function searchSpecies() {
+    const query = document.getElementById('speciesSearch').value;
+    if (!query) {
+        alert('Please enter a search term');
+        return;
+    }
+
+    // Show loading
+    document.getElementById('speciesResults').innerHTML = 
+        '<div class="text-center"><div class="spinner-border" role="status"></div></div>';
+
+    // Call API
+    fetch(`/api/species/search?q=${encodeURIComponent(query)}`)
+        .then(response => response.json())
+        .then(data => {
+            displaySpeciesResults(data);
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('speciesResults').innerHTML = 
+                '<div class="alert alert-danger">Error searching species. Please try again.</div>';
+        });
+}
+
+function displaySpeciesResults(results) {
+    const container = document.getElementById('speciesResults');
+    
+    if (!results || results.length === 0) {
+        container.innerHTML = '<div class="alert alert-info">No results found. Try a different search term.</div>';
+        return;
+    }
+
+    let html = '<div class="species-results-list">';
+    
+    results.forEach(species => {
+        html += `
+            <div class="species-result" onclick="selectSpecies(${JSON.stringify(species).replace(/"/g, '&quot;')})">
+                <h6>${species.common_name || species.scientific_name}</h6>
+                <div class="scientific-name">${species.scientific_name}</div>
+                <div class="taxonomy">${species.order || ''} ${species.family || ''}</div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function selectSpecies(species) {
+    selectedSpecies = species;
+    
+    // Highlight selected
+    document.querySelectorAll('.species-result').forEach(el => {
+        el.classList.remove('selected');
+    });
+    event.target.closest('.species-result').classList.add('selected');
+    
+    // Fill hidden fields
+    document.getElementById('species_id').value = species.id || '';
+    document.getElementById('scientific_name').value = species.scientific_name;
+    document.getElementById('common_name').value = species.common_name || '';
+    
+    console.log('Selected species:', species);
+}
+
+function skipSpecies() {
+    selectedSpecies = null;
+    document.getElementById('species_id').value = '';
+    document.getElementById('scientific_name').value = '';
+    document.getElementById('common_name').value = '';
+    goToStep(3);
+}
+
+function updateReview() {
+    document.getElementById('review_nickname').textContent = 
+        document.getElementById('nickname').value;
+    
+    document.getElementById('review_common_name').textContent = 
+        document.getElementById('common_name').value || 'Not identified';
+    
+    document.getElementById('review_scientific_name').textContent = 
+        document.getElementById('scientific_name').value || 'Not identified';
+    
+    document.getElementById('review_flair').textContent = 
+        document.getElementById('flair').value || 'Will be auto-assigned';
+    
+    document.getElementById('review_location').textContent = 
+        document.getElementById('location_found').value || 'Unknown';
+    
+    const statsMethod = document.querySelector('input[name="stats_method"]:checked').value;
+    if (statsMethod === 'manual') {
+        const attack = document.getElementById('manual_attack').value;
+        const defense = document.getElementById('manual_defense').value;
+        const speed = document.getElementById('manual_speed').value;
+        document.getElementById('review_stats').textContent = 
+            `Attack: ${attack}, Defense: ${defense}, Speed: ${speed}`;
+    } else {
+        document.getElementById('review_stats').textContent = 
+            'Will be auto-generated';
+    }
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && e.target.id === 'speciesSearch') {
+        e.preventDefault();
+        searchSpecies();
+    }
+});
+</script>
 {% endblock %}

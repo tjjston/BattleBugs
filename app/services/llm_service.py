@@ -54,9 +54,6 @@ def generate_battle_narrative(
     try:
         anthropic_key = current_app.config.get("ANTHROPIC_API_KEY")
         if anthropic_key:
-            # Defer to installed Anthropic client if available. This is a best-effort
-            # call; if the client's API differs it will raise and fall back to the
-            # local generator below.
             from anthropic import Anthropic
 
             client = Anthropic(api_key=anthropic_key)
@@ -80,7 +77,6 @@ def generate_battle_narrative(
     except Exception as e:
         logger.debug("Anthropic LLM call failed or not available: %s", e)
 
-    # If no LLM is available or the call failed, return a deterministic fallback narrative
     return generate_fallback_narrative(bug1, bug2, winner, matchup_notes, tournament_id, round_number)
 
 
@@ -88,7 +84,10 @@ def generate_fallback_narrative(bug1: Bug, bug2: Bug, winner: Bug):
     """
     Generate a simple fallback narrative if LLM is unavailable.
     """
-    return f"""🏟️ THE BATTLE BEGINS
+    return f"""
+    
+    
+    THE BATTLE BEGINS
 
 Round 1: {bug1.name} and {bug2.name} enter the arena, circling each other cautiously. 
 The crowd roars as both competitors assess their opponent's strengths.

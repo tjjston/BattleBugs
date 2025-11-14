@@ -1,8 +1,12 @@
-# 🐛 Bug Arena - Insect Gladiator Tournament
+<<<<<<< HEAD
+# Bug Arena - Insect Gladiator Tournament
+=======
+# Battle Bugs - Insect Gladiator Tournament
+>>>>>>> b789971ec30c132a48e592b3c689571718d8b4e0
 
 Welcome to Bug Arena! A web application where you and your friends can submit bugs you find in the wild and watch them battle in AI-generated gladiator matches.
 
-## 🎯 Features
+## Features
 
 - **Bug Submission**: Upload photos of bugs you find with custom names
 - **AI Battle Narratives**: Watch epic battles powered by Claude AI
@@ -11,7 +15,7 @@ Welcome to Bug Arena! A web application where you and your friends can submit bu
 - **Community Features**: Add lore, comment on bugs, upvote favorites
 - **User Profiles**: Track your bug collection and stats
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -65,11 +69,7 @@ Get an Anthropic API key at: https://console.anthropic.com/
 python run.py
 ```
 
-Visit `http://localhost:5000` in your browser!
-
-## 🐳 Docker Deployment (Recommended for Server)
-
-Perfect for deploying on your home server!
+Visit `http://localhost:5000` in your browser
 
 1. **Build and start the container**
 
@@ -93,7 +93,7 @@ docker-compose logs -f
 docker-compose down
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 bug-arena/
@@ -113,7 +113,7 @@ bug-arena/
 └── docker-compose.yml   # Docker Compose setup
 ```
 
-## 🎮 Usage Guide
+## Usage Guide
 
 ### Submitting Your First Bug
 
@@ -139,7 +139,7 @@ bug-arena/
 4. Start the tournament when ready
 5. Battles will be generated automatically
 
-## 🔧 Configuration
+## Configuration
 
 Edit `config.py` or set environment variables:
 
@@ -148,7 +148,7 @@ Edit `config.py` or set environment variables:
 - `DATABASE_URL`: Database connection (default: SQLite)
 - `MAX_CONTENT_LENGTH`: Max upload size (default: 16MB)
 
-## 📊 Database Schema
+## Database Schema
 
 - **User**: username, email, password
 - **Bug**: name, species, image, stats (attack, defense, speed)
@@ -157,7 +157,7 @@ Edit `config.py` or set environment variables:
 - **Comment**: user comments on bugs
 - **BugLore**: community-created lore
 
-## 🎨 Customization
+## Customization
 
 ### Changing Stats Calculation
 
@@ -181,7 +181,7 @@ def generate_battle_narrative(bug1, bug2, winner):
 2. Add templates in `app/templates/`
 3. Update models in `app/models.py` if needed
 
-## 🛠️ Development Tips
+## Development Tips
 
 ### Running Tests
 
@@ -205,7 +205,7 @@ python -c "from app import create_app, db; app = create_app(); app.app_context()
 cp database/bug_arena.db database/bug_arena_backup.db
 ```
 
-## 🚀 Deployment to Home Server
+## Deployment to Home Server
 
 ### Port Forwarding (Optional - for friends outside your network)
 
@@ -220,7 +220,7 @@ cp database/bug_arena.db database/bug_arena_backup.db
 - Limit to friends only (don't expose to internet without security)
 - Regular backups of database and uploads
 
-## 📝 Future Ideas
+## Future Ideas
 
 - [ ] Email notifications for tournaments
 - [ ] More complex tournament brackets
@@ -232,7 +232,7 @@ cp database/bug_arena.db database/bug_arena_backup.db
 - [ ] Bug power-ups and abilities
 - [ ] Team battles (2v2, 3v3)
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 **Issue**: Images not displaying
 - Check that `uploads/` directory exists
@@ -249,11 +249,11 @@ cp database/bug_arena.db database/bug_arena_backup.db
 **Issue**: Port 5000 already in use
 - Change port in `run.py` and `docker-compose.yml`
 
-## 📄 License
+## License
 
 This project is for personal/educational use. Have fun!
 
-## 🤝 Contributing
+## Contributing
 
 This is a personal project for you and your friends! Feel free to:
 - Add new features
@@ -267,4 +267,6 @@ This is a personal project for you and your friends! Feel free to:
 
 ---
 
-**Happy Bug Hunting! 🐛⚔️🏆**
+
+=======
+

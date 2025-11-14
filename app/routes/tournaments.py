@@ -52,6 +52,31 @@ def create_tournament():
     
     return render_template('tournament_create.html')
 
+def generate_tournament_bracket(tournament: Tournament):
+    """Generate initial bracket for the tournament."""
+    bugs = Bug.query.all()
+    random.shuffle(bugs)
+    
+    # Pair bugs for first round battles
+    battles = []
+    round_number = 1
+    for i in range(0, len(bugs), 2):
+        if i + 1 < len(bugs):
+            battle = Battle(
+                bug1_id=bugs[i].id,
+                bug2_id=bugs[i+1].id,
+                tournament_id=tournament.id,
+                round_number=round_number,
+                battle_date=None  # To be scheduled later
+            )
+            battles.append(battle)
+            db.session.add(battle)
+    
+    db.session.commit()
+    return battles
+
+
+
 @bp.route('/tournament/<int:tournament_id>/start', methods=['POST'])
 @login_required
 def start_tournament(tournament_id):
