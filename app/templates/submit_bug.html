@@ -5,54 +5,140 @@
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-10">
-        <h2>Submit Your Bug to the Arena 🐛</h2>
-        <p class="text-muted">Found a cool bug? Submit it and watch it compete!</p>
+        <h2>Submit Your Gladiator to the Arena </h2>
+        <p class="text-muted">Found a warrior bug? Submit it and give it a legendary backstory!</p>
         
         <div class="card">
             <div class="card-body">
                 <form method="POST" enctype="multipart/form-data" id="bugSubmissionForm">
                     
-                    <!-- Step 1: Basic Info -->
+                    <!-- Step 1: Basic Info + Photo -->
                     <div class="submission-step" id="step1">
-                        <h4>Step 1: Basic Information</h4>
+                        <h4>Step 1: The Warrior</h4>
                         
                         <div class="mb-3">
                             <label for="image" class="form-label">Bug Photo *</label>
                             <input type="file" class="form-control" id="image" name="image" 
                                    accept="image/*" required>
-                            <small class="form-text text-muted">Upload a clear photo (max 16MB)</small>
+                            <small class="form-text text-muted">
+                                Upload a clear photo. Our mystic sage will analyze it
+                            </small>
                             <div id="imagePreview" class="mt-2"></div>
                         </div>
 
                         <div class="mb-3">
-                            <label for="nickname" class="form-label">Nickname *</label>
+                            <label for="nickname" class="form-label">Gladiator Name *</label>
                             <input type="text" class="form-control" id="nickname" name="nickname" 
-                                   placeholder="e.g., Thunder Beetle, Shadow Mantis" required>
-                            <small class="form-text text-muted">Give your bug a cool gladiator name!</small>
+                                   placeholder="e.g., Thunder Beetle, Shadow Mantis, The Crimson Reaper" required>
+                            <small class="form-text text-muted">Give your warrior its fight name!</small>
                         </div>
 
                         <div class="mb-3">
-                            <label for="description" class="form-label">Story/Description</label>
-                            <textarea class="form-control" id="description" name="description" rows="3" 
-                                      placeholder="Where did you find it? What makes it special?"></textarea>
+                            <label for="description" class="form-label">Discovery Story</label>
+                            <textarea class="form-control" id="description" name="description" rows="2" 
+                                      placeholder="Where did you find this legendary warrior?"></textarea>
                         </div>
 
                         <div class="mb-3">
                             <label for="location_found" class="form-label">Location Found</label>
                             <input type="text" class="form-control" id="location_found" name="location_found"
-                                   placeholder="e.g., Central Park, NYC">
-                            <small class="form-text text-muted">Optional: Where did you capture this bug?</small>
+                                   placeholder="e.g., Ancient Oak Tree, Mystic Garden">
                         </div>
 
                         <button type="button" class="btn btn-primary" onclick="goToStep(2)">
-                            Next: Species Identification →
+                            Next: Forge Their Legend →
                         </button>
                     </div>
 
-                    <!-- Step 2: Species Identification -->
+                    <!-- Step 2: User Lore (The Fun Part!) -->
                     <div class="submission-step d-none" id="step2">
-                        <h4>Step 2: Species Identification</h4>
-                        <p class="text-muted">Help us identify your bug scientifically</p>
+                        <h4>Step 2: Forge Their Legend 📜</h4>
+                        <p class="text-muted">
+                            Create your bug's backstory! This will influence battle narratives and make them unique.
+                            <strong>Optional but highly recommended!</strong>
+                        </p>
+
+                        <div class="alert alert-info">
+                            <strong>Tip:</strong> The more detailed the lore, the more epic the battle stories!
+                            This is your chance to create a legendary gladiator.
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="lore_background" class="form-label">Background & Origins</label>
+                            <textarea class="form-control" id="lore_background" name="lore_background" rows="2" 
+                                      placeholder="Where did they come from? What's their history?&#10;Example: 'Born in the shadow of the Great Oak, trained by ancient mantis monks'"></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="lore_motivation" class="form-label">Why They Fight</label>
+                            <textarea class="form-control" id="lore_motivation" name="lore_motivation" rows="2" 
+                                      placeholder="What drives them to battle?&#10;Example: 'Seeks vengeance for the destruction of their colony'"></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="lore_personality" class="form-label">Personality & Fighting Style</label>
+                            <textarea class="form-control" id="lore_personality" name="lore_personality" rows="2" 
+                                      placeholder="What are they like? How do they fight?&#10;Example: 'Calm and calculated, strikes with precision. Never shows mercy.'"></textarea>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="lore_interests" class="form-label">Interests & Hobbies</label>
+                                    <input type="text" class="form-control" id="lore_interests" name="lore_interests"
+                                           placeholder="e.g., Collecting dewdrops, meditation">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="lore_religion" class="form-label">Religion/Beliefs</label>
+                                    <input type="text" class="form-control" id="lore_religion" name="lore_religion"
+                                           placeholder="e.g., Worships the Sun God, atheist">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="lore_fears" class="form-label">Fears & Weaknesses</label>
+                                    <input type="text" class="form-control" id="lore_fears" name="lore_fears"
+                                           placeholder="e.g., Water, darkness, betrayal">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="lore_allies" class="form-label">Allies & Friends</label>
+                                    <input type="text" class="form-control" id="lore_allies" name="lore_allies"
+                                           placeholder="e.g., The Ant Legion, Wise Spider">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="lore_rivals" class="form-label">Rivals & Enemies</label>
+                            <input type="text" class="form-control" id="lore_rivals" name="lore_rivals"
+                                   placeholder="e.g., The Wasp Empire, their dark counterpart">
+                        </div>
+
+
+                        <div class="btn-group w-100">
+                            <button type="button" class="btn btn-secondary" onclick="goToStep(1)">
+                                ← Back
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" onclick="skipLore()">
+                                Skip Lore
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="goToStep(3)">
+                                Next: Species ID →
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Species Identification -->
+                    <div class="submission-step d-none" id="step3">
+                        <h4>Step 3: Species Identification (Optional)</h4>
+                        <p class="text-muted">Help identify the species for accurate stats</p>
 
                         <div class="mb-3">
                             <label for="speciesSearch" class="form-label">Search Species</label>
@@ -63,7 +149,7 @@
                                     🔍 Search
                                 </button>
                             </div>
-                            <small class="text-muted">Try: "beetle", "ant", or scientific names like "Dynastes hercules"</small>
+                            <small class="text-muted">Try: "beetle", "mantis", "hornet"</small>
                         </div>
 
                         <div id="speciesResults" class="mb-3"></div>
@@ -73,83 +159,15 @@
                         <input type="hidden" id="common_name" name="common_name">
 
                         <div class="alert alert-info">
-                            <strong>Not sure?</strong> You can skip this step and identify it later. 
-                            Stats will be randomly generated.
+                            <strong>Not sure?</strong> You can skip this. Stats will be auto-generated!
                         </div>
 
                         <div class="btn-group w-100">
-                            <button type="button" class="btn btn-secondary" onclick="goToStep(1)">
+                            <button type="button" class="btn btn-secondary" onclick="goToStep(2)">
                                 ← Back
                             </button>
                             <button type="button" class="btn btn-outline-secondary" onclick="skipSpecies()">
-                                Skip Species ID
-                            </button>
-                            <button type="button" class="btn btn-primary" onclick="goToStep(3)">
-                                Next: Customize →
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Step 3: Customization -->
-                    <div class="submission-step d-none" id="step3">
-                        <h4>Step 3: Customization (Optional)</h4>
-
-                        <div class="mb-3">
-                            <label class="form-label">Flair/Title</label>
-                            <select class="form-select" id="flair" name="flair">
-                                <option value="">No flair (auto-assigned later)</option>
-                                <option value="🌟 Rising Star">🌟 Rising Star</option>
-                                <option value="⚡ Quick Striker">⚡ Quick Striker</option>
-                                <option value="🛡️ Defender">🛡️ Defender</option>
-                                <option value="🔥 Fierce">🔥 Fierce</option>
-                                <option value="💎 Rare Find">💎 Rare Find</option>
-                                <option value="🎯 Hunter">🎯 Hunter</option>
-                                <option value="👑 Noble">👑 Noble</option>
-                            </select>
-                            <small class="text-muted">This can be changed later based on performance</small>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label">Stats Generation</label>
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="stats_method" 
-                                       id="stats_auto" value="auto" checked>
-                                <label class="form-check-label" for="stats_auto">
-                                    Auto-generate (based on species if identified)
-                                </label>
-                            </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="stats_method" 
-                                       id="stats_manual" value="manual">
-                                <label class="form-check-label" for="stats_manual">
-                                    Manual entry (for advanced users)
-                                </label>
-                            </div>
-                        </div>
-
-                        <div id="manualStatsDiv" class="d-none">
-                            <div class="row">
-                                <div class="col-md-4">
-                                    <label for="manual_attack" class="form-label">Attack (1-10)</label>
-                                    <input type="number" class="form-control" id="manual_attack" 
-                                           name="manual_attack" min="1" max="10" value="5">
-                                </div>
-                                <div class="col-md-4">
-                                    <label for="manual_defense" class="form-label">Defense (1-10)</label>
-                                    <input type="number" class="form-control" id="manual_defense" 
-                                           name="manual_defense" min="1" max="10" value="5">
-                                </div>
-                                <div class="col-md-4">
-                                    <label for="manual_speed" class="form-label">Speed (1-10)</label>
-                                    <input type="number" class="form-control" id="manual_speed" 
-                                           name="manual_speed" min="1" max="10" value="5">
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="btn-group w-100 mt-3">
-                            <button type="button" class="btn btn-secondary" onclick="goToStep(2)">
-                                ← Back
+                                Skip Species
                             </button>
                             <button type="button" class="btn btn-primary" onclick="goToStep(4)">
                                 Review →
@@ -159,29 +177,28 @@
 
                     <!-- Step 4: Review & Submit -->
                     <div class="submission-step d-none" id="step4">
-                        <h4>Step 4: Review & Submit</h4>
+                        <h4>Step 4: Review Your Gladiator</h4>
                         
                         <div class="card mb-3">
                             <div class="card-body">
-                                <h5>Your Bug Summary</h5>
                                 <div class="row">
                                     <div class="col-md-4">
                                         <div id="finalImagePreview"></div>
                                     </div>
                                     <div class="col-md-8">
-                                        <p><strong>Nickname:</strong> <span id="review_nickname"></span></p>
-                                        <p><strong>Common Name:</strong> <span id="review_common_name"></span></p>
-                                        <p><strong>Scientific Name:</strong> <span id="review_scientific_name"></span></p>
-                                        <p><strong>Flair:</strong> <span id="review_flair"></span></p>
-                                        <p><strong>Location:</strong> <span id="review_location"></span></p>
-                                        <p><strong>Stats:</strong> <span id="review_stats"></span></p>
+                                        <h3 id="review_nickname"></h3>
+                                        <p class="text-muted" id="review_species"></p>
+                                        
+                                        <h5>Lore Summary</h5>
+                                        <div id="review_lore" class="small"></div>
+                                        
+                                        <div class="alert alert-success mt-3">
+                                            <strong>Ready for the Arena!</strong><br>
+                                            Your bug will receive auto-generated stats based on species + secret visual analysis.
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-
-                        <div class="alert alert-success">
-                            <strong>Ready to submit!</strong> Your bug will enter the arena and be ready for battles.
                         </div>
 
                         <div class="btn-group w-100">
@@ -189,7 +206,7 @@
                                 ← Back
                             </button>
                             <button type="submit" class="btn btn-success btn-lg">
-                                ✅ Submit to Arena!
+                                ENTER THE ARENA AND BRING HONOR TO YOUR FAMILY!
                             </button>
                         </div>
                     </div>
@@ -202,6 +219,7 @@
 <style>
 .submission-step {
     padding: 20px 0;
+    min-height: 400px;
 }
 
 #imagePreview img, #finalImagePreview img {
@@ -230,22 +248,6 @@
     border-color: #28a745;
     background: #d4edda;
 }
-
-.species-result h6 {
-    margin: 0;
-    color: #2c3e50;
-}
-
-.species-result .scientific-name {
-    font-style: italic;
-    color: #6c757d;
-}
-
-.species-result .taxonomy {
-    font-size: 0.9em;
-    color: #6c757d;
-    margin-top: 5px;
-}
 </style>
 
 <script>
@@ -258,48 +260,33 @@ document.getElementById('image').addEventListener('change', function(e) {
     if (file) {
         const reader = new FileReader();
         reader.onload = function(e) {
-            document.getElementById('imagePreview').innerHTML = 
-                `<img src="${e.target.result}" alt="Preview">`;
-            document.getElementById('finalImagePreview').innerHTML = 
-                `<img src="${e.target.result}" alt="Preview">`;
+            const imgHTML = `<img src="${e.target.result}" alt="Preview">`;
+            document.getElementById('imagePreview').innerHTML = imgHTML;
+            document.getElementById('finalImagePreview').innerHTML = imgHTML;
         };
         reader.readAsDataURL(file);
     }
 });
 
-// Stats method toggle
-document.querySelectorAll('input[name="stats_method"]').forEach(radio => {
-    radio.addEventListener('change', function() {
-        if (this.value === 'manual') {
-            document.getElementById('manualStatsDiv').classList.remove('d-none');
-        } else {
-            document.getElementById('manualStatsDiv').classList.add('d-none');
-        }
-    });
-});
-
 function goToStep(step) {
-    // Validation before moving forward
+    // Validation
     if (step > currentStep) {
         if (currentStep === 1 && !validateStep1()) {
             return;
         }
     }
 
-    // Hide current step
+    // Hide current, show new
     document.getElementById(`step${currentStep}`).classList.add('d-none');
-    
-    // Show new step
     document.getElementById(`step${step}`).classList.remove('d-none');
     
     currentStep = step;
 
-    // Update review if going to step 4
+    // Update review
     if (step === 4) {
         updateReview();
     }
 
-    // Scroll to top
     window.scrollTo(0, 0);
 }
 
@@ -308,10 +295,18 @@ function validateStep1() {
     const image = document.getElementById('image').files[0];
     
     if (!nickname || !image) {
-        alert('Please provide a nickname and image');
+        alert('Please provide a name and image for your gladiator!');
         return false;
     }
     return true;
+}
+
+function skipLore() {
+    goToStep(3);
+}
+
+function skipSpecies() {
+    goToStep(4);
 }
 
 function searchSpecies() {
@@ -321,11 +316,9 @@ function searchSpecies() {
         return;
     }
 
-    // Show loading
     document.getElementById('speciesResults').innerHTML = 
         '<div class="text-center"><div class="spinner-border" role="status"></div></div>';
 
-    // Call API
     fetch(`/api/species/search?q=${encodeURIComponent(query)}`)
         .then(response => response.json())
         .then(data => {
@@ -334,7 +327,7 @@ function searchSpecies() {
         .catch(error => {
             console.error('Error:', error);
             document.getElementById('speciesResults').innerHTML = 
-                '<div class="alert alert-danger">Error searching species. Please try again.</div>';
+                '<div class="alert alert-danger">Error searching. Please try again.</div>';
         });
 }
 
@@ -342,22 +335,20 @@ function displaySpeciesResults(results) {
     const container = document.getElementById('speciesResults');
     
     if (!results || results.length === 0) {
-        container.innerHTML = '<div class="alert alert-info">No results found. Try a different search term.</div>';
+        container.innerHTML = '<div class="alert alert-info">No results found.</div>';
         return;
     }
 
     let html = '<div class="species-results-list">';
-    
     results.forEach(species => {
         html += `
-            <div class="species-result" onclick="selectSpecies(${JSON.stringify(species).replace(/"/g, '&quot;')})">
+            <div class="species-result" onclick='selectSpecies(${JSON.stringify(species).replace(/'/g, "&apos;")})'>
                 <h6>${species.common_name || species.scientific_name}</h6>
-                <div class="scientific-name">${species.scientific_name}</div>
-                <div class="taxonomy">${species.order || ''} ${species.family || ''}</div>
+                <div style="font-style:italic;color:#6c757d">${species.scientific_name}</div>
+                <div style="font-size:0.9em;color:#6c757d">${species.order || ''} ${species.family || ''}</div>
             </div>
         `;
     });
-    
     html += '</div>';
     container.innerHTML = html;
 }
@@ -365,63 +356,50 @@ function displaySpeciesResults(results) {
 function selectSpecies(species) {
     selectedSpecies = species;
     
-    // Highlight selected
     document.querySelectorAll('.species-result').forEach(el => {
         el.classList.remove('selected');
     });
     event.target.closest('.species-result').classList.add('selected');
     
-    // Fill hidden fields
     document.getElementById('species_id').value = species.id || '';
     document.getElementById('scientific_name').value = species.scientific_name;
     document.getElementById('common_name').value = species.common_name || '';
-    
-    console.log('Selected species:', species);
-}
-
-function skipSpecies() {
-    selectedSpecies = null;
-    document.getElementById('species_id').value = '';
-    document.getElementById('scientific_name').value = '';
-    document.getElementById('common_name').value = '';
-    goToStep(3);
 }
 
 function updateReview() {
-    document.getElementById('review_nickname').textContent = 
-        document.getElementById('nickname').value;
+    const nickname = document.getElementById('nickname').value;
+    const commonName = document.getElementById('common_name').value;
+    const scientificName = document.getElementById('scientific_name').value;
     
-    document.getElementById('review_common_name').textContent = 
-        document.getElementById('common_name').value || 'Not identified';
+    document.getElementById('review_nickname').textContent = nickname;
+    document.getElementById('review_species').textContent = 
+        commonName || scientificName || 'Species Unknown';
     
-    document.getElementById('review_scientific_name').textContent = 
-        document.getElementById('scientific_name').value || 'Not identified';
+    // Build lore summary
+    let loreSummary = '';
+    const loreFields = [
+        {id: 'lore_background', label: 'Background'},
+        {id: 'lore_motivation', label: 'Motivation'},
+        {id: 'lore_personality', label: 'Personality'},
+        {id: 'lore_interests', label: 'Interests'},
+        {id: 'lore_religion', label: 'Beliefs'},
+        {id: 'lore_fears', label: 'Fears'},
+        {id: 'lore_allies', label: 'Allies'},
+        {id: 'lore_rivals', label: 'Rivals'}
+    ];
     
-    document.getElementById('review_flair').textContent = 
-        document.getElementById('flair').value || 'Will be auto-assigned';
+    loreFields.forEach(field => {
+        const value = document.getElementById(field.id).value;
+        if (value) {
+            loreSummary += `<strong>${field.label}:</strong> ${value}<br>`;
+        }
+    });
     
-    document.getElementById('review_location').textContent = 
-        document.getElementById('location_found').value || 'Unknown';
-    
-    const statsMethod = document.querySelector('input[name="stats_method"]:checked').value;
-    if (statsMethod === 'manual') {
-        const attack = document.getElementById('manual_attack').value;
-        const defense = document.getElementById('manual_defense').value;
-        const speed = document.getElementById('manual_speed').value;
-        document.getElementById('review_stats').textContent = 
-            `Attack: ${attack}, Defense: ${defense}, Speed: ${speed}`;
-    } else {
-        document.getElementById('review_stats').textContent = 
-            'Will be auto-generated';
+    if (!loreSummary) {
+        loreSummary = '<em>No lore provided - will fight with mystery!</em>';
     }
+    
+    document.getElementById('review_lore').innerHTML = loreSummary;
 }
-
-// Keyboard shortcuts
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' && e.target.id === 'speciesSearch') {
-        e.preventDefault();
-        searchSpecies();
-    }
-});
 </script>
 {% endblock %}
