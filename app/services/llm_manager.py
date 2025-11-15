@@ -43,14 +43,13 @@ class LLMConfig:
     Set your preferred model here or via environment variable
     """
     DEFAULT_MODEL = LLMModel.CLAUDE_SONNET_4
-    
-    # Model preferences for different tasks
+
     TASK_MODELS = {
-        'battle_narrative': LLMModel.CLAUDE_SONNET_4,  # Best at creative writing
-        'stat_generation': LLMModel.CLAUDE_SONNET_4,   # Good at structured reasoning
-        'vision_analysis': LLMModel.CLAUDE_SONNET_4,   # Only Claude has vision
-        'species_identification': LLMModel.GPT_4,       # Good at taxonomy
-        'quick_tasks': LLMModel.GPT_35_TURBO,          # Fast and cheap
+        'battle_narrative': LLMModel.CLAUDE_SONNET_4, 
+        'stat_generation': LLMModel.GPT_4, 
+        'vision_analysis': LLMModel.CLAUDE_SONNET_4,  
+        'species_identification': LLMModel.GPT_4,     
+        'quick_tasks': LLMModel.GPT_35_TURBO,      
     }
     
     @classmethod
