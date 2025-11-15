@@ -24,9 +24,6 @@ def create_app(config_class=Config):
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs('database', exist_ok=True)
     
-    db.init_app(app)
-    login_manager.init_app(app)
-    
     from app.routes import main, auth, bugs, battles, tournaments
     app.register_blueprint(main.bp)
     app.register_blueprint(auth.bp)
