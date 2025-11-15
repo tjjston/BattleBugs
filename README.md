@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-# Bug Arena - Insect Gladiator Tournament
-=======
 # Battle Bugs - Insect Gladiator Tournament
->>>>>>> b789971ec30c132a48e592b3c689571718d8b4e0
 
 Welcome to Bug Arena! A web application where you and your friends can submit bugs you find in the wild and watch them battle in AI-generated gladiator matches.
 
@@ -261,12 +257,5 @@ This is a personal project for you and your friends! Feel free to:
 - Create better UI/UX
 - Add more bug species data
 
-## Credits
 
-- Built with Flask, Bootstrap, and Claude AI
-
----
-
-
-=======
 
