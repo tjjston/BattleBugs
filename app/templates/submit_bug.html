@@ -27,7 +27,7 @@
                         </div>
 
                         <div class="mb-3">
-                            <label for="nickname" class="form-label">Gladiator Name *</label>
+                            <label for="nickname" class="form-label">Warrior Name *</label>
                             <input type="text" class="form-control" id="nickname" name="nickname" 
                                    placeholder="e.g., Steve, Stinky, The Crimson Reaper" required>
                             <small class="form-text text-muted">Give your warrior its fight name!</small>
@@ -188,7 +188,20 @@
                                     <div class="col-md-8">
                                         <h3 id="review_nickname"></h3>
                                         <p class="text-muted" id="review_species"></p>
-                                        
+                                        <div class="mb-3">
+                                            <label for="user_species_guess" class="form-label">
+                                                Species Identification (Optional)
+                                            </label>
+                                            <input type="text" 
+                                                class="form-control" 
+                                                id="user_species_guess" 
+                                                name="user_species_guess"
+                                                placeholder="e.g., Hercules beetle, jumping spider, monarch butterfly">
+                                            <small class="form-text text-muted">
+                                                ℹ️ Help us identify your bug! This is optional but helpful.
+                                                Our AI will validate your guess.
+                                            </small>
+                                        </div>
                                         <h5>Lore Summary</h5>
                                         <div id="review_lore" class="small"></div>
                                         

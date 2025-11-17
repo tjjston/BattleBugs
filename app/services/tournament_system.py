@@ -11,7 +11,7 @@ Features:
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from app import db
-from app.models import Tournament, Bug
+from app.models import Tournament, Bug, TournamentApplication, TournamentMatch
 from sqlalchemy import and_, or_
 
 

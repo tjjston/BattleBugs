@@ -52,7 +52,8 @@ def handle_submission():
     nickname = request.form.get('nickname')
     description = request.form.get('description')
     location_found = request.form.get('location_found')
-    
+    user_species_guess = request.form.get('user_species_guess')
+
     # Get user lore fields
     lore_data = {
         'background': request.form.get('lore_background'),
@@ -88,25 +89,28 @@ def handle_submission():
     file.save(temp_path)
     
     try:
-        # ✨ NEW: LLM Classification (FINAL AUTHORITY) ✨
+        #LLM Classification
         from app.services.bug_classifier import classify_bug_submission
         
         classification = classify_bug_submission(
             image_path=temp_path,
             user_id=current_user.id,
             nickname=nickname,
-            description=description
+            description=description,
+            user_species_guess=user_species_guess
         )
         
         # Check if LLM approved
         if not classification.approved:
             os.remove(temp_path)
-            
-            flash(f"❌ Submission Rejected by LLM", 'danger')
+            flash('❌ Submission Rejected', 'danger')
             for reason in classification.rejection_reasons:
-                flash(f"• {reason}", 'warning')
+                flash(f'• {reason}', 'warning')
             
-            flash(f"Reasoning: {classification.reasoning}", 'info')
+            # Show user's guess feedback if provided
+            if classification.user_guess_feedback:
+                flash(f'About your identification: {classification.user_guess_feedback}', 'info')
+            
             return redirect(url_for('bugs.submit_bug'))
         
         # LLM APPROVED - continue with submission
@@ -167,6 +171,16 @@ def handle_submission():
             requires_manual_review=(classification.confidence < 0.90)
         )
         
+            # Give feedback on user's guess
+        if user_species_guess:
+            if classification.user_guess_matches:
+                flash(f'✅ Excellent identification! {classification.user_guess_feedback}', 'success')
+            elif classification.user_guess_matches is False:
+                flash(f'ℹ️ {classification.user_guess_feedback}', 'info')
+        
+        flash(f'✅ {nickname} approved and entered the arena!', 'success')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+        
         db.session.add(bug)
         db.session.flush()
         
@@ -211,7 +225,7 @@ def handle_submission():
         for warning in classification.warnings:
             flash(f'⚠️ {warning}', 'warning')
         
-        flash(f'🤖 Classified by: {classification.llm_provider}', 'info')
+        flash(f'Classified by: {classification.llm_provider}', 'info')
         
         return redirect(url_for('bugs.view_bug', bug_id=bug.id))
         

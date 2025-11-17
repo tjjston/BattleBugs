@@ -491,7 +491,13 @@ FLAIR_DEFINITIONS = {
     'b_tier': {'icon': '🚙', 'name': 'B-Tier', 'requirement': 'Bug is Classified as B Tier Ranked'},
     'c_tier': {'icon': '🚕', 'name': 'C-Tier', 'requirement': 'Bug is Classified as C Tier Ranked'},
     'd_tier': {'icon': '🚲', 'name': 'D-Tier', 'requirement': 'Bug is Classified as D Tier Ranked'},
-    'little_cup': {'icon': '🍼', 'name': 'Little Cup', 'requirement': 'Bug is Classified as Little Cup Ranked'}
+    'little_cup': {'icon': '🍼', 'name': 'Little Cup', 'requirement': 'Bug is Classified as Little Cup Ranked'},
+    'common': {'icon': '🍂', 'name': 'Common', 'requirement': 'Bug is Classified as Common Species'},
+    'uncommon': {'icon': '🍃', 'name': 'Uncommon', 'requirement': 'Bug is Classified as Uncommon Species'},
+    'rare': {'icon': '💎', 'name': 'Rare', 'requirement': 'Bug is Classified as Rare Species'},
+    'ultrarare': {'icon': '🛡️', 'name': 'Ultra Rare', 'requirement': 'Bug is Classified as Ultra Rare Species'},
+    'deadly': {'icon': '☠️', 'name': 'Deadly', 'requirement': 'Bug is Classified as Deadly Species'},
+    'endangered': {'icon': '⚠️', 'name': 'Endangered', 'requirement': 'Bug is Classified as Endangered Species'}
 }
 
 
