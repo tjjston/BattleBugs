@@ -56,39 +56,68 @@ class TaxonomyService:
         
         return results
     
-    def _search_gbif(self, query):
-        """Search GBIF database"""
-        url = f"{self.GBIF_API}/species/search"
-        params = {
-            'q': query,
-            'class': 'Insecta',  # Limit to insects
-            'limit': 10
+def _search_gbif(self, query):
+    """Search GBIF database with images"""
+    url = f"{self.GBIF_API}/species/search"
+    params = {
+        'q': query,
+        'class': 'Insecta',
+        'limit': 10
+    }
+    
+    response = requests.get(url, params=params, timeout=10)
+    if response.status_code != 200:
+        return []
+    
+    data = response.json()
+    results = []
+    
+    for result in data.get('results', []):
+        species_key = result.get('key')
+        
+        image_url = None
+        if species_key:
+            try:
+                media_url = f"{self.GBIF_API}/species/{species_key}/media"
+                media_response = requests.get(media_url, timeout=5)
+                if media_response.status_code == 200:
+                    media_data = media_response.json()
+                    if media_data.get('results'):
+                        for media in media_data['results']:
+                            if media.get('type') == 'StillImage':
+                                image_url = media.get('identifier')
+                                break
+            except Exception as e:
+                print(f"Error fetching image for {species_key}: {e}")
+        
+        scientific_name = result.get('scientificName')
+        common_name = result.get('vernacularName')
+        canonical_name = result.get('canonicalName')
+        
+        if common_name:
+            scientific_base = scientific_name.split('(')[0].strip() if scientific_name else ''
+            common_base = common_name.split('(')[0].strip()
+            
+            if scientific_base.lower() == common_base.lower():
+                common_name = None
+        
+        species_data = {
+            'scientific_name': scientific_name,
+            'common_name': common_name,  # Now will be None if not truly different
+            'order': result.get('order'),
+            'family': result.get('family'),
+            'genus': result.get('genus'),
+            'species': result.get('species'),
+            'gbif_id': result.get('key'),
+            'image_url': image_url,
+            'source': 'gbif'
         }
-        
-        response = requests.get(url, params=params, timeout=10)
-        if response.status_code != 200:
-            return []
-        
-        data = response.json()
-        results = []
-        
-        for result in data.get('results', []):
-            species_data = {
-                'scientific_name': result.get('scientificName'),
-                'common_name': result.get('vernacularName') or result.get('canonicalName'),
-                'order': result.get('order'),
-                'family': result.get('family'),
-                'genus': result.get('genus'),
-                'species': result.get('species'),
-                'gbif_id': result.get('key'),
-                'source': 'gbif'
-            }
-            results.append(species_data)
-        
-        return results
+        results.append(species_data)
+    
+    return results
     
     def _search_inaturalist(self, query):
-        """Search iNaturalist database"""
+        """iNaturalist has great images"""
         url = f"{self.INATURALIST_API}/taxa"
         params = {
             'q': query,
@@ -97,23 +126,19 @@ class TaxonomyService:
         }
         
         response = requests.get(url, params=params, timeout=10)
-        if response.status_code != 200:
-            return []
-        
         data = response.json()
-        results = []
         
+        results = []
         for result in data.get('results', []):
-            species_data = {
+            photo = result.get('default_photo')
+            image_url = photo.get('medium_url') if photo else None
+            
+            results.append({
                 'scientific_name': result.get('name'),
                 'common_name': result.get('preferred_common_name'),
-                'order': result.get('iconic_taxon_name'),
-                'rank': result.get('rank'),
-                'inaturalist_id': result.get('id'),
-                'wikipedia_url': result.get('wikipedia_url'),
+                'image_url': image_url,
                 'source': 'inaturalist'
-            }
-            results.append(species_data)
+            })
         
         return results
     

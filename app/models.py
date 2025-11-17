@@ -74,6 +74,8 @@ class Species(db.Model):
     
     # Relationships
     bugs = db.relationship('Bug', backref='species_info', lazy='dynamic')
+
+    image_url = db.Column(db.String(500)) 
     
     def to_dict(self):
         return {

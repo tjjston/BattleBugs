@@ -21,7 +21,7 @@
                             <input type="file" class="form-control" id="image" name="image" 
                                    accept="image/*" required>
                             <small class="form-text text-muted">
-                                Upload a clear photo. Our mystic sage will analyze it
+                                Upload a clear photo. Our system will analyze it
                             </small>
                             <div id="imagePreview" class="mt-2"></div>
                         </div>
@@ -50,7 +50,7 @@
                         </button>
                     </div>
 
-                    <!-- Step 2: User Lore (The Fun Part!) -->
+                    <!-- Step 2: User Lore -->
                     <div class="submission-step d-none" id="step2">
                         <h4>Step 2: Forge Their Legend 📜</h4>
                         <p class="text-muted">
@@ -248,6 +248,60 @@
     border-color: #28a745;
     background: #d4edda;
 }
+.species-result {
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 10px 0;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.species-result:hover {
+    border-color: #667eea;
+    background: #f8f9fa;
+    transform: translateX(5px);
+}
+
+.species-result.selected {
+    border-color: #28a745;
+    background: #d4edda;
+}
+
+.species-result-content {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.species-image {
+    width: 80px;
+    height: 80px;
+    object-fit: cover;
+    border-radius: 8px;
+    flex-shrink: 0;
+}
+
+.species-image-placeholder {
+    width: 80px;
+    height: 80px;
+    background: #f0f0f0;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2em;
+    flex-shrink: 0;
+}
+
+.species-info {
+    flex: 1;
+}
+
+.species-info h6 {
+    margin: 0 0 5px 0;
+    font-weight: 600;
+}
 </style>
 
 <script>
@@ -261,8 +315,18 @@ document.getElementById('image').addEventListener('change', function(e) {
         const reader = new FileReader();
         reader.onload = function(e) {
             const imgHTML = `<img src="${e.target.result}" alt="Preview">`;
-            document.getElementById('imagePreview').innerHTML = imgHTML;
-            document.getElementById('finalImagePreview').innerHTML = imgHTML;
+            
+            // Clear and set image preview
+            const previewDiv = document.getElementById('imagePreview');
+            const finalPreviewDiv = document.getElementById('finalImagePreview');
+            
+            // Remove any existing images first
+            previewDiv.innerHTML = '';
+            finalPreviewDiv.innerHTML = '';
+            
+            // Add the new image
+            previewDiv.innerHTML = imgHTML;
+            finalPreviewDiv.innerHTML = imgHTML;
         };
         reader.readAsDataURL(file);
     }
@@ -335,17 +399,35 @@ function displaySpeciesResults(results) {
     const container = document.getElementById('speciesResults');
     
     if (!results || results.length === 0) {
-        container.innerHTML = '<div class="alert alert-info">No results found.</div>';
+        container.innerHTML = '<div class="alert alert-info">No results found. Try searching for common names like "beetle", "ant", or "wasp".</div>';
         return;
     }
 
     let html = '<div class="species-results-list">';
     results.forEach(species => {
+        // Build image HTML
+        let imageHtml = '';
+        if (species.image_url) {
+            imageHtml = `<img src="${species.image_url}" alt="${species.common_name || species.scientific_name}" class="species-image">`;
+        } else {
+            imageHtml = `<div class="species-image-placeholder">🐛</div>`;
+        }
+        
+        // Check if common name is actually different from scientific name
+        const hasDistinctCommonName = species.common_name && 
+                                       species.scientific_name && 
+                                       !species.scientific_name.toLowerCase().includes(species.common_name.toLowerCase().split('(')[0].trim());
+        
         html += `
             <div class="species-result" onclick='selectSpecies(${JSON.stringify(species).replace(/'/g, "&apos;")})'>
-                <h6>${species.common_name || species.scientific_name}</h6>
-                <div style="font-style:italic;color:#6c757d">${species.scientific_name}</div>
-                <div style="font-size:0.9em;color:#6c757d">${species.order || ''} ${species.family || ''}</div>
+                <div class="species-result-content">
+                    ${imageHtml}
+                    <div class="species-info">
+                        <h6>${species.common_name || species.scientific_name}</h6>
+                        ${hasDistinctCommonName ? `<div style="font-style:italic;color:#6c757d;font-size:0.95em">${species.scientific_name}</div>` : ''}
+                        <div style="font-size:0.9em;color:#6c757d">${species.order || ''} ${species.family || ''}</div>
+                    </div>
+                </div>
             </div>
         `;
     });
@@ -356,14 +438,19 @@ function displaySpeciesResults(results) {
 function selectSpecies(species) {
     selectedSpecies = species;
     
+    // Remove previous selection styling
     document.querySelectorAll('.species-result').forEach(el => {
         el.classList.remove('selected');
     });
+    
+    // Add selection styling to clicked element
     event.target.closest('.species-result').classList.add('selected');
     
+    // Update hidden form fields
     document.getElementById('species_id').value = species.id || '';
     document.getElementById('scientific_name').value = species.scientific_name;
     document.getElementById('common_name').value = species.common_name || '';
+    document.getElementById('species_image_url').value = species.image_url || '';
 }
 
 function updateReview() {
