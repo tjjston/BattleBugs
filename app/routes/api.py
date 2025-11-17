@@ -1,14 +1,13 @@
 """
-Enhanced API routes with taxonomy support
-Add these to your existing api.py file
+API routes for AJAX requests and external integrations
 """
 
 from flask import Blueprint, jsonify, request
 from app import db
-from app.models import Species, Bug
+from app.models import Species, Bug, BugAchievement
 from app.services.taxonomy import TaxonomyService, StatsGenerator
 
-# Add these routes to your existing api.py Blueprint
+bp = Blueprint('api', __name__, url_prefix='/api')
 
 @bp.route('/species/search')
 def search_species():
@@ -28,7 +27,9 @@ def search_species():
 @bp.route('/species/<int:species_id>')
 def get_species(species_id):
     """Get detailed species information"""
-    species = Species.query.get_or_404(species_id)
+    species = db.session.get(Species, species_id)
+    if not species:
+        return jsonify({'error': 'Species not found'}), 404
     return jsonify(species.to_dict()), 200
 
 
@@ -50,7 +51,9 @@ def get_species_by_name(scientific_name):
 @bp.route('/bug/<int:bug_id>/regenerate-stats', methods=['POST'])
 def regenerate_bug_stats(bug_id):
     """Regenerate stats for a bug based on its species"""
-    bug = Bug.query.get_or_404(bug_id)
+    bug = db.session.get(Bug, bug_id)
+    if not bug:
+        return jsonify({'error': 'Bug not found'}), 404
     
     generator = StatsGenerator()
     new_stats = generator.generate_stats(bug)
@@ -74,10 +77,12 @@ def regenerate_bug_stats(bug_id):
 @bp.route('/bug/<int:bug_id>/assign-flair', methods=['POST'])
 def assign_flair(bug_id):
     """Manually assign or regenerate flair for a bug"""
-    bug = Bug.query.get_or_404(bug_id)
+    bug = db.session.get(Bug, bug_id)
+    if not bug:
+        return jsonify({'error': 'Bug not found'}), 404
     
     data = request.get_json()
-    custom_flair = data.get('flair')
+    custom_flair = data.get('flair') if data else None
     
     if custom_flair:
         bug.flair = custom_flair
@@ -96,7 +101,9 @@ def assign_flair(bug_id):
 @bp.route('/bug/<int:bug_id>/achievements')
 def get_bug_achievements(bug_id):
     """Get all achievements for a bug"""
-    bug = Bug.query.get_or_404(bug_id)
+    bug = db.session.get(Bug, bug_id)
+    if not bug:
+        return jsonify({'error': 'Bug not found'}), 404
     
     achievements = [{
         'id': ach.id,
@@ -135,9 +142,9 @@ def get_popular_species():
 @bp.route('/species/stats')
 def get_species_stats():
     """Get statistics about species diversity"""
-    total_species = Species.query.count()
-    total_bugs = Bug.query.count()
-    verified_bugs = Bug.query.filter_by(is_verified=True).count()
+    total_species = db.session.query(Species).count()
+    total_bugs = db.session.query(Bug).count()
+    verified_bugs = db.session.query(Bug).filter_by(is_verified=True).count()
     
     # Most common orders
     orders = db.session.query(
@@ -152,14 +159,4 @@ def get_species_stats():
         'verified_bugs': verified_bugs,
         'verification_rate': (verified_bugs / total_bugs * 100) if total_bugs > 0 else 0,
         'top_orders': [{'order': o[0], 'count': o[1]} for o in orders]
-    }), 200
-
-
-@bp.route('/species/image-identify', methods=['POST'])
-def identify_from_image():
-    """Future: Identify species from image using computer vision"""
-    # This would integrate with iNaturalist CV API or similar
-    return jsonify({
-        'message': 'Image recognition coming soon!',
-        'suggestions': []
     }), 200

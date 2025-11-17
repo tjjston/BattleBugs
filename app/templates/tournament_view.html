@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}{{ tournament.name }} - Bug Arena{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="text-center mb-4">{{ tournament.name }} 🏆</h1>
+    
+    <div class="text-center mb-4">
+        <span class="badge bg-{{ 'warning' if tournament.status == 'upcoming' else 'success' if tournament.status == 'active' else 'secondary' }} fs-5">
+            {{ tournament.status|upper }}
+        </span>
+    </div>
+
+    {% if tournament.winner %}
+    <div class="alert alert-success text-center">
+        <h3>🏆 Champion: {{ tournament.winner.nickname }} 🏆</h3>
+    </div>
+    {% endif %}
+
+    <!-- Tournament Info -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5>Tournament Details</h5>
+            <p><strong>Start Date:</strong> {{ tournament.start_date.strftime('%B %d, %Y') }}</p>
+            {% if tournament.end_date %}
+            <p><strong>End Date:</strong> {{ tournament.end_date.strftime('%B %d, %Y') }}</p>
+            {% endif %}
+            {% if tournament.tier %}
+            <p><strong>Tier Restriction:</strong> <span class="badge bg-info">{{ tournament.tier }}</span></p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Battles -->
+    {% if battles %}
+    <h3>Tournament Battles</h3>
+    <div class="list-group">
+        {% for battle in battles %}
+        <a href="{{ url_for('battles.view_battle', battle_id=battle.id) }}" 
+           class="list-group-item list-group-item-action">
+            <div class="d-flex w-100 justify-content-between">
+                <h5 class="mb-1">
+                    Round {{ battle.round_number }}: 
+                    {{ battle.bug1.nickname }} vs {{ battle.bug2.nickname }}
+                </h5>
+                <small>{{ battle.battle_date.strftime('%b %d') if battle.battle_date else 'Scheduled' }}</small>
+            </div>
+            {% if battle.winner %}
+            <p class="mb-1">Winner: <strong>{{ battle.winner.nickname }}</strong></p>
+            {% endif %}
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        <p>No battles yet. Waiting for tournament to start!</p>
+    </div>
+    {% endif %}
+
+    {% if current_user.is_authenticated and tournament.status == 'upcoming' %}
+    <div class="mt-4">
+        <form method="POST" action="{{ url_for('tournaments.start_tournament', tournament_id=tournament.id) }}">
+            <button type="submit" class="btn btn-success btn-lg">Start Tournament</button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

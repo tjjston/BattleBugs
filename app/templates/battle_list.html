@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}Battles - Bug Arena{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">⚔️ Battle History</h1>
+
+{% if current_user.is_authenticated %}
+<div class="mb-4">
+    <a href="{{ url_for('battles.new_battle') }}" class="btn btn-primary">
+        Create New Battle
+    </a>
+    <a href="{{ url_for('battles.random_battle') }}" class="btn btn-success">
+        Random Battle
+    </a>
+</div>
+{% endif %}
+
+{% if battles.items %}
+<div class="list-group mb-4">
+    {% for battle in battles.items %}
+    <a href="{{ url_for('battles.view_battle', battle_id=battle.id) }}" 
+       class="list-group-item list-group-item-action">
+        <div class="d-flex w-100 justify-content-between">
+            <h5 class="mb-1">
+                {{ battle.bug1.nickname }} 
+                <span class="text-danger">VS</span> 
+                {{ battle.bug2.nickname }}
+            </h5>
+            <small class="text-muted">{{ battle.battle_date.strftime('%b %d, %Y') }}</small>
+        </div>
+        <p class="mb-1">
+            <strong>Winner:</strong> 
+            {% if battle.winner %}
+                <span class="badge bg-success">{{ battle.winner.nickname }} 🏆</span>
+            {% else %}
+                <span class="badge bg-secondary">Draw</span>
+            {% endif %}
+        </p>
+        {% if battle.tournament_id %}
+        <small class="text-muted">Tournament Battle</small>
+        {% endif %}
+    </a>
+    {% endfor %}
+</div>
+
+<!-- Pagination -->
+{% if battles.has_prev or battles.has_next %}
+<nav aria-label="Battle pagination">
+    <ul class="pagination justify-content-center">
+        {% if battles.has_prev %}
+        <li class="page-item">
+            <a class="page-link" href="{{ url_for('battles.list_battles', page=battles.prev_num) }}">Previous</a>
+        </li>
+        {% endif %}
+        
+        <li class="page-item disabled">
+            <a class="page-link" href="#">Page {{ battles.page }} of {{ battles.pages }}</a>
+        </li>
+        
+        {% if battles.has_next %}
+        <li class="page-item">
+            <a class="page-link" href="{{ url_for('battles.list_battles', page=battles.next_num) }}">Next</a>
+        </li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
+
+{% else %}
+<div class="alert alert-info text-center">
+    <h4>No battles yet!</h4>
+    <p>Be the first to start a battle in the arena.</p>
+    {% if current_user.is_authenticated %}
+    <a href="{{ url_for('battles.new_battle') }}" class="btn btn-primary">Create First Battle</a>
+    {% else %}
+    <a href="{{ url_for('auth.register') }}" class="btn btn-primary">Register to Battle</a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}

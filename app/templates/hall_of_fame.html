@@ -3,115 +3,238 @@
 {% block title %}Hall of Fame - Bug Arena{% endblock %}
 
 {% block content %}
-<h1 class="text-center mb-4">🏆 Hall of Fame 🏆</h1>
+<div class="text-center mb-5">
+    <h1 class="display-3">🏆 Hall of Fame 🏆</h1>
+    <p class="lead text-muted">Legends of the Arena</p>
+</div>
 
 <div class="row">
-    <div class="col-md-8">
-        <h2>Top Gladiators</h2>
-        <div class="table-responsive">
-            <table class="table table-striped">
-                <thead>
-                    <tr>
-                        <th>Rank</th>
-                        <th>Bug</th>
-                        <th>Species</th>
-                        <th>Owner</th>
-                        <th>Record</th>
-                        <th>Win Rate</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for bug in main.top_bugs %}
-                    <tr>
-                        <td>
-                            {% if loop.index == 1 %}🥇
-                            {% elif loop.index == 2 %}🥈
-                            {% elif loop.index == 3 %}🥉
-                            {% else %}{{ loop.index }}{% endif %}
-                        </td>
-                        <td>
-                            <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">
-                                <strong>{{ bug.name }}</strong>
-                            </a>
-                        </td>
-                        <td>{{ bug.species or 'Unknown' }}</td>
-                        <td>{{ bug.owner.username }}</td>
-                        <td>{{ bug.wins }}W - {{ bug.losses }}L</td>
-                        <td>{{ "%.1f"|format(bug.win_rate) }}%</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <div class="col-md-4">
-        <h2>Tournament Champions</h2>
-        {% if tournaments %}
-        <div class="list-group">
-            {% for tournament in tournaments %}
-            <a href="{{ url_for('tournaments.view_tournament', tournament_id=tournament.id) }}" 
-               class="list-group-item list-group-item-action">
-                <div class="d-flex w-100 justify-content-between">
-                    <h5 class="mb-1">{{ tournament.name }}</h5>
-                    <small>{{ tournament.end_date.strftime('%b %Y') if tournament.end_date else 'N/A' }}</small>
+    <!-- Top Gladiators Section -->
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header bg-warning text-dark">
+                <h2 class="mb-0">👑 Top Gladiators</h2>
+            </div>
+            <div class="card-body">
+                {% if top_bugs %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Bug</th>
+                                <th>Species</th>
+                                <th>Owner</th>
+                                <th>Record</th>
+                                <th>Win Rate</th>
+                                <th>Tier</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for bug in top_bugs %}
+                            <tr>
+                                <td class="fw-bold">
+                                    {% if loop.index == 1 %}
+                                        <span class="badge bg-warning text-dark fs-5">🥇 1</span>
+                                    {% elif loop.index == 2 %}
+                                        <span class="badge bg-secondary text-white fs-5">🥈 2</span>
+                                    {% elif loop.index == 3 %}
+                                        <span class="badge bg-danger text-white fs-5">🥉 3</span>
+                                    {% else %}
+                                        {{ loop.index }}
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="text-decoration-none">
+                                        <strong>{{ bug.nickname }}</strong>
+                                    </a>
+                                </td>
+                                <td class="text-muted small">
+                                    {{ bug.common_name or bug.scientific_name or 'Unknown' }}
+                                </td>
+                                <td>{{ bug.owner.username }}</td>
+                                <td>
+                                    <span class="badge bg-success">{{ bug.wins }}W</span>
+                                    <span class="badge bg-danger">{{ bug.losses }}L</span>
+                                </td>
+                                <td>
+                                    {% set win_rate = bug.win_rate %}
+                                    <span class="badge bg-{{ 'success' if win_rate >= 70 else 'warning' if win_rate >= 50 else 'secondary' }}">
+                                        {{ "%.1f"|format(win_rate) }}%
+                                    </span>
+                                </td>
+                                <td>
+                                    {% if bug.tier %}
+                                    <span class="badge bg-info">{{ bug.tier.upper() }}</span>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
-                {% if tournament.winner %}
-                <p class="mb-1">Champion: <strong>{{ tournament.winner.name }}</strong></p>
-                <small>Owned by {{ tournament.winner.owner.username }}</small>
+                {% else %}
+                <div class="text-center py-5">
+                    <p class="text-muted">No bugs have fought yet. Be the first to enter the arena!</p>
+                    <a href="{{ url_for('bugs.submit_bug') }}" class="btn btn-primary">Submit Your Bug</a>
+                </div>
                 {% endif %}
-            </a>
-            {% endfor %}
+            </div>
         </div>
-        {% else %}
-        <p class="text-muted">No completed tournaments yet.</p>
-        {% endif %}
+    </div>
+
+    <!-- Tournament Champions Section -->
+    <div class="col-lg-4">
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h3 class="mb-0">🏅 Tournament Champions</h3>
+            </div>
+            <div class="card-body">
+                {% if tournaments %}
+                <div class="list-group list-group-flush">
+                    {% for tournament in tournaments %}
+                    <a href="{{ url_for('tournaments.view_tournament', tournament_id=tournament.id) }}" 
+                       class="list-group-item list-group-item-action">
+                        <div class="d-flex w-100 justify-content-between align-items-center">
+                            <div>
+                                <h6 class="mb-1">{{ tournament.name }}</h6>
+                                {% if tournament.winner %}
+                                <p class="mb-0">
+                                    <small class="text-muted">Champion:</small><br>
+                                    <strong>{{ tournament.winner.nickname }}</strong>
+                                </p>
+                                {% else %}
+                                <small class="text-muted">In Progress</small>
+                                {% endif %}
+                            </div>
+                            <small class="text-muted">
+                                {{ tournament.end_date.strftime('%b %Y') if tournament.end_date else tournament.start_date.strftime('%b %Y') }}
+                            </small>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <p class="text-muted">No completed tournaments yet.</p>
+                    {% if current_user.is_authenticated %}
+                    <a href="{{ url_for('tournaments.create_tournament') }}" class="btn btn-sm btn-primary">Create Tournament</a>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Quick Stats Card -->
+        <div class="card">
+            <div class="card-header bg-dark text-white">
+                <h4 class="mb-0">📊 Arena Stats</h4>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span class="text-muted">Total Bugs:</span>
+                        <strong>{{ top_bugs|length }}</strong>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span class="text-muted">Tournaments:</span>
+                        <strong>{{ tournaments|length }}</strong>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span class="text-muted">Total Battles:</span>
+                        <strong>
+                            {% set total_battles = namespace(count=0) %}
+                            {% for bug in top_bugs %}
+                                {% set total_battles.count = total_battles.count + bug.wins + bug.losses %}
+                            {% endfor %}
+                            {{ (total_battles.count / 2)|int if top_bugs else 0 }}
+                        </strong>
+                    </div>
+                </div>
+                {% if top_bugs %}
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span class="text-muted">Highest Win Rate:</span>
+                        <strong>{{ "%.1f"|format(top_bugs[0].win_rate) }}%</strong>
+                    </div>
+                </div>
+                <div>
+                    <div class="d-flex justify-content-between">
+                        <span class="text-muted">Most Wins:</span>
+                        <strong>{{ top_bugs[0].wins }} ({{ top_bugs[0].nickname }})</strong>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
     </div>
 </div>
 
-<div class="mt-5">
-    <h2>Arena Statistics</h2>
-    <div class="row text-center">
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body">
-                    <h1 class="display-4">{{ top_bugs|length }}</h1>
-                    <p>Total Bugs</p>
-                </div>
+<!-- Featured Bug of the Week (if you want to add this later) -->
+{% if top_bugs %}
+<div class="card bg-light mt-4">
+    <div class="card-body">
+        <div class="row align-items-center">
+            <div class="col-md-8">
+                <h3>⭐ Current Champion: {{ top_bugs[0].nickname }}</h3>
+                <p class="mb-2">
+                    <strong>Species:</strong> {{ top_bugs[0].common_name or top_bugs[0].scientific_name or 'Unknown' }}
+                </p>
+                <p class="mb-2">
+                    <strong>Record:</strong> {{ top_bugs[0].wins }} Wins - {{ top_bugs[0].losses }} Losses
+                </p>
+                <p class="mb-0">
+                    <strong>Owner:</strong> {{ top_bugs[0].owner.username }}
+                </p>
             </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body">
-                    <h1 class="display-4">{{ tournaments|length }}</h1>
-                    <p>Tournaments Held</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body">
-                    <h1 class="display-4">
-                        {% set total_battles = namespace(count=0) %}
-                        {% for bug in top_bugs %}
-                            {% set total_battles.count = total_battles.count + bug.wins + bug.losses %}
-                        {% endfor %}
-                        {{ (total_battles.count / 2)|int if top_bugs else 0 }}
-                    </h1>
-                    <p>Battles Fought</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body">
-                    <h1 class="display-4">
-                        {{ top_bugs[0].win_rate|round|int if top_bugs else 0 }}%
-                    </h1>
-                    <p>Top Win Rate</p>
-                </div>
+            <div class="col-md-4 text-end">
+                <a href="{{ url_for('bugs.view_bug', bug_id=top_bugs[0].id) }}" class="btn btn-primary btn-lg">
+                    View Champion
+                </a>
             </div>
         </div>
     </div>
 </div>
+{% endif %}
+
+<!-- Call to Action -->
+<div class="text-center mt-5 mb-4">
+    {% if current_user.is_authenticated %}
+    <h4>Think you can make it to the Hall of Fame?</h4>
+    <a href="{{ url_for('bugs.submit_bug') }}" class="btn btn-success btn-lg me-2">Submit Your Bug</a>
+    <a href="{{ url_for('battles.new_battle') }}" class="btn btn-primary btn-lg">Start a Battle</a>
+    {% else %}
+    <h4>Join the Arena and Become a Legend!</h4>
+    <a href="{{ url_for('auth.register') }}" class="btn btn-success btn-lg me-2">Register Now</a>
+    <a href="{{ url_for('auth.login') }}" class="btn btn-outline-primary btn-lg">Login</a>
+    {% endif %}
+</div>
+
+<style>
+    .table tbody tr {
+        transition: all 0.2s;
+    }
+    
+    .table tbody tr:hover {
+        transform: translateX(5px);
+        background-color: #f8f9fa;
+    }
+    
+    .list-group-item {
+        border-left: 3px solid transparent;
+        transition: all 0.2s;
+    }
+    
+    .list-group-item:hover {
+        border-left-color: #0d6efd;
+        background-color: #f8f9fa;
+    }
+</style>
+
 {% endblock %}

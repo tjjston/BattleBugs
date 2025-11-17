@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}Tournaments - Bug Arena{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">🏆 Tournaments</h1>
+
+{% if current_user.is_authenticated %}
+<div class="mb-4">
+    <a href="{{ url_for('tournaments.create_tournament') }}" class="btn btn-primary">
+        Create Tournament
+    </a>
+</div>
+{% endif %}
+
+<!-- Upcoming Tournaments -->
+{% if upcoming %}
+<div class="mb-5">
+    <h2>Upcoming Tournaments</h2>
+    <div class="row">
+        {% for tournament in upcoming %}
+        <div class="col-md-4 mb-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">{{ tournament.name }}</h5>
+                    <p class="text-muted">
+                        <small>Starts: {{ tournament.start_date.strftime('%b %d, %Y') }}</small>
+                    </p>
+                    {% if tournament.tier %}
+                    <span class="badge bg-info">{{ tournament.tier }} Tier Only</span>
+                    {% endif %}
+                    <span class="badge bg-warning">{{ tournament.status }}</span>
+                    <div class="mt-2">
+                        <a href="{{ url_for('tournaments.view_tournament', tournament_id=tournament.id) }}" 
+                           class="btn btn-sm btn-primary">View Details</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Active Tournaments -->
+{% if active %}
+<div class="mb-5">
+    <h2>Active Tournaments</h2>
+    <div class="row">
+        {% for tournament in active %}
+        <div class="col-md-4 mb-3">
+            <div class="card border-success">
+                <div class="card-body">
+                    <h5 class="card-title">{{ tournament.name }}</h5>
+                    <span class="badge bg-success">IN PROGRESS</span>
+                    <div class="mt-2">
+                        <a href="{{ url_for('tournaments.view_tournament', tournament_id=tournament.id) }}" 
+                           class="btn btn-sm btn-success">Watch Battles</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Completed Tournaments -->
+{% if completed %}
+<div class="mb-5">
+    <h2>Completed Tournaments</h2>
+    <div class="list-group">
+        {% for tournament in completed %}
+        <a href="{{ url_for('tournaments.view_tournament', tournament_id=tournament.id) }}" 
+           class="list-group-item list-group-item-action">
+            <div class="d-flex w-100 justify-content-between">
+                <h5 class="mb-1">{{ tournament.name }}</h5>
+                <small class="text-muted">{{ tournament.end_date.strftime('%b %d, %Y') if tournament.end_date else 'N/A' }}</small>
+            </div>
+            {% if tournament.winner %}
+            <p class="mb-1">
+                <strong>Champion:</strong> 
+                <span class="badge bg-warning">🏆 {{ tournament.winner.nickname }}</span>
+            </p>
+            {% endif %}
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if not upcoming and not active and not completed %}
+<div class="alert alert-info text-center">
+    <h4>No tournaments yet!</h4>
+    <p>Be the first to create a tournament.</p>
+    {% if current_user.is_authenticated %}
+    <a href="{{ url_for('tournaments.create_tournament') }}" class="btn btn-primary">Create First Tournament</a>
+    {% else %}
+    <a href="{{ url_for('auth.register') }}" class="btn btn-primary">Register to Create</a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}

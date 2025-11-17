@@ -23,18 +23,19 @@ def create_app(config_class=Config):
 
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs('database', exist_ok=True)
-
+    
     with app.app_context():
         from app import models
     
-    
-    from app.routes import main, auth, bugs, battles, tournaments
+    # Register blueprints
+    from app.routes import main, auth, bugs, battles, tournaments, api
     app.register_blueprint(main.bp)
     app.register_blueprint(auth.bp)
     app.register_blueprint(bugs.bp)
     app.register_blueprint(battles.bp)
     app.register_blueprint(tournaments.bp)
+    app.register_blueprint(api.bp) 
 
-    from app import models
-    
     return app
+
+

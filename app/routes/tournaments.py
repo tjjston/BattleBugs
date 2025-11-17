@@ -25,7 +25,7 @@ def view_tournament(tournament_id):
     battles = Battle.query.filter_by(tournament_id=tournament_id)\
         .order_by(Battle.round_number, Battle.battle_date).all()
     
-    return render_template('tournament_view.html', 
+    return render_template('tournament_list.html', 
                          tournament=tournament,
                          battles=battles)
 

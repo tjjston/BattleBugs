@@ -44,7 +44,7 @@ def new_battle():
         return redirect(url_for('battles.view_battle', battle_id=battle.id))
     
     bugs = Bug.query.all()
-    return render_template('battle_new.html', bugs=bugs)
+    return render_template('battle_list.html', bugs=bugs)
 
 @bp.route('/battle/random')
 @login_required
