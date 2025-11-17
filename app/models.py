@@ -317,7 +317,61 @@ class Tournament(db.Model):
     
     def __repr__(self):
         return f'<Tournament {self.name}>'
+    
+class TournamentApplication(db.Model):
+    """Model for tournament applications"""
+    __tablename__ = 'tournament_applications'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=False)
+    bug_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    
+    status = db.Column(db.String(20), default='pending')  # pending, approved, rejected, withdrawn
+    applied_at = db.Column(db.DateTime, default=datetime.utcnow)
+    reviewed_at = db.Column(db.DateTime)
+    reviewed_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    
+    # Seeding (for bracket generation)
+    seed_number = db.Column(db.Integer)  # 1-N ranking for bracket placement
+    
+    # Relationships
+    tournament = db.relationship('Tournament', backref='applications')
+    bug = db.relationship('Bug', backref='tournament_applications')
+    user = db.relationship('User', foreign_keys=[user_id], backref='tournament_applications')
+    reviewer = db.relationship('User', foreign_keys=[reviewed_by_id])
+    
+    def __repr__(self):
+        return f'<TournamentApplication {self.bug.nickname} -> {self.tournament.name}>'
 
+class TournamentMatch(db.Model):
+    """Model for individual tournament matches (extends Battle)"""
+    __tablename__ = 'tournament_matches'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=False)
+    battle_id = db.Column(db.Integer, db.ForeignKey('battle.id'))
+    
+    round_number = db.Column(db.Integer, nullable=False)  # 1, 2, 3, etc.
+    match_number = db.Column(db.Integer, nullable=False)  # Position in round
+    
+    bug1_id = db.Column(db.Integer, db.ForeignKey('bug.id'))
+    bug2_id = db.Column(db.Integer, db.ForeignKey('bug.id'))
+    winner_id = db.Column(db.Integer, db.ForeignKey('bug.id'))
+    
+    # For tracking progression
+    next_match_id = db.Column(db.Integer, db.ForeignKey('tournament_matches.id'))
+    
+    scheduled_for = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    
+    # Relationships
+    tournament = db.relationship('Tournament', backref='matches')
+    battle = db.relationship('Battle')
+    bug1 = db.relationship('Bug', foreign_keys=[bug1_id])
+    bug2 = db.relationship('Bug', foreign_keys=[bug2_id])
+    winner = db.relationship('Bug', foreign_keys=[winner_id])
+    next_match = db.relationship('TournamentMatch', remote_side=[id], backref='previous_matches')
 
 class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True)

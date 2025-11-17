@@ -45,16 +45,27 @@ def view_bug(bug_id):
                          comments=comments,
                          lore=lore)
 
-
 def handle_submission():
-    """Process bug submission"""
+    """Process bug submission with LLM-controlled classification"""
     
-    # Step 1: Get form data
+    # Get form data
     nickname = request.form.get('nickname')
     description = request.form.get('description')
     location_found = request.form.get('location_found')
     
-    # Step 2: Handle image upload
+    # Get user lore fields
+    lore_data = {
+        'background': request.form.get('lore_background'),
+        'motivation': request.form.get('lore_motivation'),
+        'personality': request.form.get('lore_personality'),
+        'interests': request.form.get('lore_interests'),
+        'religion': request.form.get('lore_religion'),
+        'fears': request.form.get('lore_fears'),
+        'allies': request.form.get('lore_allies'),
+        'rivals': request.form.get('lore_rivals')
+    }
+    
+    # Handle image upload
     if 'image' not in request.files:
         flash('No image provided', 'danger')
         return redirect(url_for('bugs.submit_bug'))
@@ -69,7 +80,7 @@ def handle_submission():
         flash('Invalid file type', 'danger')
         return redirect(url_for('bugs.submit_bug'))
     
-    # Save temporary file for verification
+    # Save temporary file
     filename = secure_filename(file.filename)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     temp_filename = f"temp_{current_user.id}_{timestamp}_{filename}"
@@ -77,33 +88,54 @@ def handle_submission():
     file.save(temp_path)
     
     try:
-        # Step 3: Comprehensive verification
-        verification_result = comprehensive_bug_verification(temp_path, current_user.id)
+        # ✨ NEW: LLM Classification (FINAL AUTHORITY) ✨
+        from app.services.bug_classifier import classify_bug_submission
         
-        # Step 4: Check if approved
-        if not verification_result['approved']:
-            # Cleanup temp file
+        classification = classify_bug_submission(
+            image_path=temp_path,
+            user_id=current_user.id,
+            nickname=nickname,
+            description=description
+        )
+        
+        # Check if LLM approved
+        if not classification.approved:
             os.remove(temp_path)
             
-            # Show rejection reason
-            issues = verification_result['issues']
-            flash(f"Submission rejected: {'; '.join(issues)}", 'danger')
+            flash(f"❌ Submission Rejected by LLM", 'danger')
+            for reason in classification.rejection_reasons:
+                flash(f"• {reason}", 'warning')
             
-            if verification_result['recommendation'] == 'reject_duplicate':
-                flash("You've already submitted this bug! Each bug can only be submitted once.", 'warning')
-            
+            flash(f"Reasoning: {classification.reasoning}", 'info')
             return redirect(url_for('bugs.submit_bug'))
         
-        # Step 5: Rename to permanent filename
+        # LLM APPROVED - continue with submission
         final_filename = f"{current_user.id}_{timestamp}_{filename}"
         final_path = os.path.join(current_app.config['UPLOAD_FOLDER'], final_filename)
         os.rename(temp_path, final_path)
         
-        # Step 6: Extract vision data
-        vision_result = verification_result.get('vision_result', {})
-        species_info = verification_result.get('species_info')
+        # Get/create species
+        species_info = None
+        if classification.scientific_name:
+            from app.services.taxonomy import TaxonomyService
+            taxonomy = TaxonomyService()
+            
+            species_info = taxonomy.get_species_details(
+                scientific_name=classification.scientific_name
+            )
+            
+            if not species_info and classification.order:
+                species_info = Species(
+                    scientific_name=classification.scientific_name,
+                    common_name=classification.common_name,
+                    order=classification.order,
+                    family=classification.family,
+                    data_source='llm_vision'
+                )
+                db.session.add(species_info)
+                db.session.flush()
         
-        # Step 7: Create Bug entry
+        # Create Bug entry
         bug = Bug(
             nickname=nickname,
             description=description,
@@ -111,30 +143,37 @@ def handle_submission():
             image_path=final_filename,
             user_id=current_user.id,
             
-            # Vision verification data
+            # LLM classification data
             vision_verified=True,
-            vision_confidence=vision_result.get('confidence', 0),
-            vision_identified_species=vision_result.get('identified_species'),
-            vision_quality_score=vision_result.get('quality_score', 0),
+            vision_confidence=classification.confidence,
+            vision_identified_species=classification.identified_species,
             
-            # Generate image hash
+            # Species linkage
+            species_id=species_info.id if species_info else None,
+            common_name=classification.common_name,
+            scientific_name=classification.scientific_name,
+            
+            # User lore
+            lore_background=lore_data.get('background'),
+            lore_motivation=lore_data.get('motivation'),
+            lore_personality=lore_data.get('personality'),
+            lore_interests=lore_data.get('interests'),
+            lore_religion=lore_data.get('religion'),
+            lore_fears=lore_data.get('fears'),
+            lore_allies=lore_data.get('allies'),
+            lore_rivals=lore_data.get('rivals'),
+            
             image_hash=str(imagehash.average_hash(Image.open(final_path))),
-            
-            # Link to species if identified
-            species_id=species_info['species_id'] if species_info else None,
-            common_name=species_info['common_name'] if species_info else None,
-            scientific_name=species_info['scientific_name'] if species_info else vision_result.get('identified_species'),
-            
-            # Mark for review if confidence is borderline
-            requires_manual_review=(vision_result.get('confidence', 1) < 0.85)
+            requires_manual_review=(classification.confidence < 0.90)
         )
         
         db.session.add(bug)
-        db.session.flush()  # Get bug.id without committing
+        db.session.flush()
         
-        # Step 8: Generate stats using LLM
+        # Generate stats using LLM
+        from app.services.tier_system import LLMStatGenerator, TierSystem, TIER_DEFINITIONS
+        
         stat_generator = LLMStatGenerator()
-        
         bug_info = {
             'scientific_name': bug.scientific_name,
             'common_name': bug.common_name,
@@ -144,8 +183,6 @@ def handle_submission():
         }
         
         stats = stat_generator.generate_stats_with_llm(bug_info)
-        
-        # Apply stats
         bug.attack = stats['attack']
         bug.defense = stats['defense']
         bug.speed = stats['speed']
@@ -153,36 +190,176 @@ def handle_submission():
         bug.stats_generation_method = 'llm_contextual'
         bug.stats_generated = True
         
-        # Step 9: Assign tier
-        tier_recommendation = assign_tier_and_generate_stats(bug)
-        bug.tier = tier_recommendation['tier']
+        # Assign tier
+        bug.tier = TierSystem.assign_tier(bug)
+        tier_info = TIER_DEFINITIONS.get(bug.tier, {})
         
-        # Step 10: Auto-generate flair
+        try:
+            from app.services.visual_lore_generator import VisualLoreAnalyzer
+            lore_analyzer = VisualLoreAnalyzer()
+            lore_analyzer.apply_visual_lore_to_bug(bug, final_path)
+        except Exception as e:
+            print(f"Visual lore generation failed: {e}")
+        
         bug.generate_flair()
-        
-        # Commit everything
         db.session.commit()
         
-        # Step 11: Show success with warnings if any
-        flash(f'{nickname} has entered the {tier_recommendation["tier_name"]} tier! {tier_recommendation["tier_icon"]}', 'success')
+        # Success messages
+        flash(f'✅ {nickname} approved and entered the arena!', 'success')
+        flash(f'{tier_info.get("icon", "")} {tier_info.get("name", bug.tier)}', 'info')
         
-        if verification_result.get('warnings'):
-            for warning in verification_result['warnings']:
-                flash(f'Note: {warning}', 'info')
+        for warning in classification.warnings:
+            flash(f'⚠️ {warning}', 'warning')
         
-        if bug.requires_manual_review:
-            flash('Your bug will be reviewed by moderators to confirm species identification.', 'info')
+        flash(f'🤖 Classified by: {classification.llm_provider}', 'info')
         
         return redirect(url_for('bugs.view_bug', bug_id=bug.id))
         
     except Exception as e:
-        # Cleanup on error
         if os.path.exists(temp_path):
             os.remove(temp_path)
-        
         db.session.rollback()
-        flash(f'Error processing submission: {str(e)}', 'danger')
+        flash(f'Error: {str(e)}', 'danger')
+        current_app.logger.error(f"Bug submission error: {e}", exc_info=True)
         return redirect(url_for('bugs.submit_bug'))
+
+# def handle_submission():
+#     """Process bug submission"""
+    
+#     # Step 1: Get form data
+#     nickname = request.form.get('nickname')
+#     description = request.form.get('description')
+#     location_found = request.form.get('location_found')
+    
+#     # Step 2: Handle image upload
+#     if 'image' not in request.files:
+#         flash('No image provided', 'danger')
+#         return redirect(url_for('bugs.submit_bug'))
+    
+#     file = request.files['image']
+    
+#     if file.filename == '':
+#         flash('No image selected', 'danger')
+#         return redirect(url_for('bugs.submit_bug'))
+    
+#     if not allowed_file(file.filename):
+#         flash('Invalid file type', 'danger')
+#         return redirect(url_for('bugs.submit_bug'))
+    
+#     # Save temporary file for verification
+#     filename = secure_filename(file.filename)
+#     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+#     temp_filename = f"temp_{current_user.id}_{timestamp}_{filename}"
+#     temp_path = os.path.join(current_app.config['UPLOAD_FOLDER'], temp_filename)
+#     file.save(temp_path)
+    
+#     try:
+#         # Step 3: Comprehensive verification
+#         verification_result = comprehensive_bug_verification(temp_path, current_user.id)
+        
+#         # Step 4: Check if approved
+#         if not verification_result['approved']:
+#             # Cleanup temp file
+#             os.remove(temp_path)
+            
+#             # Show rejection reason
+#             issues = verification_result['issues']
+#             flash(f"Submission rejected: {'; '.join(issues)}", 'danger')
+            
+#             if verification_result['recommendation'] == 'reject_duplicate':
+#                 flash("You've already submitted this bug! Each bug can only be submitted once.", 'warning')
+            
+#             return redirect(url_for('bugs.submit_bug'))
+        
+#         # Step 5: Rename to permanent filename
+#         final_filename = f"{current_user.id}_{timestamp}_{filename}"
+#         final_path = os.path.join(current_app.config['UPLOAD_FOLDER'], final_filename)
+#         os.rename(temp_path, final_path)
+        
+#         # Step 6: Extract vision data
+#         vision_result = verification_result.get('vision_result', {})
+#         species_info = verification_result.get('species_info')
+        
+#         # Step 7: Create Bug entry
+#         bug = Bug(
+#             nickname=nickname,
+#             description=description,
+#             location_found=location_found,
+#             image_path=final_filename,
+#             user_id=current_user.id,
+            
+#             # Vision verification data
+#             vision_verified=True,
+#             vision_confidence=vision_result.get('confidence', 0),
+#             vision_identified_species=vision_result.get('identified_species'),
+#             vision_quality_score=vision_result.get('quality_score', 0),
+            
+#             # Generate image hash
+#             image_hash=str(imagehash.average_hash(Image.open(final_path))),
+            
+#             # Link to species if identified
+#             species_id=species_info['species_id'] if species_info else None,
+#             common_name=species_info['common_name'] if species_info else None,
+#             scientific_name=species_info['scientific_name'] if species_info else vision_result.get('identified_species'),
+            
+#             # Mark for review if confidence is borderline
+#             requires_manual_review=(vision_result.get('confidence', 1) < 0.85)
+#         )
+        
+#         db.session.add(bug)
+#         db.session.flush()  # Get bug.id without committing
+        
+#         # Step 8: Generate stats using LLM
+#         stat_generator = LLMStatGenerator()
+        
+#         bug_info = {
+#             'scientific_name': bug.scientific_name,
+#             'common_name': bug.common_name,
+#             'size_mm': bug.species_info.average_size_mm if bug.species_info else None,
+#             'traits': _extract_traits_from_bug(bug),
+#             'species_info': bug.species_info.to_dict() if bug.species_info else None
+#         }
+        
+#         stats = stat_generator.generate_stats_with_llm(bug_info)
+        
+#         # Apply stats
+#         bug.attack = stats['attack']
+#         bug.defense = stats['defense']
+#         bug.speed = stats['speed']
+#         bug.special_ability = stats.get('special_ability')
+#         bug.stats_generation_method = 'llm_contextual'
+#         bug.stats_generated = True
+        
+#         # Step 9: Assign tier
+#         tier_recommendation = assign_tier_and_generate_stats(bug)
+#         bug.tier = tier_recommendation['tier']
+        
+#         # Step 10: Auto-generate flair
+#         bug.generate_flair()
+        
+#         # Commit everything
+#         db.session.commit()
+        
+#         # Step 11: Show success with warnings if any
+#         flash(f'{nickname} has entered the {tier_recommendation["tier_name"]} tier! {tier_recommendation["tier_icon"]}', 'success')
+        
+#         if verification_result.get('warnings'):
+#             for warning in verification_result['warnings']:
+#                 flash(f'Note: {warning}', 'info')
+        
+#         if bug.requires_manual_review:
+#             flash('Your bug will be reviewed by moderators to confirm species identification.', 'info')
+        
+#         return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+        
+#     except Exception as e:
+#         # Cleanup on error
+#         if os.path.exists(temp_path):
+#             os.remove(temp_path)
+        
+#         db.session.rollback()
+#         flash(f'Error processing submission: {str(e)}', 'danger')
+#         return redirect(url_for('bugs.submit_bug'))
 
 @bp.route('/bug/submit', methods=['GET', 'POST'])
 @login_required

@@ -449,9 +449,13 @@ class StatsGenerator:
 
 # Predefined flairs/badges
 FLAIR_DEFINITIONS = {
-    'champion': {'icon': '🏆', 'name': 'Arena Champion', 'requirement': 'Win 10+ battles'},
-    'dominator': {'icon': '⚡'
-    '', 'name': 'Dominator', 'requirement': '80%+ win rate with 5+ wins'},
+    'champion': {'icon': '🏆', 'name': 'Arena Champion', 'requirement': 'Win a monthly tournament'},
+    'a_tier_champion': {'icon': '🥇', 'name': 'A-Tier Champion', 'requirement': 'Win an A-Tier tournament'},
+    'b_tier_champion': {'icon': '🥈', 'name': 'B-Tier Champion', 'requirement': 'Win a B-Tier tournament'},
+    'c_tier_champion': {'icon': '🥉', 'name': 'C-Tier Champion', 'requirement': 'Win a C-Tier tournament'},
+    'd_tier_champion': {'icon': '🎖️', 'name': 'D-Tier Champion', 'requirement': 'Win a D-Tier tournament'},
+    'little_cup_champion': {'icon': '🍼', 'name': 'Little Cup Champion', 'requirement': 'Win a Little Cup tournament'},
+    'dominator': {'icon': '⚡', 'name': 'Dominator', 'requirement': '80%+ win rate with 5+ wins'},
     'veteran': {'icon': '⚔️', 'name': 'Veteran', 'requirement': '5+ wins'},
     'speedster': {'icon': '💨', 'name': 'Speedster', 'requirement': 'Speed stat 8+'},
     'tank': {'icon': '🛡️', 'name': 'Tank', 'requirement': 'Defense stat 8+'},
@@ -462,6 +466,32 @@ FLAIR_DEFINITIONS = {
     'comeback_king': {'icon': '💪', 'name': 'Comeback King', 'requirement': 'Win after losing streak'},
     'rare_species': {'icon': '🔬', 'name': 'Rare Species', 'requirement': 'Verified rare species'},
     'explorer': {'icon': '🗺️', 'name': 'Explorer', 'requirement': 'Found in unique location'},
+    'glass_joe': {'icon': '🥊', 'name': 'Glass Joe', 'requirement': '0 wins after 5 battles'},
+    'glass_cannon': {'icon': '💥', 'name': 'Glass Cannon', 'requirement': 'High attack, low defense'},
+    'balanced': {'icon': '⚖️', 'name': 'Balanced', 'requirement': 'All stats 5+'},
+    'villain': {'icon': '😈', 'name': 'Villain', 'requirement': 'Lore includes evil or anti-hero motivations'},
+    'hero': {'icon': '🦸', 'name': 'Hero', 'requirement': 'Lore includes heroic motivations'},
+    'alien': {'icon': '👽', 'name': 'Alien', 'requirement': 'Species not native to your region'},
+    'mediocre': {'icon': '😐', 'name': 'Mediocre', 'requirement': 'win rate is exactly 50%'},
+    'statue': {'icon': '🗿', 'name': 'Statue', 'requirement': '0 speed stat'},
+    'pacifist': {'icon': '☮️', 'name': 'Pacifist', 'requirement': '0 wins after 20 battles'},
+    'iconic': {'icon': '🌟', 'name': 'Iconic', 'requirement': 'Top 5% in likes'},
+    'celebrity': {'icon': '🎬', 'name': 'Celebrity', 'requirement': 'Featured in community spotlight'},
+    'venomous': {'icon': '☠️', 'name': 'Venomous', 'requirement': 'Has venomous strike ability'},
+    'armored': {'icon': '🛡️', 'name': 'Armored', 'requirement': 'Has armored shell ability'},
+    'flying': {'icon': '🦅', 'name': 'Flying', 'requirement': 'Has aerial assault ability'},
+    'pincer': {'icon': '🦞', 'name': 'Pincer', 'requirement': 'Has crushing grip ability'},
+    'crusher': {'icon': '🔨', 'name': 'Crusher', 'requirement': 'Has crushing attack type'},
+    'piercer': {'icon': '🦂', 'name': 'Piercer', 'requirement': 'Has piercing attack type'},
+    'blaster': {'icon': '💥', 'name': 'Blaster', 'requirement': 'Has blaster attack type'},
+    'slashing': {'icon': '🗡️', 'name': 'Slashing', 'requirement': 'Has slashing attack type'},
+    'undead': {'icon': '🧟', 'name': 'Undead', 'requirement': 'Warrior bug is dead in submission picture'},
+    'uber': {'icon': '🚀', 'name': 'Uber', 'requirement': 'Bug is Classified as Uber Ranked'},
+    'a_tier': {'icon': '🚗', 'name': 'A-Tier', 'requirement': 'Bug is Classified as A Tier Ranked'},
+    'b_tier': {'icon': '🚙', 'name': 'B-Tier', 'requirement': 'Bug is Classified as B Tier Ranked'},
+    'c_tier': {'icon': '🚕', 'name': 'C-Tier', 'requirement': 'Bug is Classified as C Tier Ranked'},
+    'd_tier': {'icon': '🚲', 'name': 'D-Tier', 'requirement': 'Bug is Classified as D Tier Ranked'},
+    'little_cup': {'icon': '🍼', 'name': 'Little Cup', 'requirement': 'Bug is Classified as Little Cup Ranked'}
 }
 
 

@@ -89,7 +89,7 @@ IMPORTANT:
             client = self._get_client()
             
             message = client.messages.create(
-                model=llm_manager.,
+                model=llm_manager.LLMModel.CLAUDE_SONNET_4,
                 max_tokens=1024,
                 messages=[
                     {

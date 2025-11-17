@@ -30,3 +30,10 @@ class Config:
     # Pagination
     BUGS_PER_PAGE = int(os.environ.get('BUGS_PER_PAGE', 20))
     BATTLES_PER_PAGE = int(os.environ.get('BATTLES_PER_PAGE', 10))
+
+LLM_DEFAULT_PROVIDER = os.environ.get('LLM_DEFAULT_PROVIDER', 'anthropic')
+
+# Task-specific overrides
+LLM_MODEL_VISION_ANALYSIS = os.environ.get('LLM_MODEL_VISION_ANALYSIS', 'CLAUDE_SONNET_4')
+LLM_MODEL_STAT_GENERATION = os.environ.get('LLM_MODEL_STAT_GENERATION', 'CLAUDE_SONNET_4')
+LLM_MODEL_BATTLE_NARRATIVE = os.environ.get('LLM_MODEL_BATTLE_NARRATIVE', 'CLAUDE_SONNET_4')
