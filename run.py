@@ -1,15 +1,16 @@
-from app import create_app, db
+from app.__init__ import create_app, db
 from flask_migrate import Migrate
-from app.models import User, Bug, Battle, Tourmanent, Comment
+from app.models import User, Bug, Battle, Tournament, Comment
+from config import Config
 import os
 
-app = create_app(os.getenv('FLASK_CONFIG') or 'default')
+app = create_app(Config)
 migrate = Migrate(app, db)
 
 @app.shell_context_processor
 def make_shell_context():
 
-    return {'db': db, 'User': User, 'Bug': Bug, 'Battle': Battle, 'Tourmanent': Tourmanent, 'Comment': Comment}
+    return {'db': db, 'User': User, 'Bug': Bug, 'Battle': Battle, 'Tournament': Tournament, 'Comment': Comment}
 
 if __name__ == '__main__':
     with app.app_context():

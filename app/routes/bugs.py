@@ -10,7 +10,7 @@ from app import db
 from app.models import Bug, Species
 from app.services.vision_service import comprehensive_bug_verification
 from app.services.tier_system import LLMStatGenerator, TierSystem, get_recommended_tier_for_bug
-from app.services.taxonomy_service import TaxonomyService
+from app.services.taxonomy import TaxonomyService
 import os
 from datetime import datetime
 import imagehash

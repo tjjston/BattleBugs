@@ -6,7 +6,7 @@ Uses visible stats + hidden xfactor for more interesting battles
 from typing import Optional
 from app import db
 from app.models import Battle, Bug
-from app.services.visual_lore_analyzer import generate_lore_enhanced_battle_narrative
+from app.services.visual_lore_generator import generate_lore_enhanced_battle_narrative
 import random
 
 # Static advantage tables

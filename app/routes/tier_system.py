@@ -95,8 +95,6 @@ class TierSystem:
     
     @staticmethod
 
-// ... existing code ...
-
 class TierSystem:
     """Manage bug tiers for balanced matchmaking"""
     
@@ -490,7 +488,37 @@ def assign_tier_and_generate_stats(bug, use_llm=True):
         bug = generator.regenerate_stats_for_bug(bug)
     else:
         # Use simple stat generation
-        from app.services.taxonomy import StatsGenerator
+        try:
+            from app.services.taxonomy import StatsGenerator
+        except Exception:
+            class StatsGenerator:
+                def generate_stats(self, bug):
+                    # Lightweight heuristic fallback when taxonomy_service is unavailable
+                    base = 5
+                    atk = base
+                    df = base
+                    spd = base
+                    si = getattr(bug, 'species_info', None)
+                    if si:
+                        if getattr(si, 'has_venom', False):
+                            atk += 1
+                        if getattr(si, 'has_pincers', False):
+                            atk += 1
+                        if getattr(si, 'has_armor', False):
+                            df += 1
+                        if getattr(si, 'can_fly', False):
+                            spd += 1
+                        size = getattr(si, 'average_size_mm', None)
+                        if size:
+                            if size > 80:
+                                df += 1
+                            elif size < 10:
+                                spd += 1
+                    # clamp values to 1-10
+                    atk = max(1, min(10, atk))
+                    df = max(1, min(10, df))
+                    spd = max(1, min(10, spd))
+                    return {'attack': atk, 'defense': df, 'speed': spd, 'special_ability': None}
         generator = StatsGenerator()
         stats = generator.generate_stats(bug)
         bug.attack = stats['attack']

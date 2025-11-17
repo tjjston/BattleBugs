@@ -6,7 +6,7 @@ Add these to your existing api.py file
 from flask import Blueprint, jsonify, request
 from app import db
 from app.models import Species, Bug
-from app.services.taxonomy_service import TaxonomyService, StatsGenerator
+from app.services.taxonomy import TaxonomyService, StatsGenerator
 
 # Add these routes to your existing api.py Blueprint
 

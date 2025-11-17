@@ -11,7 +11,7 @@ from anthropic import Anthropic
 from flask import current_app
 from app import db
 from app.models import Species, Bug
-from app.services.taxonomy_service import TaxonomyService
+from app.services.taxonomy import TaxonomyService
 import imagehash
 from datetime import datetime, timedelta
 
