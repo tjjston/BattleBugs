@@ -31,5 +31,6 @@ def create_app(config_class=Config):
     app.register_blueprint(battles.bp)
     app.register_blueprint(tournaments.bp)
 
+    from app import models
+    
     return app
-from app import models
