@@ -117,9 +117,8 @@ class Bug(db.Model):
     image_path = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text)  # User's description/story
     
-    # ═══════════════════════════════════════════════════════
-    # 📜 USER-INPUT LORE FIELDS (Public - shown in UI)
-    # ═══════════════════════════════════════════════════════
+    # USER-INPUT LORE FIELDS (Public - shown in UI)
+
     lore_interests = db.Column(db.Text)  # What does this bug like?
     lore_background = db.Column(db.Text)  # Where did it come from?
     lore_motivation = db.Column(db.Text)  # Why does it fight?
@@ -129,18 +128,16 @@ class Bug(db.Model):
     lore_allies = db.Column(db.Text)  # Friends/allies
     lore_rivals = db.Column(db.Text)  # Enemies/rivals
     
-    # ═══════════════════════════════════════════════════════
-    # 🔮 HIDDEN VISUAL LORE (Secret - only LLM knows)
-    # ═══════════════════════════════════════════════════════
-    visual_lore_analysis = db.Column(db.Text)  # LLM's secret observations
+    # LLM Lore
+
+    visual_lore_analysis = db.Column(db.Text)  # LLM observations
     visual_lore_items = db.Column(db.Text)  # Items/weapons found in photo
     visual_lore_environment = db.Column(db.Text)  # Environmental advantages
     visual_lore_posture = db.Column(db.Text)  # Battle stance/readiness
     visual_lore_unique_features = db.Column(db.Text)  # Special visual traits
-    
-    # ═══════════════════════════════════════════════════════
-    # ⚡ STATS (visible + hidden xfactor)
-    # ═══════════════════════════════════════════════════════
+
+    # STATS (visible + hidden xfactor)
+
     attack = db.Column(db.Integer, default=5)
     defense = db.Column(db.Integer, default=5)
     speed = db.Column(db.Integer, default=5)
@@ -148,9 +145,8 @@ class Bug(db.Model):
     special_defense = db.Column(db.Integer, default=5)
     health = db.Column(db.Integer, default=100)
     
-    # 🎲 THE SECRET SAUCE - Hidden from users, used in battles
     xfactor = db.Column(db.Float, default=0.0)  # -5.0 to +5.0 hidden modifier
-    xfactor_reason = db.Column(db.Text)  # Why this xfactor? (secret notes)
+    xfactor_reason = db.Column(db.Text)
     
     special_ability = db.Column(db.String(200))
     
@@ -170,7 +166,7 @@ class Bug(db.Model):
     vision_confidence = db.Column(db.Float)
     vision_identified_species = db.Column(db.String(200))
     vision_quality_score = db.Column(db.Float)
-    image_hash = db.Column(db.String(64))  # For duplicate detection
+    image_hash = db.Column(db.String(64)) 
     requires_manual_review = db.Column(db.Boolean, default=False)
     review_notes = db.Column(db.Text)
     

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+{% extends "base.html" %}
+
+{% block title %}Bug List{% endblock %}
+
+{% block content %}
+<h1 class="text-center mb-4">Bug List</h1>
+<div class="row">
+    {% for bug in bugs %}
+    <div class="col-md-4 mb-4">
+        <div class="card h-100">
+            <a href="https://en.wikipedia.org/wiki/{{ bug.scientific_name }}">
+                <img src="{{ url_for('static', filename='../uploads/' + bug.image_path) }}" 
+                     class="card-img-top" alt="{{ bug.name }} is a bug species found in various environments, showcasing its unique features and colors. The background includes elements of its natural habitat, emphasizing its ecological context.">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">{{ bug.name }}</a>
+                </h5>
+                <p class="card-text text-muted">{{ bug.common_name or 'Unknown Species' }}</p>
+                <p class="card-text">
+                    <strong>Owner:</strong> {{ models.bug.user_id }}<br>
+                    <strong>Submitted on:</strong> {{ models.bug.found_date('%B %d, %Y') }}<br>
+                    <strong>:</strong>
+                    <em>{{ bug.common_name }}</em>
+                    <strong>Record:</strong> {{ bug.wins }}W - {{ bug.losses }}L<br>
+                    <strong>Win Rate:</strong> {{ "%.1f"|format(bug.win_rate) }}%</p>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% if bugs.has_prev or bugs.has_next %}
+<nav aria-label="Bug pagination">
+    <ul class="pagination justify-content-center">
+        {% if bugs.has_prev %}
+        <li class="page-item">
+            <a class="page-link" href="{{ url_for('bugs.list_bugs', page=bugs.prev_num) }}">Previous</a>
+        </li>
+        {% endif %}
+        
+        {% for page_num in bugs.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=2) %}
+            {% if page_num %}
+                {% if page_num == bugs.page %}
+                <li class="page-item active"><a class="page-link" href="#">{{ page_num }}</a></li>
+                {% else %}
+                <li class="page-item"><a class="page-link" href="{{ url_for('bugs.list_bugs', page=page_num) }}">{{ page_num }}</a></li>
+                {% endif %}
+            {% else %}
+                <li class="page-item disabled"><a class="page-link" href="#">...</a></li>
+            {% endif %}
+        {% endfor %}
+        
+        {% if bugs.has_next %}
+        <li class="page-item">
+            <a class="page-link" href="{{ url_for('bugs.list_bugs', page=bugs.next_num) }}">Next</a>
+        </li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
+{% else %}
+<div class="alert alert-info text-center">
+    <h4>No bugs yet!</h4>
+    <p>Be the first to submit a bug to the arena.</p>
+    {% if current_user.is_authenticated %}
+    <a href="{{ url_for('bugs.submit_bug') }}" class="btn btn-primary">Submit First Bug</a>
+    {% else %}
+    <a href="{{ url_for('auth.register') }}" class="btn btn-primary">Register to Submit</a>
+    {% endif %}
+</div>
+{% endif %}
+
+
+{% endblock %}

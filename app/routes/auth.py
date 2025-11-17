@@ -28,6 +28,8 @@ def register():
         db.session.add(user)
         db.session.commit()
         
+        login_user(user, remember=True)
+
         flash('Registration successful! Please log in.', 'success')
         return redirect(url_for('auth.login'))
     

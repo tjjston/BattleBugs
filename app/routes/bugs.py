@@ -16,7 +16,7 @@ from datetime import datetime
 import imagehash
 from PIL import Image
 
-bp = Blueprint('bugs_advanced', __name__)
+bp = Blueprint('bugs', __name__)
 
 def allowed_file(filename):
     return '.' in filename and \
@@ -46,20 +46,8 @@ def view_bug(bug_id):
                          lore=lore)
 
 
-@bp.route('/bug/submit-advanced', methods=['GET', 'POST'])
-@login_required
-def submit_bug_advanced():
-    """
-    Advanced bug submission with full verification pipeline
-    """
-    if request.method == 'POST':
-        return handle_advanced_submission()
-    
-    return render_template('submit_bug_advanced.html')
-
-
-def handle_advanced_submission():
-    """Process advanced bug submission"""
+def handle_submission():
+    """Process bug submission"""
     
     # Step 1: Get form data
     nickname = request.form.get('nickname')
@@ -69,17 +57,17 @@ def handle_advanced_submission():
     # Step 2: Handle image upload
     if 'image' not in request.files:
         flash('No image provided', 'danger')
-        return redirect(url_for('bugs_advanced.submit_bug_advanced'))
+        return redirect(url_for('bugs.submit_bug'))
     
     file = request.files['image']
     
     if file.filename == '':
         flash('No image selected', 'danger')
-        return redirect(url_for('bugs_advanced.submit_bug_advanced'))
+        return redirect(url_for('bugs.submit_bug'))
     
     if not allowed_file(file.filename):
         flash('Invalid file type', 'danger')
-        return redirect(url_for('bugs_advanced.submit_bug_advanced'))
+        return redirect(url_for('bugs.submit_bug'))
     
     # Save temporary file for verification
     filename = secure_filename(file.filename)
@@ -104,7 +92,7 @@ def handle_advanced_submission():
             if verification_result['recommendation'] == 'reject_duplicate':
                 flash("You've already submitted this bug! Each bug can only be submitted once.", 'warning')
             
-            return redirect(url_for('bugs_advanced.submit_bug_advanced'))
+            return redirect(url_for('bugs.submit_bug'))
         
         # Step 5: Rename to permanent filename
         final_filename = f"{current_user.id}_{timestamp}_{filename}"
@@ -185,7 +173,7 @@ def handle_advanced_submission():
         if bug.requires_manual_review:
             flash('Your bug will be reviewed by moderators to confirm species identification.', 'info')
         
-        return redirect(url_for('bugs_advanced.view_bug', bug_id=bug.id))
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
         
     except Exception as e:
         # Cleanup on error
@@ -194,7 +182,19 @@ def handle_advanced_submission():
         
         db.session.rollback()
         flash(f'Error processing submission: {str(e)}', 'danger')
-        return redirect(url_for('bugs_advanced.submit_bug_advanced'))
+        return redirect(url_for('bugs.submit_bug'))
+
+@bp.route('/bug/submit', methods=['GET', 'POST'])
+@login_required
+def submit_bug():
+    """
+    Bug submission with full verification pipeline
+    """
+    if request.method == 'POST':
+        return handle_submission()
+    
+    return render_template('submit_bug.html')
+
 
 
 def _extract_traits_from_bug(bug):
@@ -323,7 +323,7 @@ def approve_bug(bug_id):
     
     
     flash(f'{bug.nickname} approved!', 'success')
-    return redirect(url_for('bugs_advanced.review_bugs'))
+    return redirect(url_for('bugs.review_bugs'))
 
 
 @bp.route('/admin/bug/<int:bug_id>/reject', methods=['POST'])
@@ -342,4 +342,4 @@ def reject_bug(bug_id):
     db.session.commit()
     
     flash(f'{bug.nickname} rejected', 'info')
-    return redirect(url_for('bugs_advanced.review_bugs'))
+    return redirect(url_for('bugs.review_bugs'))
