@@ -61,41 +61,7 @@ TIER_DEFINITIONS = {
 }
 
 
-class TierSystem:
-    """Manage bug tiers for balanced matchmaking"""
-    
-    @staticmethod
-    def calculate_power_rating(bug):
-        """Calculate overall power rating"""
-        return bug.attack + bug.defense + bug.speed
-    
-    @staticmethod
-    def assign_tier(bug):
-        """
-        Assign tier based on power rating and performance
-        
-        Args:
-            bug: Bug object
-            
-        Returns:
-            str: Tier code ('uber', 'ou', 'uu', etc.)
-        """
-        power = TierSystem.calculate_power_rating(bug)
-        
-        # Base tier on power rating
-        for tier_code, tier_info in TIER_DEFINITIONS.items():
-            min_power = tier_info.get('min_power', 0)
-            max_power = tier_info.get('max_power', 999)
-            
-            if min_power <= power <= max_power:
-                return tier_code
-        
-        # Fallback
-        return 'zu'
-    
-    @staticmethod
-
-// ... existing code ...
+# Consolidated TierSystem defined once below
 
 class TierSystem:
     """Manage bug tiers for balanced matchmaking"""

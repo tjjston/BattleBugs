@@ -9,7 +9,7 @@ from werkzeug.utils import secure_filename
 from app import db
 from app.models import Bug, Species
 from app.services.vision_service import comprehensive_bug_verification
-from app.services.tier_system import LLMStatGenerator, TierSystem, get_recommended_tier_for_bug
+from app.services.tier_system import LLMStatGenerator, TierSystem, assign_tier_and_generate_stats
 from app.services.taxonomy import TaxonomyService
 import os
 from datetime import datetime
@@ -138,7 +138,7 @@ def handle_advanced_submission():
         bug.stats_generated = True
         
         # Step 9: Assign tier
-        tier_recommendation = get_recommended_tier_for_bug(bug)
+        tier_recommendation = assign_tier_and_generate_stats(bug)
         bug.tier = tier_recommendation['tier']
         
         # Step 10: Auto-generate flair
