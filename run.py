@@ -1,11 +1,13 @@
-from app.__init__ import create_app, db
+from app import create_app, db
 from flask_migrate import Migrate
-from app.models import User, Bug, Battle, Tournament, Comment
 from config import Config
 import os
 
 app = create_app(Config)
 migrate = Migrate(app, db)
+
+with app.app_context():
+    from app.models import User, Bug, Battle, Tournament, Comment
 
 @app.shell_context_processor
 def make_shell_context():
