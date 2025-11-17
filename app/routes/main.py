@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template
 from app.models import Bug, Battle, Tournament
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 
 bp = Blueprint('main', __name__)
 

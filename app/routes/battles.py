@@ -55,7 +55,7 @@ def random_battle():
     
     if len(bugs) < 2:
         flash('Need at least 2 bugs to battle!', 'warning')
-        return redirect(url_for('bugs.list_bugs'))
+        return redirect(url_for('battles.list_battles'))
     
     bug1, bug2 = random.sample(bugs, 2)
     battle = simulate_battle(bug1, bug2)

@@ -7,7 +7,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
-from app.models import Bug, Species
+from app.models import Bug, Species, Comment, BugLore
 from app.services.vision_service import comprehensive_bug_verification
 from app.services.tier_system import LLMStatGenerator, TierSystem, assign_tier_and_generate_stats
 from app.services.taxonomy import TaxonomyService
@@ -17,6 +17,34 @@ import imagehash
 from PIL import Image
 
 bp = Blueprint('bugs_advanced', __name__)
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in current_app.config['ALLOWED_EXTENSIONS']
+
+@bp.route('/bugs')
+def list_bugs():
+    """List all bugs with pagination"""
+    page = request.args.get('page', 1, type=int)
+    bugs = Bug.query.order_by(Bug.submission_date.desc())\
+        .paginate(page=page, per_page=current_app.config.get('BUGS_PER_PAGE', 20), error_out=False)
+    
+    return render_template('bug_list.html', bugs=bugs)
+
+@bp.route('/bug/<int:bug_id>')
+def view_bug(bug_id):
+    """View individual bug profile"""
+    bug = Bug.query.get_or_404(bug_id)
+    comments = Comment.query.filter_by(bug_id=bug_id)\
+        .order_by(Comment.created_at.desc()).all()
+    lore = BugLore.query.filter_by(bug_id=bug_id)\
+        .order_by(BugLore.upvotes.desc()).all()
+    
+    return render_template('bug_profile.html', 
+                         bug=bug, 
+                         comments=comments,
+                         lore=lore)
+
 
 @bp.route('/bug/submit-advanced', methods=['GET', 'POST'])
 @login_required
@@ -157,7 +185,7 @@ def handle_advanced_submission():
         if bug.requires_manual_review:
             flash('Your bug will be reviewed by moderators to confirm species identification.', 'info')
         
-        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+        return redirect(url_for('bugs_advanced.view_bug', bug_id=bug.id))
         
     except Exception as e:
         # Cleanup on error
@@ -188,11 +216,6 @@ def _extract_traits_from_bug(bug):
     
     return traits
 
-
-def allowed_file(filename):
-    """Check if file extension is allowed"""
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in current_app.config['ALLOWED_EXTENSIONS']
 
 
 # API endpoint for pre-upload verification
