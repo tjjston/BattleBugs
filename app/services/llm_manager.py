@@ -137,7 +137,7 @@ class LLMService:
             else:
                 model = LLMConfig.DEFAULT_MODEL
         
-        print(f"🤖 Using {model.provider}/{model.model_name} for task: {task or 'general'}")
+        print(f"Using {model.provider}/{model.model_name} for task: {task or 'general'}")
         
         # Route to appropriate provider
         if model.provider == "anthropic":

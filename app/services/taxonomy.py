@@ -16,7 +16,7 @@ class TaxonomyService:
     INATURALIST_API = "https://api.inaturalist.org/v1"
     
     def __init__(self):
-        self.cache_duration = timedelta(days=30)  # Cache for 30 days
+        self.cache_duration = timedelta(days=30) 
     
     def search_species(self, query):
         """
@@ -28,7 +28,6 @@ class TaxonomyService:
         Returns:
             List of matching species
         """
-        # Check local cache first
         cached = Species.query.filter(
             db.or_(
                 Species.scientific_name.ilike(f'%{query}%'),
@@ -39,7 +38,6 @@ class TaxonomyService:
         if cached:
             return [s.to_dict() for s in cached]
         
-        # Fetch from GBIF
         results = []
         try:
             gbif_results = self._search_gbif(query)
@@ -56,68 +54,86 @@ class TaxonomyService:
         
         return results
     
-def _search_gbif(self, query):
-    """Search GBIF database with images"""
-    url = f"{self.GBIF_API}/species/search"
-    params = {
-        'q': query,
-        'class': 'Insecta',
-        'limit': 10
-    }
-    
-    response = requests.get(url, params=params, timeout=10)
-    if response.status_code != 200:
-        return []
-    
-    data = response.json()
-    results = []
-    
-    for result in data.get('results', []):
-        species_key = result.get('key')
-        
-        image_url = None
-        if species_key:
-            try:
-                media_url = f"{self.GBIF_API}/species/{species_key}/media"
-                media_response = requests.get(media_url, timeout=5)
-                if media_response.status_code == 200:
-                    media_data = media_response.json()
-                    if media_data.get('results'):
-                        for media in media_data['results']:
-                            if media.get('type') == 'StillImage':
-                                image_url = media.get('identifier')
-                                break
-            except Exception as e:
-                print(f"Error fetching image for {species_key}: {e}")
-        
-        scientific_name = result.get('scientificName')
-        common_name = result.get('vernacularName')
-        canonical_name = result.get('canonicalName')
-        
-        if common_name:
-            scientific_base = scientific_name.split('(')[0].strip() if scientific_name else ''
-            common_base = common_name.split('(')[0].strip()
-            
-            if scientific_base.lower() == common_base.lower():
-                common_name = None
-        
-        species_data = {
-            'scientific_name': scientific_name,
-            'common_name': common_name,  # Now will be None if not truly different
-            'order': result.get('order'),
-            'family': result.get('family'),
-            'genus': result.get('genus'),
-            'species': result.get('species'),
-            'gbif_id': result.get('key'),
-            'image_url': image_url,
-            'source': 'gbif'
+    def _search_gbif(self, query):
+        """Search GBIF database with images and vernacular names"""
+        url = f"{self.GBIF_API}/species/search"
+        params = {
+            'q': query,
+            'class': 'Insecta',
+            'limit': 10
         }
-        results.append(species_data)
-    
-    return results
+        
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code != 200:
+            return []
+        
+        data = response.json()
+        results = []
+        
+        for result in data.get('results', []):
+            species_key = result.get('key')
+            scientific_name = result.get('scientificName')
+            common_name = result.get('vernacularName')
+            
+            # If no vernacular name in search results, fetch it separately
+            if not common_name and species_key:
+                try:
+                    vernacular_url = f"{self.GBIF_API}/species/{species_key}/vernacularNames"
+                    vern_response = requests.get(vernacular_url, timeout=5)
+                    if vern_response.status_code == 200:
+                        vern_data = vern_response.json()
+                        # Get first English vernacular name
+                        for vern in vern_data.get('results', []):
+                            if vern.get('language') == 'eng':
+                                common_name = vern.get('vernacularName')
+                                break
+                        # If no English, get first available
+                        if not common_name and vern_data.get('results'):
+                            common_name = vern_data['results'][0].get('vernacularName')
+                except Exception as e:
+                    print(f"Error fetching vernacular name for {species_key}: {e}")
+            
+         
+            image_url = None
+            if species_key:
+                try:
+                    media_url = f"{self.GBIF_API}/species/{species_key}/media"
+                    media_response = requests.get(media_url, timeout=5)
+                    if media_response.status_code == 200:
+                        media_data = media_response.json()
+                        if media_data.get('results'):
+                            for media in media_data['results']:
+                                if media.get('type') == 'StillImage':
+                                    image_url = media.get('identifier')
+                                    break
+                except Exception as e:
+                    print(f"Error fetching image for {species_key}: {e}")
+            
+            # Clean up common name
+            if common_name and scientific_name:
+                scientific_base = scientific_name.split('(')[0].strip()
+                common_base = common_name.split('(')[0].strip()
+                
+                if scientific_base.lower() == common_base.lower():
+                    common_name = None
+            
+            species_data = {
+                'scientific_name': scientific_name,
+                'common_name': common_name,
+                'order': result.get('order'),
+                'family': result.get('family'),
+                'genus': result.get('genus'),
+                'species': result.get('species'),
+                'gbif_id': species_key,
+                'image_url': image_url,
+                'source': 'gbif'
+            }
+            results.append(species_data)
+        
+        return results
     
     def _search_inaturalist(self, query):
-        """iNaturalist has great images"""
+        """Search iNaturalist database"""
         url = f"{self.INATURALIST_API}/taxa"
         params = {
             'q': query,
@@ -126,19 +142,35 @@ def _search_gbif(self, query):
         }
         
         response = requests.get(url, params=params, timeout=10)
-        data = response.json()
+        if response.status_code != 200:
+            return []
         
+        data = response.json()
         results = []
+        
         for result in data.get('results', []):
             photo = result.get('default_photo')
             image_url = photo.get('medium_url') if photo else None
             
-            results.append({
-                'scientific_name': result.get('name'),
-                'common_name': result.get('preferred_common_name'),
+            scientific_name = result.get('name')
+            common_name = result.get('preferred_common_name')
+            
+            # Clean up common name
+            if common_name and scientific_name:
+                if scientific_name.lower() == common_name.lower():
+                    common_name = None
+            
+            species_data = {
+                'scientific_name': scientific_name,
+                'common_name': common_name,
+                'order': result.get('iconic_taxon_name'),
+                'rank': result.get('rank'),
+                'inaturalist_id': result.get('id'),
+                'wikipedia_url': result.get('wikipedia_url'),
                 'image_url': image_url,
                 'source': 'inaturalist'
-            })
+            }
+            results.append(species_data)
         
         return results
     
@@ -293,8 +325,7 @@ def _search_gbif(self, query):
         Returns:
             List of possible species matches with confidence scores
         """
-        # This would use iNaturalist's CV API or similar
-        # For now, return placeholder
+        
         return {
             'suggestions': [],
             'message': 'Image recognition not yet implemented. Please search manually.'

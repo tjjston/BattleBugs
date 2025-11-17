@@ -11,6 +11,7 @@ from anthropic import Anthropic
 from flask import current_app
 from app import db
 from app.models import Species, Bug
+from app.services import llm_manager
 from app.services.taxonomy import TaxonomyService
 import imagehash
 from datetime import datetime, timedelta
@@ -88,7 +89,7 @@ IMPORTANT:
             client = self._get_client()
             
             message = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=llm_manager.,
                 max_tokens=1024,
                 messages=[
                     {

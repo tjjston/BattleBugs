@@ -4,14 +4,15 @@ from anthropic import Anthropic as anthropic
 from flask import current_app
 from app.models import Bug
 from app.services.llm_service import LLMService
-from OLLAMA import Ollama
-from OPENAI import OpenAI
+from ollama import Ollama, OllamaError
+import logging
+from openai import OpenAI
 
-api_key = [
+api_key = {
     'Ollama': 'http://192.168.0.99:11434',
     'OpenAI': current_app.config.get('OPENAI_API_KEY'),
     'Anthropic': current_app.config.get('ANTHROPIC_API_KEY')
-]
+}
 
 def generate_battle_narrative(
     bug1: Bug,
