@@ -1,8 +1,10 @@
-from flask import Blueprint, render_template
+from flask import Blueprint, render_template, redirect, url_for
 from flask import send_from_directory, current_app
 from app import db
-from app.models import Bug, Battle, Tournament
+from app.models import Bug, Battle, Tournament, User
 from sqlalchemy import desc, func
+from app.services.permission_system import AdminUserManager
+from flask_login import current_user, login_required
 
 bp = Blueprint('main', __name__)
 
@@ -56,3 +58,18 @@ def hall_of_fame():
 def uploaded_file(filename):
     """Serve user-uploaded files from the configured uploads folder."""
     return send_from_directory(current_app.config['UPLOAD_FOLDER'], filename)
+
+
+@bp.route('/user/<int:user_id>')
+def user_profile(user_id):
+    """Public user profile page (viewable by everyone)."""
+    user = User.query.get_or_404(user_id)
+    stats = AdminUserManager.get_user_stats(user)
+    return render_template('user_profile.html', user=user, stats=stats)
+
+
+@bp.route('/me')
+@login_required
+def my_profile():
+    """Redirect to the current user's public profile."""
+    return redirect(url_for('main.user_profile', user_id=current_user.id))

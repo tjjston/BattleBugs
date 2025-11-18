@@ -18,41 +18,133 @@ class TaxonomyService:
     def __init__(self):
         self.cache_duration = timedelta(days=30) 
     
-    def search_species(self, query):
+    def search_species(self, query, mode='name'):
         """
-        Search for species by name
-        
+        Search for species by name or characteristics.
+
         Args:
-            query: Common name or scientific name
-        
+            query: Common name, scientific name, or characteristic text
+            mode: 'name' (default) or 'traits' to perform trait/characteristic search
+
         Returns:
-            List of matching species
+            List of matching species dicts
         """
-        cached = Species.query.filter(
-            db.or_(
-                Species.scientific_name.ilike(f'%{query}%'),
-                Species.common_name.ilike(f'%{query}%')
-            )
-        ).all()
-        
-        if cached:
-            return [s.to_dict() for s in cached]
-        
+        # Simple name search in local cache first
+        if mode == 'name':
+            cached = Species.query.filter(
+                db.or_(
+                    Species.scientific_name.ilike(f'%{query}%'),
+                    Species.common_name.ilike(f'%{query}%')
+                )
+            ).all()
+            if cached:
+                return [s.to_dict() for s in cached]
+
         results = []
+
+        # If mode is traits or query looks like a characteristic description, run trait search first
+        if mode == 'traits' or self._looks_like_trait_query(query):
+            try:
+                trait_results = self._search_by_characteristics(query)
+                results.extend(trait_results)
+            except Exception as e:
+                print(f"Trait search error: {e}")
+
+        # Name-based external searches (GBIF + iNaturalist)
         try:
             gbif_results = self._search_gbif(query)
             results.extend(gbif_results)
         except Exception as e:
             print(f"GBIF search error: {e}")
-        
-        # Also try iNaturalist
+
         try:
             inat_results = self._search_inaturalist(query)
             results.extend(inat_results)
         except Exception as e:
             print(f"iNaturalist search error: {e}")
-        
-        return results
+
+        # Merge/dedupe results by scientific_name, prefer cached/local, and compute combined score
+        merged = {}
+        for r in results:
+            key = (r.get('scientific_name') or '').lower()
+            if not key:
+                key = f"src:{r.get('source', 'unknown')}:{r.get('gbif_id') or r.get('inaturalist_id') or random.randint(0,1e9)}"
+            existing = merged.get(key)
+            if not existing:
+                merged[key] = dict(r)
+                # Normalize relevance_score
+                merged[key]['relevance_score'] = merged[key].get('relevance_score', 0)
+            else:
+                # Merge fields - prefer existing non-empty values, sum relevance
+                for k, v in r.items():
+                    if not existing.get(k) and v:
+                        existing[k] = v
+                existing['relevance_score'] = existing.get('relevance_score', 0) + r.get('relevance_score', 0)
+
+        out = list(merged.values())
+        # Sort by combined relevance
+        out.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
+        return out
+
+    def _looks_like_trait_query(self, query):
+        """Heuristic: detect if user is describing traits instead of giving a name."""
+        trait_keywords = ['venom', 'stinger', 'pincer', 'pincers', 'armor', 'armored', 'fly', 'wings', 'green', 'small', 'large', 'fast', 'slow', 'striped', 'spotted', 'black', 'red', 'yellow']
+        q = query.lower()
+        hits = sum(1 for tk in trait_keywords if tk in q)
+        # If more than one trait keyword present, treat as trait query
+        return hits >= 1
+
+    def _search_by_characteristics(self, query):
+        """Search local `Species` cache by characteristic keywords and description fields.
+
+        Returns list of species dicts ordered by simple relevance.
+        """
+        q = query.lower()
+        terms = [t.strip() for t in q.replace(',', ' ').split() if t.strip()]
+
+        candidates = []
+
+        # Score species in local DB by matching booleans and description words
+        all_species = Species.query.all()
+        for sp in all_species:
+            score = 0
+            # boolean matches
+            if 'venom' in terms and sp.has_venom:
+                score += 30
+            if ('pincer' in q or 'pincers' in terms) and sp.has_pincers:
+                score += 25
+            if 'stinger' in terms and sp.has_stinger:
+                score += 25
+            if 'fly' in terms and sp.can_fly:
+                score += 15
+            if 'armor' in terms or 'armored' in terms:
+                if sp.has_armor:
+                    score += 20
+
+            # text description matching
+            desc = (sp.description or '') + ' ' + (sp.habitat or '')
+            for t in terms:
+                if t and t in desc.lower():
+                    score += 5
+
+            # taxonomic term boost
+            if any(t in (sp.common_name or '').lower() for t in terms):
+                score += 20
+            if any(t in (sp.scientific_name or '').lower() for t in terms):
+                score += 20
+
+            if score > 0:
+                d = sp.to_dict()
+                # Give a base relevance score
+                d['relevance_score'] = score
+                d['source'] = 'local_cache'
+                d['id'] = sp.id
+                d['image_url'] = sp.image_url
+                candidates.append(d)
+
+        # Sort candidates
+        candidates.sort(key=lambda x: x['relevance_score'], reverse=True)
+        return candidates
     
     def _search_gbif(self, query):
         """Search GBIF database with improved ranking"""

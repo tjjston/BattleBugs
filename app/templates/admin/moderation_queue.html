@@ -1,0 +1,156 @@
+{% extends 'base.html' %}
+
+{% block title %}Moderation Queue{% endblock %}
+
+{% block content %}
+<h1>Moderation Queue</h1>
+<p class="text-muted">Approve flagged bugs, review tournament applications, and handle user flags.</p>
+
+<div class="row g-4">
+  <div class="col-12 col-lg-6">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Flagged Bugs</strong>
+        <span class="badge bg-secondary">{{ flagged_bugs|length }}</span>
+      </div>
+      <div class="card-body">
+        {% if flagged_bugs %}
+        <div class="table-responsive">
+          <table class="table table-sm table-striped align-middle">
+            <thead>
+              <tr>
+                <th>Bug</th>
+                <th>Owner</th>
+                <th>Reason</th>
+                <th>Submitted</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for bug in flagged_bugs %}
+              <tr>
+                <td><a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">{{ bug.display_name }}</a></td>
+                <td>{{ bug.owner.username }}</td>
+                <td>{{ bug.review_notes or 'Manual review required' }}</td>
+                <td>{{ bug.submission_date.strftime('%Y-%m-%d') if bug.submission_date else '—' }}</td>
+                <td>
+                  <form method="post" action="{{ url_for('admin.approve_bug_review', bug_id=bug.id) }}" style="display:inline">
+                    <button class="btn btn-sm btn-success">Approve</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">No flagged bugs right now.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Pending Tournament Applications</strong>
+        <span class="badge bg-secondary">{{ pending_apps|length }}</span>
+      </div>
+      <div class="card-body">
+        {% if pending_apps %}
+        <div class="table-responsive">
+          <table class="table table-sm table-striped align-middle">
+            <thead>
+              <tr>
+                <th>Tournament</th>
+                <th>Bug</th>
+                <th>User</th>
+                <th>Applied</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for app in pending_apps %}
+              <tr>
+                <td>{{ app.tournament.name }}</td>
+                <td><a href="{{ url_for('bugs.view_bug', bug_id=app.bug.id) }}">{{ app.bug.display_name }}</a></td>
+                <td>{{ app.user.username }}</td>
+                <td>{{ app.applied_at.strftime('%Y-%m-%d') if app.applied_at else '—' }}</td>
+                <td>
+                  <form method="post" action="{{ url_for('admin.approve_tournament_application', app_id=app.id) }}" style="display:inline">
+                    <button class="btn btn-sm btn-primary">Approve</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">No pending applications.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Flagged Users</strong>
+        <span class="badge bg-secondary">{{ flagged_users|length }}</span>
+      </div>
+      <div class="card-body">
+        {% if flagged_users %}
+        <div class="table-responsive">
+          <table class="table table-sm table-striped align-middle">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Role</th>
+                <th>Warnings</th>
+                <th>Banned</th>
+                <th>Joined</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for u in flagged_users %}
+              <tr>
+                <td><a href="{{ url_for('admin.user_profile', user_id=u.id) }}">{{ u.username }}</a></td>
+                <td>{{ u.role }}</td>
+                <td>{{ u.warnings }}</td>
+                <td>
+                  {% if u.is_banned %}
+                    <span class="badge bg-danger">BANNED</span>
+                  {% else %}
+                    <span class="badge bg-success">Active</span>
+                  {% endif %}
+                </td>
+                <td>{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}</td>
+                <td>
+                  {% if u.is_banned %}
+                  <form method="post" action="{{ url_for('admin.update_user', user_id=u.id) }}" style="display:inline">
+                    <input type="hidden" name="is_banned" value="0">
+                    <button class="btn btn-sm btn-outline-success">Unban</button>
+                  </form>
+                  {% else %}
+                  <form method="post" action="{{ url_for('admin.update_user', user_id=u.id) }}" style="display:inline">
+                    <input type="hidden" name="is_banned" value="1">
+                    <button class="btn btn-sm btn-outline-danger">Ban</button>
+                  </form>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">No flagged users.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

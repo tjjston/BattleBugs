@@ -29,6 +29,14 @@
             {% if tournament.tier %}
             <p><strong>Tier Restriction:</strong> <span class="badge bg-info">{{ tournament.tier }}</span></p>
             {% endif %}
+            {% if current_user.is_authenticated and current_user.role in ['ADMIN','OWNER', 'MODERATOR'] %}
+            <div class="mt-3">
+                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('tournaments.edit_tournament', tournament_id=tournament.id) }}">Edit</a>
+                <form method="post" action="{{ url_for('tournaments.delete_tournament', tournament_id=tournament.id) }}" style="display:inline" onsubmit="return confirm('Delete this tournament? This cannot be undone.');">
+                    <button class="btn btn-sm btn-outline-danger">Delete</button>
+                </form>
+            </div>
+            {% endif %}
         </div>
     </div>
 

@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin Dashboard{% endblock %}
+
+{% block content %}
+<h1>Admin Dashboard</h1>
+<p class="text-muted">Overview and quick links.</p>
+
+<div class="row g-4">
+  <div class="col-md-3">
+    <div class="card text-bg-light">
+      <div class="card-body">
+        <div class="h4">{{ total_bugs }}</div>
+        <div class="text-muted">Bugs</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-bg-light">
+      <div class="card-body">
+        <div class="h4">{{ total_users }}</div>
+        <div class="text-muted">Users</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-bg-light">
+      <div class="card-body">
+        <div class="h4">{{ total_battles }}</div>
+        <div class="text-muted">Battles</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-bg-light">
+      <div class="card-body">
+        <div class="h4">{{ total_tournaments }}</div>
+        <div class="text-muted">Tournaments</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mt-4">
+  <a class="btn btn-primary me-2" href="{{ url_for('admin.manage_users') }}">Manage Users</a>
+  <a class="btn btn-outline-secondary me-2" href="{{ url_for('admin.moderation_queue') }}">Moderation Queue</a>
+  <a class="btn btn-outline-secondary me-2" href="{{ url_for('admin.db_explorer') }}">DB Explorer</a>
+  <a class="btn btn-outline-secondary" href="{{ url_for('admin.xfactor_insights') }}">X-Factor Insights</a>
+</div>
+{% endblock %}

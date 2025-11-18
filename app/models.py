@@ -157,6 +157,10 @@ class Bug(db.Model):
     special_attack = db.Column(db.Integer, default=5)
     special_defense = db.Column(db.Integer, default=5)
     health = db.Column(db.Integer, default=100)
+    # Combat characteristic fields (visible + used in battle logic)
+    attack_type = db.Column(db.String(50))   # e.g., piercing, crushing, slashing, venom, chemical, grappling
+    defense_type = db.Column(db.String(50))  # e.g., hard_shell, segmented_armor, evasive, hairy_spiny, toxic_skin, thick_hide
+    size_class = db.Column(db.String(20))    # tiny, small, medium, large, massive
     
     xfactor = db.Column(db.Float, default=0.0)  # -5.0 to +5.0 hidden modifier
     xfactor_reason = db.Column(db.Text)
@@ -259,7 +263,12 @@ class Bug(db.Model):
             'personality': self.lore_personality,
             'fears': self.lore_fears,
             'allies': self.lore_allies,
-            'rivals': self.lore_rivals
+            'rivals': self.lore_rivals,
+            'combat': {
+                'attack_type': self.attack_type,
+                'defense_type': self.defense_type,
+                'size_class': self.size_class
+            }
         }
     
     def get_secret_lore(self):

@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request
-from flask_login import login_user, logout_user, current_user
+from flask_login import login_user, logout_user, current_user, login_required
 from app import db
 from app.models import User
 
@@ -62,3 +62,35 @@ def logout():
     logout_user()
     flash('You have been logged out.', 'info')
     return redirect(url_for('main.index'))
+
+
+@bp.route('/settings', methods=['GET', 'POST'])
+@login_required
+def account_settings():
+    """Self-service account settings: update email, password."""
+    user = current_user
+    if request.method == 'POST':
+        new_email = request.form.get('email')
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+
+        # Update email if changed and unique
+        if new_email and new_email != user.email:
+            if User.query.filter_by(email=new_email).first():
+                flash('That email is already in use.', 'warning')
+            else:
+                user.email = new_email
+                flash('Email updated.', 'success')
+
+        # Update password if provided and matches
+        if new_password:
+            if new_password != confirm_password:
+                flash('Passwords do not match.', 'danger')
+            else:
+                user.set_password(new_password)
+                flash('Password updated.', 'success')
+
+        db.session.commit()
+        return redirect(url_for('auth.account_settings'))
+
+    return render_template('account_settings.html', user=user)

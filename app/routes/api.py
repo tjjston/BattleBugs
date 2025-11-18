@@ -3,6 +3,7 @@ API routes for AJAX requests and external integrations
 """
 
 from flask import Blueprint, jsonify, request
+from flask_login import login_required, current_user
 from app import db
 from app.models import Species, Bug, BugAchievement
 from app.services.taxonomy import TaxonomyService, StatsGenerator
@@ -13,12 +14,13 @@ bp = Blueprint('api', __name__, url_prefix='/api')
 def search_species():
     """Search for species by name"""
     query = request.args.get('q', '')
+    mode = request.args.get('mode', 'name')
     if not query:
         return jsonify({'error': 'Query parameter required'}), 400
     
     taxonomy = TaxonomyService()
     try:
-        results = taxonomy.search_species(query)
+        results = taxonomy.search_species(query, mode=mode)
         return jsonify(results), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -160,3 +162,66 @@ def get_species_stats():
         'verification_rate': (verified_bugs / total_bugs * 100) if total_bugs > 0 else 0,
         'top_orders': [{'order': o[0], 'count': o[1]} for o in orders]
     }), 200
+
+
+@bp.route('/bug/generate', methods=['POST'])
+@login_required
+def generate_bug_suggestion():
+    """Generate suggestions for submission fields (nickname, lore, species)
+
+    Expects JSON: { 'field': 'nickname'|'lore'|'species', 'context': {...} }
+    Returns JSON with 'suggestions' list or 'result' dict depending on field.
+    """
+    data = request.get_json() or {}
+    field = data.get('field')
+    context = data.get('context', {})
+
+    from app.services.llm_manager import LLMService
+    import json
+
+    llm = LLMService()
+
+    try:
+        if field == 'nickname':
+            common = context.get('common_name', '')
+            scientific = context.get('scientific_name', '')
+            prompt = f"""Suggest 6 short, punchy warrior-style nicknames for a bug gladiator.\n
+Context:\n- Common Name: {common}\n- Scientific Name: {scientific}\n
+Return a JSON array of nicknames only."""
+            resp = llm.generate(prompt, task='quick_tasks', max_tokens=200)
+            # Try to extract lines or JSON array
+            suggestions = []
+            try:
+                suggestions = json.loads(resp)
+            except Exception:
+                # fallback: split lines
+                suggestions = [s.trim() for s in resp.split('\n') if s.trim()]
+
+            return jsonify({'field': 'nickname', 'suggestions': suggestions}), 200
+
+        if field == 'lore':
+            # Expect keys like background, motivation hints
+            hint = context.get('hint', '')
+            prompt = f"""Create lore for a bug gladiator. Provide three short sections as JSON: {{'background': '...', 'motivation': '...', 'personality': '...'}}.\nContext hint: {hint}"""
+            resp = llm.generate(prompt, task='quick_tasks', max_tokens=400)
+            try:
+                parsed = json.loads(resp)
+            except Exception:
+                # Best-effort parsing: return as single text
+                parsed = {'background': resp}
+            return jsonify({'field': 'lore', 'result': parsed}), 200
+
+        if field == 'species':
+            # Suggest species from a short description or image analysis
+            desc = context.get('description', '')
+            prompt = f"""Given this description: {desc}\nSuggest 3 likely common names and scientific name guesses in JSON format: [{{'common_name':'', 'scientific_name':''}}, ...]"""
+            resp = llm.generate(prompt, task='species_identification', max_tokens=400)
+            try:
+                parsed = json.loads(resp)
+            except Exception:
+                parsed = {'text': resp}
+            return jsonify({'field': 'species', 'suggestions': parsed}), 200
+
+        return jsonify({'error': 'Unknown field'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

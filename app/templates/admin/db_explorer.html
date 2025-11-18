@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+
+{% block title %}DB Explorer - Admin{% endblock %}
+
+{% block content %}
+<h1>Database Explorer</h1>
+<p class="text-muted">Preview tables and run SQL queries. Admins only — use with caution.</p>
+
+<div class="row">
+  <div class="col-md-3">
+    <div class="list-group">
+      <a class="list-group-item list-group-item-action active">Tables</a>
+      {% for t in tables %}
+      <a class="list-group-item list-group-item-action {% if t==selected_table %}active{% endif %}" href="{{ url_for('admin.db_explorer') }}?table={{ t }}">{{ t }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="col-md-9">
+    {% if message %}
+    <div class="alert alert-warning">{{ message }}</div>
+    {% endif %}
+
+    <form method="post">
+      <div class="mb-3">
+        <label for="sql">SQL</label>
+        <textarea id="sql" name="sql" class="form-control" rows="6" placeholder="SELECT * FROM users LIMIT 50;">{% if selected_table %}SELECT * FROM {{ selected_table }} LIMIT 200;{% endif %}</textarea>
+      </div>
+      <button class="btn btn-primary">Run</button>
+    </form>
+
+    {% if columns and rows is not none %}
+    <hr>
+    <div class="table-responsive">
+      <table class="table table-sm table-striped table-bordered">
+        <thead>
+          <tr>
+            {% for c in columns %}
+            <th>{{ c }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            {% for c in r %}
+            <td>{{ c }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Pokedex - Community Species Index{% endblock %}
+
+{% block content %}
+<h1 class="text-center mb-4">Community Pokedex</h1>
+
+<form method="get" class="row g-2 mb-3">
+  <div class="col-md-8">
+    <input type="search" name="search" class="form-control" placeholder="Search species, family, or order" value="{{ search or '' }}">
+  </div>
+  <div class="col-md-4">
+    <button type="submit" class="btn btn-primary">Search</button>
+    <a href="{{ url_for('bugs.pokedex') }}" class="btn btn-outline-secondary">Reset</a>
+  </div>
+</form>
+
+{% if species_entries %}
+<div class="row">
+  {% for s in species_entries %}
+  <div class="col-md-4 mb-4">
+    <div class="card h-100">
+      {% if s.image_path %}
+      <a href="{{ url_for('bugs.pokedex_species', species_id=s.id) }}">
+        <img src="{{ url_for('main.uploaded_file', filename=s.image_path) }}" class="card-img-top" alt="{{ s.common_name or s.scientific_name }}" style="height: 220px; object-fit: cover;">
+      </a>
+      {% endif %}
+      <div class="card-body">
+        <h5 class="card-title mb-1">
+          <a class="text-decoration-none" href="{{ url_for('bugs.pokedex_species', species_id=s.id) }}">
+            {{ s.common_name or 'Unknown Common Name' }}
+          </a>
+        </h5>
+        <p class="text-muted small mb-2"><em>{{ s.scientific_name }}</em></p>
+        <p class="small mb-2">
+          {% if s.order %}<strong>Order:</strong> {{ s.order }}{% endif %}
+          {% if s.family %}<span class="ms-2"><strong>Family:</strong> {{ s.family }}</span>{% endif %}
+        </p>
+        <p class="mb-0">
+          <span class="badge bg-info">{{ s.count }} sighting{{ 's' if s.count != 1 else '' }}</span>
+          {% if s.last_seen %}
+          <span class="badge bg-secondary">Last seen {{ s.last_seen.strftime('%b %d, %Y') }}</span>
+          {% endif %}
+        </p>
+      </div>
+      <div class="card-footer bg-transparent">
+        <a href="{{ url_for('bugs.list_bugs', species_id=s.id) }}" class="btn btn-sm btn-outline-primary w-100">View all bugs</a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-info">No species found yet. Submit a bug to start the Pokedex!</div>
+{% endif %}
+
+{% endblock %}

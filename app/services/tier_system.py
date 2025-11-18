@@ -14,39 +14,39 @@ TIER_DEFINITIONS = {
     'uber': {
         'name': 'Legendary',
         'description': 'Legendary bugs - the absolute strongest',
-        'min_power': 27,  # Attack + Defense + Speed >= 27
+        'min_power': 270,  # Attack + Defense + Speed >= 270 (0-100 scale)
         'icon': '👑',
         'color': '#FFD700'
     },
     'ou': {
         'name': 'A Tier',
         'description': 'Top tier competitors',
-        'min_power': 24,
-        'max_power': 26,
+        'min_power': 240,
+        'max_power': 260,
         'icon': '⭐',
         'color': '#C0C0C0'
     },
     'uu': {
         'name': 'B Tier', 
         'description': 'Strong but not overpowered',
-        'min_power': 20,
-        'max_power': 23,
+        'min_power': 200,
+        'max_power': 230,
         'icon': '🥈',
         'color': '#CD7F32'
     },
     'ru': {
         'name': 'C Tier',
         'description': 'Middle of the pack',
-        'min_power': 16,
-        'max_power': 19,
+        'min_power': 160,
+        'max_power': 190,
         'icon': '🥉',
         'color': '#8B7355'
     },
     'nu': {
         'name': 'D Tier',
         'description': 'Underdogs with heart',
-        'min_power': 12,
-        'max_power': 15,
+        'min_power': 120,
+        'max_power': 150,
         'icon': '💪',
         'color': '#A9A9A9'
     },
@@ -54,7 +54,7 @@ TIER_DEFINITIONS = {
         'name': 'Little Cup',
         'description': 'The brave beginners',
         'min_power': 0,
-        'max_power': 11,
+        'max_power': 110,
         'icon': '🌱',
         'color': '#90EE90'
     }
@@ -186,11 +186,19 @@ class LLMStatGenerator:
         return {
             'legendary_bugs': [
                 {
+                    'name': 'Black Widow Spider',
+                    'scientific': 'Latrodectus mactans',
+                    'size_mm': 12,
+                    'traits': ['highly venomous', 'neurotoxic', 'ambush predator'],
+                    'attack': 96, 'defense': 75, 'speed': 88,
+                    'reasoning': 'Medically significant neurotoxic venom; apex ambush predator among spiders'
+                },
+                {
                     'name': 'Goliath Beetle',
                     'scientific': 'Goliathus goliatus',
                     'size_mm': 110,
                     'traits': ['massive', 'armored', 'strong pincers'],
-                    'attack': 9, 'defense': 8, 'speed': 4,
+                    'attack': 93, 'defense': 82, 'speed': 44,
                     'reasoning': 'One of the heaviest insects - raw power compensates for slow speed'
                 },
                 {
@@ -198,35 +206,61 @@ class LLMStatGenerator:
                     'scientific': 'Paraponera clavata',
                     'size_mm': 25,
                     'traits': ['most painful sting', 'aggressive', 'strong mandibles'],
-                    'attack': 10, 'defense': 4, 'speed': 7,
+                    'attack': 99, 'defense': 34, 'speed': 78,
                     'reasoning': 'Legendary venom - highest pain index of any insect'
                 },
                 {
-                    'name': 'Mantis Shrimp',
-                    'scientific': 'Odontodactylus scyllarus',
-                    'size_mm': 180,
-                    'traits': ['fastest strike', 'armored', 'visual predator'],
-                    'attack': 10, 'defense': 7, 'speed': 10,
+                    'name': 'Brown Recluse Spider',
+                    'scientific': 'Loxosceles reclusa',
+                    'size_mm': 10,
+                    'traits': ['venomous', 'reclusive', 'web-building'],
+                    'attack': 98, 'defense': 65, 'speed': 88,
                     'reasoning': 'Fastest strike in nature - can break aquarium glass'
+                },
+
+                {
+                    'name': 'Japanese Giant Hornet',
+                    'scientific': 'Vespa mandarinia',
+                    'size_mm': 50,
+                    'traits': ['venomous', 'aggressive', 'fast flier'],
+                    'attack': 9, 'defense': 6, 'speed': 8,
+                    'reasoning': 'Largest hornet species - highly venomous and aggressive'
+                },
+                {
+                    'name': 'Tarantula Hawk Wasp',
+                    'scientific': 'Pepsis grossa',
+                    'size_mm': 50,
+                    'traits': ['venomous', 'aggressive', 'fast flier'],
+                    'attack': 85, 'defense': 40, 'speed': 90,
+                    'reasoning': 'Powerful sting used to paralyze tarantulas; very fast and agile'
                 }
             ],
             'strong_bugs': [
                 {
-                    'name': 'Japanese Hornet',
-                    'scientific': 'Vespa mandarinia',
+                    'name': 'Green Shield Bug',
+                    'scientific': 'Palomena prasina',
                     'size_mm': 45,
                     'traits': ['venomous', 'aggressive', 'fast flier'],
-                    'attack': 8, 'defense': 5, 'speed': 8,
-                    'reasoning': 'Apex predator of insects - hunts in groups'
+                    'attack': 81, 'defense': 50, 'speed': 82,
+                    'reasoning': 'Armored and fast - packs a strong strike for its class'
+                },
+                {
+                    'name': 'Bombadeer Beetle',
+                    'scientific': 'Brachinus spp.',
+                    'size_mm': 12,
+                    'traits': ['chemical defense', 'fast', 'nocturnal'],
+                    'attack': 62, 'defense': 56, 'speed': 71,
+                    'reasoning': 'Uses chemical spray to deter predators, quick and elusive'
                 },
                 {
                     'name': 'Hercules Beetle',
                     'scientific': 'Dynastes hercules',
                     'size_mm': 178,
                     'traits': ['horns', 'armored', 'strong', 'can fly'],
-                    'attack': 8, 'defense': 8, 'speed': 5,
+                    'attack': 88, 'defense': 85, 'speed': 55,
                     'reasoning': 'Proportionally strongest - can lift 850x body weight'
-                }
+                },
+
             ],
             'average_bugs': [
                 {
@@ -234,7 +268,7 @@ class LLMStatGenerator:
                     'scientific': 'Camponotus pennsylvanicus',
                     'size_mm': 13,
                     'traits': ['mandibles', 'colonial', 'persistent'],
-                    'attack': 5, 'defense': 5, 'speed': 6,
+                    'attack': 43, 'defense': 51, 'speed': 66,
                     'reasoning': 'Average combat capability - strength in numbers'
                 },
                 {
@@ -242,7 +276,7 @@ class LLMStatGenerator:
                     'scientific': 'Acheta domesticus',
                     'size_mm': 20,
                     'traits': ['jumper', 'agile', 'weak mandibles'],
-                    'attack': 3, 'defense': 3, 'speed': 8,
+                    'attack': 31, 'defense': 37, 'speed': 84,
                     'reasoning': 'Evasion over combat - built for escape'
                 }
             ],
@@ -252,8 +286,24 @@ class LLMStatGenerator:
                     'scientific': 'Drosophila melanogaster',
                     'size_mm': 3,
                     'traits': ['tiny', 'fast', 'fragile'],
-                    'attack': 1, 'defense': 1, 'speed': 7,
+                    'attack': 4, 'defense': 9, 'speed': 79,
                     'reasoning': 'Smallest combat unit - speed is only advantage'
+                },
+                {
+                    'name': 'Aphid',
+                    'scientific': 'Aphidoidea spp.',
+                    'size_mm': 2,
+                    'traits': ['tiny', 'plant feeder', 'fragile'],
+                    'attack': 6, 'defense': 12, 'speed': 65,
+                    'reasoning': 'Tiny and fragile - relies on rapid reproduction for survival'
+                },
+                {
+                    'name': 'Caddisfly Larva',
+                    'scientific': 'Trichoptera spp.',
+                    'size_mm': 10,
+                    'traits': ['aquatic larvae', 'weak mandibles', 'slow'],
+                    'attack': 7, 'defense': 14, 'speed': 58,
+                    'reasoning': 'Aquatic larvae are vulnerable - limited combat ability'
                 }
             ]
         }
@@ -292,31 +342,63 @@ class LLMStatGenerator:
 **Instructions:**
 1. Compare this bug to the reference dataset to calibrate power level
 2. Consider: size, venom, armor, speed, predatory behavior, defensive capabilities
-3. Assign stats (1-10 scale):
+3. Assign stats (1-100 scale):
    - Attack: Offensive capability (venom, pincers, mandibles, strike power)
    - Defense: Survivability (armor, size, evasion, hardiness)
    - Speed: Agility and reaction time
 4. Total stats should be balanced based on tier:
-   - Legendary (Uber): 27-30 total
-   - Strong (OU): 24-26 total
-   - Average (UU): 20-23 total
-   - Weak (RU): 16-19 total
-   - Very Weak (NU/ZU): 12-15 total
-5. Assign a special ability based on the bug's real characteristics
-6. Provide reasoning for your stat allocation
+   - Legendary (Uber): 270-300 total
+   - Strong (OU): 240-269 total
+   - Average (UU): 200-239 total
+   - Weak (RU): 160-199 total
+   - Very Weak (NU/ZU): 120-159 total
+
+5. Offensive Type Attribute:
+    - piercing,
+    - crushing
+    - slashing
+    - venom
+    - chemical
+    - grappling 
+
+
+6. Defensive Type Attribute:
+    - hard_shell
+    - segmented armor
+    - evasive
+    - soft
+    - camouflaged
+    - toxic skin
+    - hairy/spiny
+    - thick hide
+
+7. Size Category:
+    - tiny (0-5mm)
+    - small (6-20mm)
+    - medium (21-50mm)
+    - large (51-150mm)
+    - massive (151mm+)
+
+8. Assign a special ability based on the bug's real characteristics
+9. Provide reasoning for your stat allocation
 
 Respond in this EXACT JSON format (no markdown):
 {{
-  "attack": 1-10,
-  "defense": 1-10,
-  "speed": 1-10,
+  "attack": 1-100,
+  "defense": 1-100,
+  "speed": 1-100,
+    "attack_type": "piercing|crushing|slashing|venom|chemical|grappling",
+    "defense_type": "hard_shell|segmented_armor|evasive|hairy_spiny|toxic_skin|thick_hide",
+    "size_category": "tiny 1-5mm|small 6-20mm|medium 21-50mm|large 51-150mm|massive 151mm+",
   "special_ability": "Ability name based on real traits",
+  
   "reasoning": "Brief explanation of stat allocation",
   "tier_recommendation": "uber/ou/uu/ru/nu/zu",
   "confidence": 0.0-1.0
 }}
 
-BE REALISTIC: Most bugs should be in the 18-22 total stat range. Only truly legendary bugs get 27+.
+BE REALISTIC: Most bugs should be in the 180-220 total stat range. Only truly legendary bugs get 270+, also keep in mind most of these bugs will be native to the midwest USA and not exotic species,
+ a normal distribution of stats should reflect that.
 """
         
         try:
@@ -343,9 +425,9 @@ BE REALISTIC: Most bugs should be in the 18-22 total stat range. Only truly lege
                 raise ValueError("Missing required stat fields")
             
             # Ensure stats are in range
-            result['attack'] = max(1, min(10, result['attack']))
-            result['defense'] = max(1, min(10, result['defense']))
-            result['speed'] = max(1, min(10, result['speed']))
+            result['attack'] = max(1, min(100, result['attack']))
+            result['defense'] = max(1, min(100, result['defense']))
+            result['speed'] = max(1, min(100, result['speed']))
             
             return result
             
@@ -353,9 +435,9 @@ BE REALISTIC: Most bugs should be in the 18-22 total stat range. Only truly lege
             print(f"LLM stat generation error: {e}")
             # Fallback to reasonable defaults
             return {
-                'attack': 5,
-                'defense': 5,
-                'speed': 5,
+                'attack': 50,
+                'defense': 50,
+                'speed': 50,
                 'special_ability': 'Survival Instinct',
                 'reasoning': f'LLM generation failed: {str(e)}. Using balanced defaults.',
                 'tier_recommendation': 'uu',
@@ -369,12 +451,26 @@ BE REALISTIC: Most bugs should be in the 18-22 total stat range. Only truly lege
         for category, bugs in self.reference_dataset.items():
             context_parts.append(f"\n**{category.replace('_', ' ').title()}:**")
             for bug in bugs:
+                if not isinstance(bug, dict) or not bug:
+                    # Skip invalid or placeholder entries
+                    continue
+                name = bug.get('name', 'Unknown')
+                scientific = bug.get('scientific', 'Unknown')
+                size_mm = bug.get('size_mm', 'Unknown')
+                attack = bug.get('attack')
+                defense = bug.get('defense')
+                speed = bug.get('speed')
+                # If core stats are missing, skip this entry
+                if attack is None or defense is None or speed is None:
+                    continue
+                total = (attack or 0) + (defense or 0) + (speed or 0)
+                reasoning = bug.get('reasoning', 'No reasoning provided')
                 context_parts.append(
-                    f"- {bug['name']} ({bug['scientific']}): "
-                    f"Size {bug['size_mm']}mm, "
-                    f"ATK:{bug['attack']} DEF:{bug['defense']} SPD:{bug['speed']} "
-                    f"(Total: {bug['attack']+bug['defense']+bug['speed']}) "
-                    f"- {bug['reasoning']}"
+                    f"- {name} ({scientific}): "
+                    f"Size {size_mm}mm, "
+                    f"ATK:{attack} DEF:{defense} SPD:{speed} "
+                    f"(Total: {total}) "
+                    f"- {reasoning}"
                 )
         
         return '\n'.join(context_parts)
@@ -400,10 +496,23 @@ BE REALISTIC: Most bugs should be in the 18-22 total stat range. Only truly lege
         stats = self.generate_stats_with_llm(bug_info)
         
         # Update bug
-        bug.attack = stats['attack']
-        bug.defense = stats['defense']
-        bug.speed = stats['speed']
+        # Scale stats to 0-100 for better disparity
+        bug.attack = max(0, min(100, int(stats['attack'])))
+        bug.defense = max(0, min(100, int(stats['defense'])))
+        bug.speed = max(0, min(100, int(stats['speed'])))
         bug.special_ability = stats.get('special_ability')
+        # Capture combat characteristic suggestions from the LLM
+        if 'attack_type' in stats:
+            bug.attack_type = stats.get('attack_type')
+        if 'defense_type' in stats:
+            bug.defense_type = stats.get('defense_type')
+        # Normalize size naming (accept 'giant' from older prompts)
+        raw_size = stats.get('size_category') or stats.get('size')
+        if raw_size:
+            sc = raw_size.lower()
+            if sc == 'giant':
+                sc = 'massive'
+            bug.size_class = sc
         bug.stats_generation_method = 'llm_contextual'
         bug.stats_generated = True
         

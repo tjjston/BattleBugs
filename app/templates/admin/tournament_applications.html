@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+
+{% block title %}Tournament Applications{% endblock %}
+
+{% block content %}
+<h1>Pending Tournament Applications</h1>
+<p class="text-muted">Review and approve pending entries.</p>
+
+{% if applications %}
+<div class="table-responsive">
+  <table class="table table-sm table-striped align-middle">
+    <thead>
+      <tr>
+        <th>Tournament</th>
+        <th>Bug</th>
+        <th>User</th>
+        <th>Applied</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for app in applications %}
+      <tr>
+        <td>{{ app.tournament.name }}</td>
+        <td><a href="{{ url_for('bugs.view_bug', bug_id=app.bug.id) }}">{{ app.bug.display_name }}</a></td>
+        <td>{{ app.user.username }}</td>
+        <td>{{ app.applied_at.strftime('%Y-%m-%d %H:%M') if app.applied_at else '—' }}</td>
+        <td><span class="badge bg-secondary">{{ app.status }}</span></td>
+        <td>
+          <form method="post" action="{{ url_for('admin.approve_tournament_application', app_id=app.id) }}" style="display:inline">
+            <button class="btn btn-sm btn-primary">Approve</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-muted">No pending applications.</p>
+{% endif %}
+
+<a class="btn btn-outline-secondary" href="{{ url_for('admin.moderation_queue') }}">Back to Moderation Queue</a>
+
+{% endblock %}

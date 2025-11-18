@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Recalculate Stats - {{ bug.nickname }}{% endblock %}
+
+{% block content %}
+<h2 class="mb-3">Recalculate Stats: {{ bug.nickname }}</h2>
+<p class="text-muted">Review the proposed stats, adjust if needed, then confirm or deny.</p>
+
+<div class="row">
+  <div class="col-md-6">
+    <div class="card mb-3">
+      <div class="card-header">Current Stats</div>
+      <div class="card-body">
+        <p><strong>Attack:</strong> {{ current.attack }}</p>
+        <p><strong>Defense:</strong> {{ current.defense }}</p>
+        <p><strong>Speed:</strong> {{ current.speed }}</p>
+        <p><strong>Special Ability:</strong> {{ current.special_ability or '—' }}</p>
+        <p><strong>Tier:</strong> {{ current.tier or '—' }}</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card mb-3">
+      <div class="card-header">Proposed Stats</div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('bugs.confirm_recalc_bug_stats', bug_id=bug.id) }}">
+          <div class="mb-3">
+            <label class="form-label">Attack (0–100)</label>
+            <input type="number" class="form-control" name="attack" value="{{ proposed.attack }}" min="0" max="100">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Defense (0–100)</label>
+            <input type="number" class="form-control" name="defense" value="{{ proposed.defense }}" min="0" max="100">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Speed (0–100)</label>
+            <input type="number" class="form-control" name="speed" value="{{ proposed.speed }}" min="0" max="100">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Special Ability</label>
+            <input type="text" class="form-control" name="special_ability" value="{{ proposed.special_ability or '' }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">LLM Reasoning (optional, for record)</label>
+            <textarea class="form-control" name="reasoning" rows="3">{{ proposed.reasoning or '' }}</textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Suggested Tier</label>
+            <div class="input-group">
+              <select class="form-select" name="tier">
+                {% set tiers = ['uber','ou','uu','ru','nu','zu'] %}
+                {% for t in tiers %}
+                <option value="{{ t }}" {% if proposed.tier == t %}selected{% endif %}>{{ t.upper() }}</option>
+                {% endfor %}
+              </select>
+              <div class="input-group-text">
+                <input class="form-check-input mt-0" type="checkbox" name="override_tier" value="1" aria-label="Override tier">
+              </div>
+              <span class="input-group-text">Override</span>
+            </div>
+            <div class="form-text">Leave override unchecked to auto-assign tier from the adjusted stats.</div>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-success">Confirm & Apply</button>
+        </form>
+        <form method="post" action="{{ url_for('bugs.deny_recalc_bug_stats', bug_id=bug.id) }}">
+            <button type="submit" class="btn btn-outline-secondary">Deny Changes</button>
+        </form>
+          </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="btn btn-link">Back to Profile</a>
+{% endblock %}

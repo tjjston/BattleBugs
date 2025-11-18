@@ -28,8 +28,11 @@
 
                         <div class="mb-3">
                             <label for="nickname" class="form-label">Warrior Name *</label>
-                            <input type="text" class="form-control" id="nickname" name="nickname" 
-                                   placeholder="e.g., Steve, Stinky, The Crimson Reaper" required>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="nickname" name="nickname" 
+                                       placeholder="e.g., Steve, Stinky, The Crimson Reaper" required>
+                                <button class="btn btn-outline-secondary" type="button" onclick="generateSuggestion('nickname')" title="Generate name">⚡</button>
+                            </div>
                             <small class="form-text text-muted">Give your warrior its fight name!</small>
                         </div>
 
@@ -65,8 +68,11 @@
 
                         <div class="mb-3">
                             <label for="lore_background" class="form-label">Background & Origins</label>
-                            <textarea class="form-control" id="lore_background" name="lore_background" rows="2" 
-                                      placeholder="Where did they come from? What's their history?&#10;Example: 'Born in the shadow of the Great Oak, trained by ancient mantis monks'"></textarea>
+                            <div class="input-group">
+                                <textarea class="form-control" id="lore_background" name="lore_background" rows="2" 
+                                          placeholder="Where did they come from? What's their history?&#10;Example: 'Born in the shadow of the Great Oak, trained by ancient mantis monks'"></textarea>
+                                <button class="btn btn-outline-secondary" type="button" onclick="generateSuggestion('lore')" title="Generate lore">⚡</button>
+                            </div>
                         </div>
 
                         <div class="mb-3">
@@ -142,15 +148,22 @@
 
                         <!-- Search by name -->
                         <div class="mb-3">
-                            <label for="speciesSearch" class="form-label">Search by Name</label>
+                            <label for="speciesSearch" class="form-label">Search by Name or Characteristics</label>
                             <div class="input-group">
                                 <input type="text" class="form-control" id="speciesSearch" 
-                                    placeholder="Search by common or scientific name...">
+                                    placeholder="Search by common name, scientific name, or describe traits (e.g., 'small green stinger')...">
                                 <button class="btn btn-outline-secondary" type="button" onclick="searchSpecies()">
                                     🔍 Search
                                 </button>
+                                <button class="btn btn-outline-secondary" type="button" onclick="generateSuggestion('species')" title="Suggest species based on context">⚡</button>
                             </div>
-                            <small class="text-muted">Try: "beetle", "mantis", "hornet", "ladybug"</small>
+                            <div class="form-check mt-2">
+                                <input class="form-check-input" type="checkbox" value="1" id="forceTraitMode">
+                                <label class="form-check-label" for="forceTraitMode">
+                                    Force characteristic-based search
+                                </label>
+                            </div>
+                            <small class="text-muted">Try: "beetle", "mantis", "hornet", or describe traits like 'armored, long mandibles'.</small>
                         </div>
 
                         <!-- Quick characteristic filters -->
@@ -411,11 +424,13 @@ function searchSpecies() {
         alert('Please enter a search term');
         return;
     }
-
     document.getElementById('speciesResults').innerHTML = 
         '<div class="text-center"><div class="spinner-border" role="status"></div><p class="mt-2">Searching...</p></div>';
 
-    fetch(`/api/species/search?q=${encodeURIComponent(query)}`)
+    const forceTraits = document.getElementById('forceTraitMode') && document.getElementById('forceTraitMode').checked;
+    const modeParam = forceTraits ? '&mode=traits' : '';
+
+    fetch(`/api/species/search?q=${encodeURIComponent(query)}${modeParam}`)
         .then(response => response.json())
         .then(data => {
             displaySpeciesResults(data);
@@ -537,6 +552,90 @@ function updateReview() {
     }
     
     document.getElementById('review_lore').innerHTML = loreSummary;
+}
+
+// ---------- Generation helpers ----------
+function generateSuggestion(field) {
+    const btn = event?.target;
+    // Basic spinner / feedback
+    if (btn) {
+        btn.disabled = true;
+        const old = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span>';
+        setTimeout(() => { if(btn) { btn.innerHTML = old; btn.disabled = false; } }, 4000);
+    }
+
+    let context = {};
+    if (field === 'nickname') {
+        context.common_name = document.getElementById('common_name').value || '';
+        context.scientific_name = document.getElementById('scientific_name').value || '';
+    }
+    if (field === 'lore') {
+        context.hint = document.getElementById('lore_background').value || document.getElementById('description').value || '';
+    }
+    if (field === 'species') {
+        context.description = document.getElementById('speciesSearch').value || document.getElementById('description').value || '';
+    }
+
+    fetch('/api/bug/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field: field, context: context })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data) return;
+        if (field === 'nickname' && data.suggestions && data.suggestions.length) {
+            // Fill first suggestion into the field and show dropdown of other suggestions
+            document.getElementById('nickname').value = data.suggestions[0];
+            // Optionally show quick-picks
+            showQuickPicks('nickname', data.suggestions);
+        }
+        if (field === 'lore' && data.result) {
+            const res = data.result;
+            if (res.background) document.getElementById('lore_background').value = res.background;
+            if (res.motivation) document.getElementById('lore_motivation').value = res.motivation;
+            if (res.personality) document.getElementById('lore_personality').value = res.personality;
+        }
+        if (field === 'species' && data.suggestions) {
+            // If suggestions is array of objects, pick first
+            try {
+                const s = Array.isArray(data.suggestions) ? data.suggestions[0] : data.suggestions[0];
+                if (s && s.common_name) {
+                    document.getElementById('common_name').value = s.common_name;
+                    document.getElementById('scientific_name').value = s.scientific_name || '';
+                }
+            } catch (e) {
+                console.warn('Species suggestion parse error', e);
+            }
+        }
+    })
+    .catch(err => {
+        console.error('Generation error', err);
+        alert('Failed to generate suggestion. Try again later.');
+    });
+}
+
+function showQuickPicks(field, picks) {
+    // Small toast-like suggestion box under the input
+    let containerId = field + '_picks';
+    let container = document.getElementById(containerId);
+    if (!container) {
+        container = document.createElement('div');
+        container.id = containerId;
+        container.className = 'mt-2';
+        const input = document.getElementById(field);
+        input.parentNode.appendChild(container);
+    }
+    container.innerHTML = '';
+    picks.forEach(p => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn btn-sm btn-outline-secondary me-1 mb-1';
+        b.innerText = p;
+        b.onclick = () => { document.getElementById(field).value = p; };
+        container.appendChild(b);
+    });
 }
 </script>
 {% endblock %}

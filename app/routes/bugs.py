@@ -8,6 +8,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
 from app.models import Bug, Species, Comment, BugLore
+from sqlalchemy import func
 from app.services.vision_service import comprehensive_bug_verification
 from app.services.tier_system import LLMStatGenerator, TierSystem, assign_tier_and_generate_stats
 from app.services.taxonomy import TaxonomyService
@@ -15,6 +16,7 @@ import os
 from datetime import datetime
 import imagehash
 from PIL import Image
+
 
 bp = Blueprint('bugs', __name__)
 
@@ -31,6 +33,7 @@ def list_bugs():
     search = request.args.get('search', type=str)
     tier = request.args.get('tier', type=str)
     mine = request.args.get('mine', default=0, type=int)
+    species_id = request.args.get('species_id', type=int)
 
     query = Bug.query
 
@@ -39,6 +42,9 @@ def list_bugs():
 
     if tier:
         query = query.filter(Bug.tier == tier)
+
+    if species_id:
+        query = query.filter(Bug.species_id == species_id)
 
     if search:
         likeq = f"%{search}%"
@@ -55,7 +61,7 @@ def list_bugs():
     tiers = db.session.query(Bug.tier).distinct().all()
     tiers = [t[0] for t in tiers if t[0]]
 
-    return render_template('bug_list.html', bugs=bugs, tiers=tiers, active_filters={'search': search, 'tier': tier, 'mine': mine})
+    return render_template('bug_list.html', bugs=bugs, tiers=tiers, active_filters={'search': search, 'tier': tier, 'mine': mine, 'species_id': species_id})
 
 @bp.route('/bug/<int:bug_id>')
 def view_bug(bug_id):
@@ -273,6 +279,159 @@ def submit_bug():
     return render_template('submit_bug.html')
 
 
+def _can_edit_bug(bug):
+    if not current_user.is_authenticated:
+        return False
+    if current_user.id == bug.user_id:
+        return True
+    return getattr(current_user, 'role', 'USER') in ['MODERATOR', 'ADMIN', 'OWNER']
+
+
+@bp.route('/bug/<int:bug_id>/recalc', methods=['GET'])
+@login_required
+def recalc_bug_stats(bug_id):
+    """Preview LLM-recalculated stats with option to adjust before applying."""
+    bug = Bug.query.get_or_404(bug_id)
+    if not _can_edit_bug(bug):
+        flash('You do not have permission to recalculate this bug\'s stats.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    stat_generator = LLMStatGenerator()
+    bug_info = {
+        'scientific_name': bug.scientific_name,
+        'common_name': bug.common_name,
+        'size_mm': bug.species_info.average_size_mm if bug.species_info else None,
+        'traits': _extract_traits_from_bug(bug),
+        'species_info': bug.species_info.to_dict() if bug.species_info else None
+    }
+    stats = stat_generator.generate_stats_with_llm(bug_info)
+
+    proposed = {
+        'attack': max(0, min(100, int(stats['attack'] ))),
+        'defense': max(0, min(100, int(stats['defense'] ))),
+        'speed': max(0, min(100, int(stats['speed'] ))),
+        'special_ability': stats.get('special_ability') or bug.special_ability,
+        'reasoning': stats.get('reasoning') or ''
+    }
+
+    class _Tmp:  # minimal object for tier calc
+        pass
+    tmp = _Tmp()
+    tmp.attack, tmp.defense, tmp.speed = proposed['attack'], proposed['defense'], proposed['speed']
+    proposed_tier = TierSystem.assign_tier(tmp)
+
+    return render_template(
+        'recalc_stats.html',
+        bug=bug,
+        current={'attack': bug.attack, 'defense': bug.defense, 'speed': bug.speed, 'special_ability': bug.special_ability, 'tier': bug.tier},
+        proposed={**proposed, 'tier': proposed_tier}
+    )
+
+
+@bp.route('/bug/<int:bug_id>/recalc/confirm', methods=['POST'])
+@login_required
+def confirm_recalc_bug_stats(bug_id):
+    bug = Bug.query.get_or_404(bug_id)
+    if not _can_edit_bug(bug):
+        flash('You do not have permission to update this bug\'s stats.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    try:
+        attack = int(request.form.get('attack'))
+        defense = int(request.form.get('defense'))
+        speed = int(request.form.get('speed'))
+        special_ability = request.form.get('special_ability')
+        reasoning = request.form.get('reasoning')
+        override_tier = request.form.get('override_tier') == '1'
+        selected_tier = request.form.get('tier')
+
+        for v in (attack, defense, speed):
+            if v < 0 or v > 100:
+                raise ValueError('Stats must be between 0 and 100')
+
+        bug.attack = attack
+        bug.defense = defense
+        bug.speed = speed
+        bug.special_ability = special_ability
+        bug.stats_generation_method = 'llm_recalc_reviewed'
+        bug.stats_generated = True
+
+        if override_tier and selected_tier:
+            bug.tier = selected_tier
+        else:
+            bug.tier = TierSystem.assign_tier(bug)
+
+        db.session.commit()
+        flash('Stats updated successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Failed to update stats: {e}', 'danger')
+
+    return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+
+@bp.route('/bug/<int:bug_id>/recalc/deny', methods=['POST'])
+@login_required
+def deny_recalc_bug_stats(bug_id):
+    bug = Bug.query.get_or_404(bug_id)
+    if not _can_edit_bug(bug):
+        flash('You do not have permission to modify this bug.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+    flash('Recalculated stats discarded. No changes applied.', 'info')
+    return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+
+@bp.route('/pokedex')
+def pokedex():
+    """Species index of community-found bugs (Pokedex)."""
+    search = request.args.get('search', type=str)
+
+    species_query = db.session.query(
+        Species.id,
+        Species.common_name,
+        Species.scientific_name,
+        Species.order,
+        Species.family,
+        func.count(Bug.id).label('count'),
+        func.max(Bug.submission_date).label('last_seen')
+    ).join(Bug, Bug.species_id == Species.id)
+
+    if search:
+        likeq = f"%{search}%"
+        species_query = species_query.filter(
+            (Species.common_name.ilike(likeq)) |
+            (Species.scientific_name.ilike(likeq)) |
+            (Species.family.ilike(likeq)) |
+            (Species.order.ilike(likeq))
+        )
+
+    species_rows = species_query.group_by(Species.id)
+    species_rows = species_rows.order_by(func.count(Bug.id).desc()).all()
+
+    # Fetch a representative image (most recent bug) per species
+    entries = []
+    for row in species_rows:
+        representative = Bug.query.filter_by(species_id=row.id).order_by(Bug.submission_date.desc()).first()
+        entries.append({
+            'id': row.id,
+            'common_name': row.common_name,
+            'scientific_name': row.scientific_name,
+            'order': row.order,
+            'family': row.family,
+            'count': row.count,
+            'last_seen': row.last_seen,
+            'image_path': representative.image_path if representative else None
+        })
+
+    return render_template('pokedex.html', species_entries=entries, search=search)
+
+
+@bp.route('/pokedex/species/<int:species_id>')
+def pokedex_species(species_id):
+    """Shortcut to list all bugs of a species via existing list view."""
+    return redirect(url_for('bugs.list_bugs', species_id=species_id))
+
+
 
 def _extract_traits_from_bug(bug):
     """Extract traits for LLM context"""
@@ -409,7 +568,6 @@ def pre_verify_bug():
         return jsonify(response), 200
         
     except Exception as e:
-        # Cleanup on error
         if os.path.exists(temp_path):
             os.remove(temp_path)
         
@@ -421,7 +579,6 @@ def pre_verify_bug():
 @login_required
 def review_bugs():
     """View bugs that need manual review"""
-    # TODO: Add admin check
     
     pending_bugs = Bug.query.filter_by(
         requires_manual_review=True
@@ -453,16 +610,47 @@ def approve_bug(bug_id):
 @login_required
 def reject_bug(bug_id):
     """Reject a bug after manual review"""
-    # TODO: Add admin check
     
     bug = Bug.query.get_or_404(bug_id)
     
     bug.review_notes = request.form.get('notes', 'Rejected by moderator')
     
-    # Optional: Delete or mark as rejected
-    # For now, just flag it
-    
     db.session.commit()
     
     flash(f'{bug.nickname} rejected', 'info')
     return redirect(url_for('bugs.review_bugs'))
+
+
+@bp.route('/admin/bug/<int:bug_id>/correct_species', methods=['POST'])
+@login_required
+def correct_bug_species(bug_id):
+    """Allow admins/mods to correct the species assignment for a bug."""
+    bug = Bug.query.get_or_404(bug_id)
+    # Simple role check
+    if getattr(current_user, 'role', 'USER') not in ['MODERATOR', 'ADMIN', 'OWNER']:
+        flash('You do not have permission to change species.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    species_id = request.form.get('species_id')
+    common_name = request.form.get('common_name')
+    scientific_name = request.form.get('scientific_name')
+
+    if species_id:
+        try:
+            sp = db.session.get(Species, int(species_id))
+            if sp:
+                bug.species_id = sp.id
+                bug.common_name = sp.common_name
+                bug.scientific_name = sp.scientific_name
+        except Exception:
+            flash('Invalid species selected', 'warning')
+    else:
+        # Allow freeform correction
+        if common_name:
+            bug.common_name = common_name
+        if scientific_name:
+            bug.scientific_name = scientific_name
+
+    db.session.commit()
+    flash('Species information updated.', 'success')
+    return redirect(url_for('bugs.view_bug', bug_id=bug.id))

@@ -25,12 +25,25 @@ def list_tournaments():
 @bp.route('/tournament/<int:tournament_id>')
 def view_tournament(tournament_id):
     tournament = Tournament.query.get_or_404(tournament_id)
-    battles = Battle.query.filter_by(tournament_id=tournament_id)\
-        .order_by(Battle.round_number, Battle.battle_date).all()
-    
-    return render_template('tournament_view.html', 
-                         tournament=tournament,
-                         battles=battles)
+    battles = Battle.query.filter_by(tournament_id=tournament_id).order_by(Battle.round_number, Battle.battle_date).all()
+
+    # If no Battle records exist yet, fall back to TournamentMatch bracket structure
+    if not battles:
+        from types import SimpleNamespace
+        matches = TournamentMatch.query.filter_by(tournament_id=tournament_id).order_by(TournamentMatch.round_number, TournamentMatch.match_number).all()
+        # Map matches to lightweight objects that the template expects (id, round_number, bug1, bug2, battle_date, winner)
+        battles = []
+        for m in matches:
+            obj = SimpleNamespace()
+            obj.id = m.id
+            obj.round_number = getattr(m, 'round_number', None)
+            obj.bug1 = m.bug1
+            obj.bug2 = m.bug2
+            obj.battle_date = None
+            obj.winner = getattr(m, 'winner', None)
+            battles.append(obj)
+
+    return render_template('tournament_view.html', tournament=tournament, battles=battles)
 
 
 @bp.route('/tournament/<int:tournament_id>/apply', methods=['GET', 'POST'])
@@ -170,7 +183,7 @@ def generate_tournament_bracket(tournament: Tournament):
                 bug2_id=bugs[i+1].id,
                 tournament_id=tournament.id,
                 round_number=round_number,
-                battle_date=None  # To be scheduled later
+                battle_date=None 
             )
             battles.append(battle)
             db.session.add(battle)
@@ -188,9 +201,15 @@ def start_tournament(tournament_id):
     if tournament.status != 'upcoming':
         flash('Tournament already started or completed', 'warning')
         return redirect(url_for('tournaments.view_tournament', tournament_id=tournament_id))
-    
+    # Generate bracket using TournamentManager which uses approved applications
+    try:
+        matches = TournamentManager.generate_bracket(tournament.id)
+    except Exception as e:
+        flash(f'Failed to generate bracket: {e}', 'danger')
+        return redirect(url_for('tournaments.view_tournament', tournament_id=tournament_id))
+
     tournament.status = 'active'
     db.session.commit()
-    
-    flash(f'Tournament "{tournament.name}" has begun!', 'success')
+
+    flash(f'Tournament "{tournament.name}" has begun! Generated {len(matches)} matches.', 'success')
     return redirect(url_for('tournaments.view_tournament', tournament_id=tournament_id))

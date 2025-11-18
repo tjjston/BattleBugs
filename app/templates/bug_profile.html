@@ -7,16 +7,37 @@
     <div class="col-md-4">
         <div class="card">
                   <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}" 
-                 class="card-img-top" alt="{{ bug.name }}">
+                 class="card-img-top bug-image" alt="{{ bug.name }}">
             <div class="card-body">
                 <h3 class="card-title">{{ bug.name }}</h3>
                 <p class="text-muted">{{ bug.species or 'Unknown Species' }}</p>
+                {% if current_user.is_authenticated and current_user.role in ['MODERATOR','ADMIN','OWNER'] %}
+                <div class="mt-2">
+                    <button class="btn btn-sm btn-outline-secondary" type="button" onclick="toggleSpeciesEdit()">Edit Species</button>
+                </div>
+                <div id="speciesEditPanel" class="mt-2 d-none">
+                    <form method="POST" action="{{ url_for('bugs.correct_bug_species', bug_id=bug.id) }}">
+                        <div class="input-group mb-2">
+                            <input type="text" class="form-control" id="adminSpeciesSearch" placeholder="Search species...">
+                            <button type="button" class="btn btn-outline-secondary" onclick="adminSearchSpecies()">🔍</button>
+                        </div>
+                        <div id="adminSpeciesResults"></div>
+                        <input type="hidden" name="species_id" id="admin_species_id">
+                        <input type="text" class="form-control mb-2" name="common_name" id="admin_common_name" placeholder="Common name (or leave blank)">
+                        <input type="text" class="form-control mb-2" name="scientific_name" id="admin_scientific_name" placeholder="Scientific name (or leave blank)">
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleSpeciesEdit()">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+                {% endif %}
                 
                 <h5>Stats</h5>
                 <div class="mb-2">
                     <small>Attack</small>
                     <div class="progress">
-                        <div class="progress-bar bg-danger" style="width: {{ bug.attack * 10 }}%">
+                        <div class="progress-bar bg-danger" style="width: {{ bug.attack }}%">
                             {{ bug.attack }}
                         </div>
                     </div>
@@ -24,7 +45,7 @@
                 <div class="mb-2">
                     <small>Defense</small>
                     <div class="progress">
-                        <div class="progress-bar bg-primary" style="width: {{ bug.defense * 10 }}%">
+                        <div class="progress-bar bg-primary" style="width: {{ bug.defense }}%">
                             {{ bug.defense }}
                         </div>
                     </div>
@@ -32,7 +53,7 @@
                 <div class="mb-2">
                     <small>Speed</small>
                     <div class="progress">
-                        <div class="progress-bar bg-success" style="width: {{ bug.speed * 10 }}%">
+                        <div class="progress-bar bg-success" style="width: {{ bug.speed }}%">
                             {{ bug.speed }}
                         </div>
                     </div>
@@ -41,6 +62,12 @@
                 <h5 class="mt-3">Battle Record</h5>
                 <p class="mb-1"><strong>{{ bug.wins }}</strong> Wins - <strong>{{ bug.losses }}</strong> Losses</p>
                 <p class="text-muted">Win Rate: {{ "%.1f"|format(bug.win_rate) }}%</p>
+
+                {% if current_user.is_authenticated and (current_user.id == bug.user_id or current_user.role in ['MODERATOR','ADMIN','OWNER']) %}
+                <div class="d-grid mt-3">
+                    <a class="btn btn-sm btn-warning" href="{{ url_for('bugs.recalc_bug_stats', bug_id=bug.id) }}">Recalculate Stats</a>
+                </div>
+                {% endif %}
 
                 <small class="text-muted">
                     Submitted by {{ bug.owner.username }} on {{ bug.submission_date.strftime('%B %d, %Y') }}
@@ -126,4 +153,48 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleSpeciesEdit(){
+    const panel = document.getElementById('speciesEditPanel');
+    if(!panel) return;
+    panel.classList.toggle('d-none');
+}
+
+function adminSearchSpecies(){
+    const q = document.getElementById('adminSpeciesSearch').value;
+    const container = document.getElementById('adminSpeciesResults');
+    if(!q) { container.innerHTML = '<div class="text-muted">Enter a query</div>'; return; }
+    container.innerHTML = '<div class="spinner-border" role="status"></div>';
+    fetch(`/api/species/search?q=${encodeURIComponent(q)}`)
+        .then(r => r.json())
+        .then(data => {
+            if(!Array.isArray(data) || data.length === 0){
+                container.innerHTML = '<div class="alert alert-info">No species found</div>';
+                return;
+            }
+            let html = '';
+            data.forEach(sp => {
+                html += `<div class="species-result" onclick='adminSelectSpecies(${JSON.stringify(sp).replace(/'/g, "&apos;")})'>` +
+                        `<div class="species-result-content">` +
+                        (sp.image_url?`<img src="${sp.image_url}" class="species-image">`:`<div class="species-image-placeholder">🐛</div>`) +
+                        `<div class="species-info"><h6>${sp.common_name || sp.scientific_name}</h6><div style="font-size:0.9em;color:#6c757d">${sp.order||''} ${sp.family||''}</div></div>`+
+                        `</div></div>`;
+            });
+            container.innerHTML = html;
+        })
+        .catch(e=>{ container.innerHTML = '<div class="alert alert-danger">Error searching</div>'; });
+}
+
+function adminSelectSpecies(spec){
+    document.getElementById('admin_species_id').value = spec.id || '';
+    document.getElementById('admin_common_name').value = spec.common_name || '';
+    document.getElementById('admin_scientific_name').value = spec.scientific_name || '';
+    // Highlight selected
+    // Close results
+    document.getElementById('adminSpeciesResults').innerHTML = '<div class="alert alert-success">Selected: '+(spec.common_name||spec.scientific_name)+'</div>';
+}
+</script>
 {% endblock %}

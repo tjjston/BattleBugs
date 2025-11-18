@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+
+{% block title %}Manage Users{% endblock %}
+
+{% block content %}
+<h1>Manage Users</h1>
+
+<table class="table table-striped">
+  <thead>
+    <tr>
+      <th>Username</th>
+      <th>Email</th>
+      <th>Role</th>
+      <th>Joined</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for user in users %}
+    <tr>
+      <td>{{ user.username }}</td>
+      <td>{{ user.email }}</td>
+      <td>{{ user.role or 'USER' }}</td>
+      <td>{{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '—' }}</td>
+      <td>
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin.user_profile', user_id=user.id) }}">Profile</a>
+        {% if is_owner() %}
+          {% if user.id != current_user.id and user.role not in ['ADMIN','OWNER'] %}
+          <form style="display:inline" method="post" action="{{ url_for('admin.assign_user_role', user_id=user.id) }}">
+            <input type="hidden" name="role" value="MODERATOR">
+            <button class="btn btn-sm btn-outline-secondary">Set as Moderator</button>
+          </form>
+          {% endif %}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% endblock %}

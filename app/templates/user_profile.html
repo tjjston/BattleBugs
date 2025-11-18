@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ user.username }} - Profile{% endblock %}
+
+{% block content %}
+<h1>{{ user.username }}</h1>
+<p class="text-muted">Joined {{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '—' }}</p>
+
+<div class="row g-4">
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header"><strong>Account</strong></div>
+      <div class="card-body">
+        <p><strong>Role:</strong> {{ user.role or 'USER' }}</p>
+        <p><strong>ELO:</strong> {{ user.elo }}</p>
+        <p><strong>Status:</strong>
+          {% if user.is_banned %}
+            <span class="badge bg-danger">BANNED</span>
+          {% else %}
+            <span class="badge bg-success">Active</span>
+          {% endif %}
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header"><strong>Stats</strong></div>
+      <div class="card-body">
+        <div class="row">
+          <div class="col-6 col-md-4 mb-3"><strong>Bugs Submitted:</strong><br>{{ stats.bugs_submitted }}</div>
+          <div class="col-6 col-md-4 mb-3"><strong>Total Wins:</strong><br>{{ stats.total_wins }}</div>
+          <div class="col-6 col-md-4 mb-3"><strong>Total Losses:</strong><br>{{ stats.total_losses }}</div>
+          <div class="col-6 col-md-4 mb-3"><strong>Win Rate:</strong><br>{{ stats.win_rate }}%</div>
+          <div class="col-6 col-md-4 mb-3"><strong>Comments:</strong><br>{{ stats.comments_made }}</div>
+          <div class="col-6 col-md-4 mb-3"><strong>Lore Entries:</strong><br>{{ stats.lore_entries }}</div>
+          <div class="col-6 col-md-4 mb-3"><strong>Account Age:</strong><br>{{ stats.account_age_days if stats.account_age_days is not none else '—' }} days</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

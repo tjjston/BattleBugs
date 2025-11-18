@@ -1,0 +1,117 @@
+{% extends 'base.html' %}
+
+{% block title %}X-Factor Insights{% endblock %}
+
+{% block content %}
+<h1>X-Factor Insights</h1>
+<p class="text-muted">Overview of bugs with non-zero xfactor values and distribution stats.</p>
+
+<form class="row gy-2 gx-2 align-items-end mb-3" method="get">
+  <div class="col-auto">
+    <label class="form-label" for="sort">Sort by</label>
+    <select id="sort" name="sort" class="form-select">
+      <option value="xfactor" {% if sort=='xfactor' %}selected{% endif %}>X-Factor</option>
+      <option value="wins" {% if sort=='wins' %}selected{% endif %}>Wins</option>
+      <option value="losses" {% if sort=='losses' %}selected{% endif %}>Losses</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label" for="order">Order</label>
+    <select id="order" name="order" class="form-select">
+      <option value="desc" {% if order=='desc' %}selected{% endif %}>Desc</option>
+      <option value="asc" {% if order=='asc' %}selected{% endif %}>Asc</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label" for="per_page">Per page</label>
+    <select id="per_page" name="per_page" class="form-select">
+      <option value="25" {% if per_page==25 %}selected{% endif %}>25</option>
+      <option value="50" {% if per_page==50 %}selected{% endif %}>50</option>
+      <option value="100" {% if per_page==100 %}selected{% endif %}>100</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-primary">Apply</button>
+  </div>
+</form>
+
+<div class="row g-4 mb-4">
+  <div class="col-md-3">
+    <div class="card text-bg-light">
+      <div class="card-body">
+        <div class="h4">{{ stats.total_count }}</div>
+        <div class="text-muted">Total with X-Factor</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-bg-light">
+      <div class="card-body">
+        <div class="h4">{{ stats.average }}</div>
+        <div class="text-muted">Average</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-bg-light">
+      <div class="card-body">
+        <div class="h4">{{ stats.max }}</div>
+        <div class="text-muted">Max</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-bg-light">
+      <div class="card-body">
+        <div class="h4">{{ stats.min }}</div>
+        <div class="text-muted">Min</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="table-responsive">
+  <table class="table table-sm table-striped align-middle">
+    <thead>
+      <tr>
+        <th>Bug</th>
+        <th>Owner</th>
+        <th>Tier</th>
+        <th>Wins</th>
+        <th>Losses</th>
+        <th>X-Factor</th>
+        <th>Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for bug in bugs %}
+      <tr>
+        <td><a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">{{ bug.display_name }}</a></td>
+        <td>{{ bug.owner.username }}</td>
+        <td>{{ bug.tier or '—' }}</td>
+        <td>{{ bug.wins }}</td>
+        <td>{{ bug.losses }}</td>
+        <td>{% if bug.xfactor %}{{ '%.2f'|format(bug.xfactor) }}{% else %}0{% endif %}</td>
+        <td>{{ bug.xfactor_reason or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if pagination %}
+<nav aria-label="Page navigation" class="mt-3">
+  <ul class="pagination">
+    <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+      <a class="page-link" href="{{ url_for('admin.xfactor_insights', page=pagination.prev_num, sort=sort, order=order, per_page=per_page) }}">Previous</a>
+    </li>
+    <li class="page-item disabled"><span class="page-link">Page {{ pagination.page }} of {{ pagination.pages }}</span></li>
+    <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+      <a class="page-link" href="{{ url_for('admin.xfactor_insights', page=pagination.next_num, sort=sort, order=order, per_page=per_page) }}">Next</a>
+    </li>
+  </ul>
+  <p class="text-muted">Showing {{ bugs|length }} of {{ stats.total_count }} total with X-Factor.</p>
+</nav>
+{% endif %}
+
+{% endblock %}

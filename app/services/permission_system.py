@@ -263,11 +263,18 @@ class AdminUserManager:
     @staticmethod
     def assign_role(user, new_role: UserRole, assigned_by):
         """Assign a role to a user (requires appropriate permissions)"""
-        if not is_owner(assigned_by) and new_role >= UserRole.ADMIN:
-            raise PermissionError("Only owners can assign admin or owner roles")
-        
-        if not is_admin(assigned_by) and new_role >= UserRole.MODERATOR:
+        # Only owners can manipulate ADMIN/OWNER roles or change anyone who is ADMIN/OWNER
+        target_role = UserRole[user.role]
+        if (new_role >= UserRole.ADMIN) or (target_role >= UserRole.ADMIN):
+            if not is_owner(assigned_by):
+                raise PermissionError("Only owners can change admin/owner roles or change users who are admin/owner")
+        # Assigning moderator role requires at least admin
+        if new_role == UserRole.MODERATOR and not is_admin(assigned_by):
             raise PermissionError("Only admins can assign moderator roles")
+        # Prevent self-demotion for current owner from within code paths that bypass route check
+        if user.id == assigned_by.id:
+            if UserRole[assigned_by.role] == UserRole.OWNER and new_role < UserRole.OWNER:
+                raise PermissionError("Owners cannot demote themselves. Use another OWNER account.")
         
         user.role = new_role.name
         
@@ -280,7 +287,8 @@ class AdminUserManager:
     def get_user_stats(user) -> dict:
         """Get comprehensive user statistics"""
         from app.models import Bug, Battle, Comment, BugLore
-        
+        from app import db
+        from datetime import datetime
         bugs_submitted = Bug.query.filter_by(user_id=user.id).count()
         total_wins = sum(bug.wins for bug in user.bugs.all())
         total_losses = sum(bug.losses for bug in user.bugs.all())
@@ -288,6 +296,15 @@ class AdminUserManager:
         comments_made = Comment.query.filter_by(user_id=user.id).count()
         lore_entries = BugLore.query.filter_by(user_id=user.id).count()
         
+        # compute account age in days safely (user.created_at may be None)
+        if getattr(user, 'created_at', None):
+            try:
+                account_age_days = (datetime.utcnow() - user.created_at).days
+            except Exception:
+                account_age_days = None
+        else:
+            account_age_days = None
+
         return {
             'bugs_submitted': bugs_submitted,
             'total_wins': total_wins,
@@ -295,5 +312,5 @@ class AdminUserManager:
             'win_rate': round((total_wins / (total_wins + total_losses)) * 100, 1) if (total_wins + total_losses) > 0 else 0,
             'comments_made': comments_made,
             'lore_entries': lore_entries,
-            'account_age_days': (db.func.julianday('now') - db.func.julianday(user.created_at))
+            'account_age_days': account_age_days
         }
