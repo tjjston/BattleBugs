@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template
+from flask import send_from_directory, current_app
 from app import db
 from app.models import Bug, Battle, Tournament
 from sqlalchemy import desc, func
@@ -49,3 +50,9 @@ def hall_of_fame():
     return render_template('hall_of_fame.html', 
                          top_bugs=top_bugs, 
                          tournaments=tournaments)
+
+
+@bp.route('/uploads/<path:filename>')
+def uploaded_file(filename):
+    """Serve user-uploaded files from the configured uploads folder."""
+    return send_from_directory(current_app.config['UPLOAD_FOLDER'], filename)

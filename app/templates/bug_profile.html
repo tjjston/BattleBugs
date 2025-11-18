@@ -6,7 +6,7 @@
 <div class="row">
     <div class="col-md-4">
         <div class="card">
-            <img src="{{ url_for('static', filename='../uploads/' + bug.image_path) }}" 
+                  <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}" 
                  class="card-img-top" alt="{{ bug.name }}">
             <div class="card-body">
                 <h3 class="card-title">{{ bug.name }}</h3>

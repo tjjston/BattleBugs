@@ -1,63 +1,114 @@
-<!DOCTYPE html>
 {% extends "base.html" %}
 
-{% block title %}Bug List{% endblock %}
+{% block title %}Bug List - Bug Arena{% endblock %}
 
 {% block content %}
-<h1 class="text-center mb-4">Bug List</h1>
+<h1 class="text-center mb-4">Bug Arena Gladiators</h1>
+
+<!-- Filter bar -->
+<form method="get" class="row g-2 mb-3">
+    <div class="col-md-4">
+        <input type="search" name="search" class="form-control" placeholder="Search name or species" value="{{ active_filters.search or '' }}">
+    </div>
+    <div class="col-md-3">
+        <select name="tier" class="form-select">
+            <option value="">All Tiers</option>
+            {% for t in tiers %}
+            <option value="{{ t }}" {% if active_filters.tier == t %}selected{% endif %}>{{ t.upper() }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2 d-flex align-items-center">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="mine" value="1" id="mineCheck" {% if active_filters.mine %}checked{% endif %}>
+            <label class="form-check-label small" for="mineCheck">My bugs</label>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <button type="submit" class="btn btn-primary">Filter</button>
+        <a href="{{ url_for('bugs.list_bugs') }}" class="btn btn-outline-secondary">Reset</a>
+    </div>
+</form>
+
+{% if bugs.items %}
 <div class="row">
-    {% for bug in bugs %}
+    {% for bug in bugs.items %}
     <div class="col-md-4 mb-4">
-        <div class="card h-100">
-            <a href="https://en.wikipedia.org/wiki/{{ bug.scientific_name }}">
-                <img src="{{ url_for('static', filename='../uploads/' + bug.image_path) }}" 
-                     class="card-img-top" alt="{{ bug.name }} is a bug species found in various environments, showcasing its unique features and colors. The background includes elements of its natural habitat, emphasizing its ecological context.">
+        <div class="card h-100 bug-card">
+            <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">
+                 <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}" 
+                     class="card-img-top bug-image" 
+                     alt="{{ bug.nickname }}"
+                     style="height: 250px; object-fit: cover;">
+            </a>
             <div class="card-body">
                 <h5 class="card-title">
-                    <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">{{ bug.name }}</a>
+                    <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="text-decoration-none">
+                        {{ bug.nickname }}
+                    </a>
                 </h5>
-                <p class="card-text text-muted">{{ bug.common_name or 'Unknown Species' }}</p>
-                <p class="card-text">
-                    <strong>Owner:</strong> {{ models.bug.user_id }}<br>
-                    <strong>Submitted on:</strong> {{ models.bug.found_date('%B %d, %Y') }}<br>
-                    <strong>:</strong>
-                    <em>{{ bug.common_name }}</em>
+                
+                <!-- Species info -->
+                <p class="card-text text-muted small mb-2">
+                    {% if bug.common_name %}
+                        <em>{{ bug.common_name }}</em>
+                    {% elif bug.scientific_name %}
+                        <em>{{ bug.scientific_name }}</em>
+                    {% else %}
+                        <em>Species Unknown</em>
+                    {% endif %}
+                </p>
+
+                <!-- Stats display -->
+                <div class="mb-2">
+                    <small class="text-muted">Stats:</small>
+                    <div class="d-flex gap-1">
+                        <span class="badge bg-danger">ATK: {{ bug.attack }}</span>
+                        <span class="badge bg-primary">DEF: {{ bug.defense }}</span>
+                        <span class="badge bg-success">SPD: {{ bug.speed }}</span>
+                    </div>
+                </div>
+
+                <!-- Tier badge -->
+                {% if bug.tier %}
+                <div class="mb-2">
+                    <span class="badge bg-info">{{ bug.tier.upper() }} Tier</span>
+                </div>
+                {% endif %}
+
+                <!-- Owner and record -->
+                <p class="card-text small">
+                    <strong>Owner:</strong> {{ bug.owner.username }}<br>
                     <strong>Record:</strong> {{ bug.wins }}W - {{ bug.losses }}L<br>
-                    <strong>Win Rate:</strong> {{ "%.1f"|format(bug.win_rate) }}%</p>
+                    {% if bug.wins + bug.losses > 0 %}
+                    <strong>Win Rate:</strong> {{ "%.1f"|format(bug.win_rate) }}%
+                    {% endif %}
+                </p>
+
+                <!-- Submission date -->
+                <p class="card-text">
+                    <small class="text-muted">
+                        Submitted: {{ bug.submission_date.strftime('%B %d, %Y') }}
+                    </small>
+                </p>
+
+                <!-- Flair -->
+                {% if bug.flair %}
+                <div class="mt-2">
+                    <span class="badge bg-warning text-dark">{{ bug.flair }}</span>
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="card-footer bg-transparent">
+                <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="btn btn-sm btn-primary w-100">
+                    View Profile
+                </a>
             </div>
         </div>
     </div>
     {% endfor %}
 </div>
-{% if bugs.has_prev or bugs.has_next %}
-<nav aria-label="Bug pagination">
-    <ul class="pagination justify-content-center">
-        {% if bugs.has_prev %}
-        <li class="page-item">
-            <a class="page-link" href="{{ url_for('bugs.list_bugs', page=bugs.prev_num) }}">Previous</a>
-        </li>
-        {% endif %}
-        
-        {% for page_num in bugs.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=2) %}
-            {% if page_num %}
-                {% if page_num == bugs.page %}
-                <li class="page-item active"><a class="page-link" href="#">{{ page_num }}</a></li>
-                {% else %}
-                <li class="page-item"><a class="page-link" href="{{ url_for('bugs.list_bugs', page=page_num) }}">{{ page_num }}</a></li>
-                {% endif %}
-            {% else %}
-                <li class="page-item disabled"><a class="page-link" href="#">...</a></li>
-            {% endif %}
-        {% endfor %}
-        
-        {% if bugs.has_next %}
-        <li class="page-item">
-            <a class="page-link" href="{{ url_for('bugs.list_bugs', page=bugs.next_num) }}">Next</a>
-        </li>
-        {% endif %}
-    </ul>
-</nav>
-
 
 <!-- Pagination -->
 {% if bugs.has_prev or bugs.has_next %}

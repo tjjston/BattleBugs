@@ -55,12 +55,12 @@ class TaxonomyService:
         return results
     
     def _search_gbif(self, query):
-        """Search GBIF database with images and vernacular names"""
+        """Search GBIF database with improved ranking"""
         url = f"{self.GBIF_API}/species/search"
         params = {
             'q': query,
             'class': 'Insecta',
-            'limit': 10
+            'limit': 20  # Get more results for better filtering
         }
         
         response = requests.get(url, params=params, timeout=10)
@@ -75,25 +75,23 @@ class TaxonomyService:
             scientific_name = result.get('scientificName')
             common_name = result.get('vernacularName')
             
-            # If no vernacular name in search results, fetch it separately
+            # Fetch vernacular names if not present
             if not common_name and species_key:
                 try:
                     vernacular_url = f"{self.GBIF_API}/species/{species_key}/vernacularNames"
                     vern_response = requests.get(vernacular_url, timeout=5)
                     if vern_response.status_code == 200:
                         vern_data = vern_response.json()
-                        # Get first English vernacular name
                         for vern in vern_data.get('results', []):
                             if vern.get('language') == 'eng':
                                 common_name = vern.get('vernacularName')
                                 break
-                        # If no English, get first available
                         if not common_name and vern_data.get('results'):
                             common_name = vern_data['results'][0].get('vernacularName')
                 except Exception as e:
                     print(f"Error fetching vernacular name for {species_key}: {e}")
             
-         
+            # Fetch image
             image_url = None
             if species_key:
                 try:
@@ -117,6 +115,29 @@ class TaxonomyService:
                 if scientific_base.lower() == common_base.lower():
                     common_name = None
             
+            # Calculate relevance score for ranking
+            relevance_score = 0
+            
+            # Boost if has common name
+            if common_name:
+                relevance_score += 10
+                # Extra boost if common name matches query
+                if query.lower() in common_name.lower():
+                    relevance_score += 20
+            
+            # Boost if has image
+            if image_url:
+                relevance_score += 15
+            
+            # Boost if scientific name matches query well
+            if query.lower() in scientific_name.lower():
+                relevance_score += 5
+            
+            # Boost common orders (beetles, ants, bees, butterflies)
+            common_orders = ['Coleoptera', 'Hymenoptera', 'Lepidoptera', 'Diptera', 'Hemiptera']
+            if result.get('order') in common_orders:
+                relevance_score += 5
+            
             species_data = {
                 'scientific_name': scientific_name,
                 'common_name': common_name,
@@ -126,9 +147,13 @@ class TaxonomyService:
                 'species': result.get('species'),
                 'gbif_id': species_key,
                 'image_url': image_url,
-                'source': 'gbif'
+                'source': 'gbif',
+                'relevance_score': relevance_score
             }
             results.append(species_data)
+        
+        # Sort by relevance score (highest first)
+        results.sort(key=lambda x: x['relevance_score'], reverse=True)
         
         return results
     

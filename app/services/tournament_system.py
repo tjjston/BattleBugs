@@ -37,14 +37,18 @@ class TournamentEligibilityChecker:
         }
         
         # Check 1: Bug must be submitted before tournament creation
-        if bug.submission_date > tournament.created_at:
-            result['eligible'] = False
-            result['reasons'].append(
-                f"Bug was submitted after tournament creation "
-                f"({bug.submission_date.strftime('%Y-%m-%d')} > {tournament.created_at.strftime('%Y-%m-%d')})"
-            )
+        if tournament.created_at:
+            if bug.submission_date > tournament.created_at:
+                result['eligible'] = False
+                result['reasons'].append(
+                    f"Bug was submitted after tournament creation "
+                    f"({bug.submission_date.strftime('%Y-%m-%d')} > {tournament.created_at.strftime('%Y-%m-%d')})"
+                )
+            else:
+                result['reasons'].append("Bug submitted successfully, Good Luck!")
         else:
-            result['reasons'].append("Bug submitted successfully, Good Luck!")
+            # If we don't have a tournament creation timestamp, warn rather than fail
+            result['warnings'].append('Tournament creation date unknown; cannot verify submission timing')
         
         # Check 2: Tier restrictions
         if tournament.tier_restriction:
@@ -154,7 +158,9 @@ class TournamentManager:
             start_date=start_date,
             tier_restriction=tier_restriction,
             max_participants=max_participants,
-            registration_deadline=registration_deadline or (start_date - timedelta(days=1)),
+            # If `registration_deadline` is explicitly provided, use it.
+            # If it's `None`, leave it `None` to allow open/indefinite registration.
+            registration_deadline=registration_deadline,
             created_by_id=created_by_id,
             created_at=datetime.utcnow(),
             status='registration'
@@ -177,16 +183,22 @@ class TournamentManager:
             raise ValueError(f"Bug not eligible: {'; '.join(eligibility['reasons'])}")
         
         # Create application
+        # Auto-approve if eligible: no moderator approval required for eligible bugs
         application = TournamentApplication(
             tournament_id=tournament_id,
             bug_id=bug_id,
             user_id=user_id,
-            status='pending'
+            status='approved' if eligibility['eligible'] else 'pending'
         )
-        
+
+        # If auto-approved, mark reviewed metadata using tournament creator if available
+        if application.status == 'approved':
+            application.reviewed_at = datetime.utcnow()
+            application.reviewed_by_id = tournament.created_by_id if getattr(tournament, 'created_by_id', None) else None
+
         db.session.add(application)
         db.session.commit()
-        
+
         return application
     
     @staticmethod

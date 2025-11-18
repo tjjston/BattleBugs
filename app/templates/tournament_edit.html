@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Edit {{ tournament.name }} - Bug Arena{% endblock %}
+
+{% block content %}
+<h1>Edit Tournament</h1>
+<form method="post" class="row g-3">
+    <div class="col-md-6">
+        <label for="name" class="form-label">Tournament Name</label>
+        <input type="text" class="form-control" id="name" name="name" value="{{ tournament.name }}" required>
+    </div>
+
+    <div class="col-md-4">
+        <label for="start_date" class="form-label">Start Date</label>
+        <input type="date" class="form-control" id="start_date" name="start_date" value="{{ tournament.start_date.strftime('%Y-%m-%d') }}" required>
+    </div>
+
+    <div class="col-md-2">
+        <label for="max_participants" class="form-label">Participants</label>
+        <input type="number" min="2" step="1" class="form-control" id="max_participants" name="max_participants" value="{{ tournament.max_participants or '' }}">
+    </div>
+
+    <div class="col-md-6">
+        <label for="tier" class="form-label">Tier Restriction</label>
+        <select class="form-select" id="tier" name="tier">
+            <option value="">No restriction</option>
+            {% for t in ['uber','ou','uu','ru','nu','zu'] %}
+            <option value="{{ t }}" {% if tournament.tier == t %}selected{% endif %}>{{ t.upper() }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-6 d-flex align-items-end">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" value="1" id="allow_tier_above" name="allow_tier_above" {% if tournament.allow_tier_above %}checked{% endif %}>
+            <label class="form-check-label small" for="allow_tier_above">Allow bugs of this tier and above</label>
+        </div>
+    </div>
+
+    <div class="col-12">
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+        <a href="{{ url_for('tournaments.view_tournament', tournament_id=tournament.id) }}" class="btn btn-secondary">Cancel</a>
+        <form method="post" action="{{ url_for('tournaments.delete_tournament', tournament_id=tournament.id) }}" style="display:inline">
+            <button type="submit" class="btn btn-danger" onclick="return confirm('Delete this tournament? This cannot be undone.')">Delete</button>
+        </form>
+    </div>
+</form>
+{% endblock %}

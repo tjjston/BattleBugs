@@ -18,6 +18,17 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(256))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    role = db.Column(db.String(20), default='USER')  # USER, MODERATOR, ADMIN, OWNER
+    elo = db.Column(db.Integer, default=1000)
+    is_active = db.Column(db.Boolean, default=True)
+    is_banned = db.Column(db.Boolean, default=False)
+    warnings = db.Column(db.Integer, default=0)
+    comments_made = db.Column(db.Integer, default=0)
+    tournaments_participated = db.Column(db.Integer, default=0)
+    tournaments_won = db.Column(db.Integer, default=0)
+    bugs_submitted = db.Column(db.Integer, default=0)
+    best_bug_elo = db.Column(db.Integer, default=0)
+
     
     # Relationships
     bugs = db.relationship('Bug', backref='owner', lazy='dynamic')
@@ -284,6 +295,7 @@ class Battle(db.Model):
     bug1_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
     bug2_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
     winner_id = db.Column(db.Integer, db.ForeignKey('bug.id'))
+    winner = db.relationship('Bug', foreign_keys=[winner_id])
     
     narrative = db.Column(db.Text)
     battle_date = db.Column(db.DateTime, default=datetime.utcnow)
@@ -307,9 +319,14 @@ class Tournament(db.Model):
     end_date = db.Column(db.DateTime)
     winner_id = db.Column(db.Integer, db.ForeignKey('bug.id'))
     status = db.Column(db.String(20), default='upcoming')
+    max_participants = db.Column(db.Integer)
     
     # Tier restriction
     tier = db.Column(db.String(20))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    registration_deadline = db.Column(db.DateTime)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
     allow_tier_above = db.Column(db.Boolean, default=False)
     
     battles = db.relationship('Battle', backref='tournament', lazy='dynamic')
@@ -317,6 +334,15 @@ class Tournament(db.Model):
     
     def __repr__(self):
         return f'<Tournament {self.name}>'
+    
+    @property
+    def tier_restriction(self):
+        """Compatibility alias: some services use `tier_restriction` name."""
+        return self.tier
+
+    @tier_restriction.setter
+    def tier_restriction(self, value):
+        self.tier = value
     
 class TournamentApplication(db.Model):
     """Model for tournament applications"""

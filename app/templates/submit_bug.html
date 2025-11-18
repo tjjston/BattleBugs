@@ -140,16 +140,31 @@
                         <h4>Step 3: Species Identification (Optional)</h4>
                         <p class="text-muted">Help identify the species for accurate stats</p>
 
+                        <!-- Search by name -->
                         <div class="mb-3">
-                            <label for="speciesSearch" class="form-label">Search Species</label>
+                            <label for="speciesSearch" class="form-label">Search by Name</label>
                             <div class="input-group">
                                 <input type="text" class="form-control" id="speciesSearch" 
-                                       placeholder="Search by common or scientific name...">
+                                    placeholder="Search by common or scientific name...">
                                 <button class="btn btn-outline-secondary" type="button" onclick="searchSpecies()">
                                     🔍 Search
                                 </button>
                             </div>
-                            <small class="text-muted">Try: "beetle", "mantis", "hornet"</small>
+                            <small class="text-muted">Try: "beetle", "mantis", "hornet", "ladybug"</small>
+                        </div>
+
+                        <!-- Quick characteristic filters -->
+                        <div class="mb-3">
+                            <label class="form-label">Quick Filters</label>
+                            <div class="btn-group-sm d-flex flex-wrap gap-2">
+                                <button type="button" class="btn btn-outline-primary" onclick="searchByTrait('beetle')">🪲 Beetles</button>
+                                <button type="button" class="btn btn-outline-primary" onclick="searchByTrait('ant')">🐜 Ants</button>
+                                <button type="button" class="btn btn-outline-primary" onclick="searchByTrait('bee')">🐝 Bees/Wasps</button>
+                                <button type="button" class="btn btn-outline-primary" onclick="searchByTrait('butterfly')">🦋 Butterflies</button>
+                                <button type="button" class="btn btn-outline-primary" onclick="searchByTrait('spider')">🕷️ Spiders</button>
+                                <button type="button" class="btn btn-outline-primary" onclick="searchByTrait('fly')">🪰 Flies</button>
+                                <button type="button" class="btn btn-outline-primary" onclick="searchByTrait('grasshopper')">🦗 Grasshoppers</button>
+                            </div>
                         </div>
 
                         <div id="speciesResults" class="mb-3"></div>
@@ -157,12 +172,13 @@
                         <input type="hidden" id="species_id" name="species_id">
                         <input type="hidden" id="scientific_name" name="scientific_name">
                         <input type="hidden" id="common_name" name="common_name">
+                        <input type="hidden" id="species_image_url" name="species_image_url">
 
                         <div class="alert alert-info">
                             <strong>Not sure?</strong> You can skip this. Stats will be auto-generated!
                         </div>
 
-                        <div class="btn-group w-100">
+                        <div class="btn-group w-100" id="step3Buttons">
                             <button type="button" class="btn btn-secondary" onclick="goToStep(2)">
                                 ← Back
                             </button>
@@ -174,7 +190,6 @@
                             </button>
                         </div>
                     </div>
-
                     <!-- Step 4: Review & Submit -->
                     <div class="submission-step d-none" id="step4">
                         <h4>Step 4: Review Your Gladiator</h4>
@@ -385,6 +400,10 @@ function skipLore() {
 function skipSpecies() {
     goToStep(4);
 }
+function searchByTrait(trait) {
+    document.getElementById('speciesSearch').value = trait;
+    searchSpecies();
+}
 
 function searchSpecies() {
     const query = document.getElementById('speciesSearch').value;
@@ -394,7 +413,7 @@ function searchSpecies() {
     }
 
     document.getElementById('speciesResults').innerHTML = 
-        '<div class="text-center"><div class="spinner-border" role="status"></div></div>';
+        '<div class="text-center"><div class="spinner-border" role="status"></div><p class="mt-2">Searching...</p></div>';
 
     fetch(`/api/species/search?q=${encodeURIComponent(query)}`)
         .then(response => response.json())
@@ -412,12 +431,13 @@ function displaySpeciesResults(results) {
     const container = document.getElementById('speciesResults');
     
     if (!results || results.length === 0) {
-        container.innerHTML = '<div class="alert alert-info">No results found. Try searching for common names like "beetle", "ant", or "wasp".</div>';
+        container.innerHTML = '<div class="alert alert-info">No results found. Try searching for common names like "beetle", "ant", or "wasp", or use the quick filters above.</div>';
         return;
     }
 
-    let html = '<div class="species-results-list">';
-    results.forEach(species => {
+    let html = '<div class="species-results-list"><h6 class="text-muted mb-2">Click to select (best matches at top)</h6>';
+    
+    results.forEach((species, index) => {
         // Build image HTML
         let imageHtml = '';
         if (species.image_url) {
@@ -431,12 +451,18 @@ function displaySpeciesResults(results) {
                                        species.scientific_name && 
                                        !species.scientific_name.toLowerCase().includes(species.common_name.toLowerCase().split('(')[0].trim());
         
+        // Add badge for top results
+        let badge = '';
+        if (index < 3) {
+            badge = '<span class="badge bg-success ms-2">Top Match</span>';
+        }
+        
         html += `
             <div class="species-result" onclick='selectSpecies(${JSON.stringify(species).replace(/'/g, "&apos;")})'>
                 <div class="species-result-content">
                     ${imageHtml}
                     <div class="species-info">
-                        <h6>${species.common_name || species.scientific_name}</h6>
+                        <h6>${species.common_name || species.scientific_name}${badge}</h6>
                         ${hasDistinctCommonName ? `<div style="font-style:italic;color:#6c757d;font-size:0.95em">${species.scientific_name}</div>` : ''}
                         <div style="font-size:0.9em;color:#6c757d">${species.order || ''} ${species.family || ''}</div>
                     </div>
@@ -464,6 +490,17 @@ function selectSpecies(species) {
     document.getElementById('scientific_name').value = species.scientific_name;
     document.getElementById('common_name').value = species.common_name || '';
     document.getElementById('species_image_url').value = species.image_url || '';
+    
+    // Auto-scroll to buttons
+    setTimeout(() => {
+        const buttons = document.getElementById('step3Buttons');
+        buttons.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Highlight the "Review" button briefly
+        const reviewBtn = buttons.querySelector('.btn-primary');
+        reviewBtn.classList.add('pulse-highlight');
+        setTimeout(() => reviewBtn.classList.remove('pulse-highlight'), 2000);
+    }, 300);
 }
 
 function updateReview() {

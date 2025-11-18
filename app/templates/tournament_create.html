@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Create Tournament - Bug Arena{% endblock %}
+
+{% block content %}
+<h1>Create Tournament</h1>
+<form method="post" class="row g-3">
+    <div class="col-md-6">
+        <label for="name" class="form-label">Tournament Name</label>
+        <input type="text" class="form-control" id="name" name="name" required>
+    </div>
+
+    <div class="col-md-4">
+        <label for="start_date" class="form-label">Start Date</label>
+        <input type="date" class="form-control" id="start_date" name="start_date" required>
+    </div>
+
+    <div class="col-md-4">
+        <label for="registration_deadline" class="form-label">Registration Deadline</label>
+        <input type="date" class="form-control" id="registration_deadline" name="registration_deadline">
+        <div class="form-text">Optional: leave blank for open registration</div>
+    </div>
+    <div class="col-md-2 d-flex align-items-end">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" value="1" id="no_deadline" name="no_deadline">
+            <label class="form-check-label small" for="no_deadline">No registration deadline</label>
+        </div>
+    </div>
+
+    <div class="col-md-2">
+        <label for="max_participants" class="form-label">Participants</label>
+        <input type="number" min="2" step="1" class="form-control" id="max_participants" name="max_participants" placeholder="All">
+        <div class="form-text">Optional: limit number of entrants (even numbers recommended)</div>
+    </div>
+
+    <div class="col-md-6">
+        <label for="tier" class="form-label">Tier</label>
+        <select class="form-select" id="tier" name="tier">
+            <option value="">No restriction</option>
+            <option value="uber">Uber</option>
+            <option value="ou">OU</option>
+            <option value="uu">UU</option>
+            <option value="ru">RU</option>
+            <option value="nu">NU</option>
+            <option value="zu">ZU</option>
+        </select>
+    </div>
+    <div class="col-md-6 d-flex align-items-end">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" value="1" id="allow_tier_above" name="allow_tier_above">
+            <label class="form-check-label small" for="allow_tier_above">Allow bugs of this tier and above</label>
+        </div>
+    </div>
+    <div class="col-12">
+        <button type="submit" class="btn btn-primary">Create Tournament</button>
+        <a href="{{ url_for('tournaments.list_tournaments') }}" class="btn btn-secondary">Cancel</a>
+    </div>
+</form>
+{% endblock %}

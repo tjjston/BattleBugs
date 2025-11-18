@@ -13,8 +13,8 @@ class Config:
         'sqlite:///' + os.path.join(basedir, 'database', 'bug_arena.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
-    # File uploads
-    UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER') or 'uploads'
+    # File uploads (use absolute path inside project to avoid cwd issues)
+    UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER') or os.path.join(basedir, 'uploads')
     MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH', 16 * 1024 * 1024))  # 16MB
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
     

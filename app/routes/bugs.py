@@ -26,10 +26,36 @@ def allowed_file(filename):
 def list_bugs():
     """List all bugs with pagination"""
     page = request.args.get('page', 1, type=int)
-    bugs = Bug.query.order_by(Bug.submission_date.desc())\
+
+    # Filters: search (name/species), tier, mine (show only current user's bugs)
+    search = request.args.get('search', type=str)
+    tier = request.args.get('tier', type=str)
+    mine = request.args.get('mine', default=0, type=int)
+
+    query = Bug.query
+
+    if mine and current_user.is_authenticated:
+        query = query.filter(Bug.user_id == current_user.id)
+
+    if tier:
+        query = query.filter(Bug.tier == tier)
+
+    if search:
+        likeq = f"%{search}%"
+        query = query.filter(
+            (Bug.nickname.ilike(likeq)) |
+            (Bug.common_name.ilike(likeq)) |
+            (Bug.scientific_name.ilike(likeq))
+        )
+
+    bugs = query.order_by(Bug.submission_date.desc())\
         .paginate(page=page, per_page=current_app.config.get('BUGS_PER_PAGE', 20), error_out=False)
-    
-    return render_template('bug_list.html', bugs=bugs)
+
+    # Provide available tiers for the filter dropdown
+    tiers = db.session.query(Bug.tier).distinct().all()
+    tiers = [t[0] for t in tiers if t[0]]
+
+    return render_template('bug_list.html', bugs=bugs, tiers=tiers, active_filters={'search': search, 'tier': tier, 'mine': mine})
 
 @bp.route('/bug/<int:bug_id>')
 def view_bug(bug_id):
@@ -89,7 +115,7 @@ def handle_submission():
     file.save(temp_path)
     
     try:
-        #LLM Classification
+        # LLM Classification
         from app.services.bug_classifier import classify_bug_submission
         
         classification = classify_bug_submission(
@@ -171,18 +197,8 @@ def handle_submission():
             requires_manual_review=(classification.confidence < 0.90)
         )
         
-            # Give feedback on user's guess
-        if user_species_guess:
-            if classification.user_guess_matches:
-                flash(f'✅ Excellent identification! {classification.user_guess_feedback}', 'success')
-            elif classification.user_guess_matches is False:
-                flash(f'ℹ️ {classification.user_guess_feedback}', 'info')
-        
-        flash(f'✅ {nickname} approved and entered the arena!', 'success')
-        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
-        
         db.session.add(bug)
-        db.session.flush()
+        db.session.flush()  # Get bug.id before proceeding
         
         # Generate stats using LLM
         from app.services.tier_system import LLMStatGenerator, TierSystem, TIER_DEFINITIONS
@@ -208,6 +224,7 @@ def handle_submission():
         bug.tier = TierSystem.assign_tier(bug)
         tier_info = TIER_DEFINITIONS.get(bug.tier, {})
         
+        # Generate visual lore
         try:
             from app.services.visual_lore_generator import VisualLoreAnalyzer
             lore_analyzer = VisualLoreAnalyzer()
@@ -219,6 +236,12 @@ def handle_submission():
         db.session.commit()
         
         # Success messages
+        if user_species_guess:
+            if classification.user_guess_matches:
+                flash(f'✅ Excellent identification! {classification.user_guess_feedback}', 'success')
+            elif classification.user_guess_matches is False:
+                flash(f'ℹ️ {classification.user_guess_feedback}', 'info')
+        
         flash(f'✅ {nickname} approved and entered the arena!', 'success')
         flash(f'{tier_info.get("icon", "")} {tier_info.get("name", bug.tier)}', 'info')
         
@@ -227,6 +250,7 @@ def handle_submission():
         
         flash(f'Classified by: {classification.llm_provider}', 'info')
         
+        # NOW redirect (bug.id exists!)
         return redirect(url_for('bugs.view_bug', bug_id=bug.id))
         
     except Exception as e:
@@ -236,144 +260,6 @@ def handle_submission():
         flash(f'Error: {str(e)}', 'danger')
         current_app.logger.error(f"Bug submission error: {e}", exc_info=True)
         return redirect(url_for('bugs.submit_bug'))
-
-# def handle_submission():
-#     """Process bug submission"""
-    
-#     # Step 1: Get form data
-#     nickname = request.form.get('nickname')
-#     description = request.form.get('description')
-#     location_found = request.form.get('location_found')
-    
-#     # Step 2: Handle image upload
-#     if 'image' not in request.files:
-#         flash('No image provided', 'danger')
-#         return redirect(url_for('bugs.submit_bug'))
-    
-#     file = request.files['image']
-    
-#     if file.filename == '':
-#         flash('No image selected', 'danger')
-#         return redirect(url_for('bugs.submit_bug'))
-    
-#     if not allowed_file(file.filename):
-#         flash('Invalid file type', 'danger')
-#         return redirect(url_for('bugs.submit_bug'))
-    
-#     # Save temporary file for verification
-#     filename = secure_filename(file.filename)
-#     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-#     temp_filename = f"temp_{current_user.id}_{timestamp}_{filename}"
-#     temp_path = os.path.join(current_app.config['UPLOAD_FOLDER'], temp_filename)
-#     file.save(temp_path)
-    
-#     try:
-#         # Step 3: Comprehensive verification
-#         verification_result = comprehensive_bug_verification(temp_path, current_user.id)
-        
-#         # Step 4: Check if approved
-#         if not verification_result['approved']:
-#             # Cleanup temp file
-#             os.remove(temp_path)
-            
-#             # Show rejection reason
-#             issues = verification_result['issues']
-#             flash(f"Submission rejected: {'; '.join(issues)}", 'danger')
-            
-#             if verification_result['recommendation'] == 'reject_duplicate':
-#                 flash("You've already submitted this bug! Each bug can only be submitted once.", 'warning')
-            
-#             return redirect(url_for('bugs.submit_bug'))
-        
-#         # Step 5: Rename to permanent filename
-#         final_filename = f"{current_user.id}_{timestamp}_{filename}"
-#         final_path = os.path.join(current_app.config['UPLOAD_FOLDER'], final_filename)
-#         os.rename(temp_path, final_path)
-        
-#         # Step 6: Extract vision data
-#         vision_result = verification_result.get('vision_result', {})
-#         species_info = verification_result.get('species_info')
-        
-#         # Step 7: Create Bug entry
-#         bug = Bug(
-#             nickname=nickname,
-#             description=description,
-#             location_found=location_found,
-#             image_path=final_filename,
-#             user_id=current_user.id,
-            
-#             # Vision verification data
-#             vision_verified=True,
-#             vision_confidence=vision_result.get('confidence', 0),
-#             vision_identified_species=vision_result.get('identified_species'),
-#             vision_quality_score=vision_result.get('quality_score', 0),
-            
-#             # Generate image hash
-#             image_hash=str(imagehash.average_hash(Image.open(final_path))),
-            
-#             # Link to species if identified
-#             species_id=species_info['species_id'] if species_info else None,
-#             common_name=species_info['common_name'] if species_info else None,
-#             scientific_name=species_info['scientific_name'] if species_info else vision_result.get('identified_species'),
-            
-#             # Mark for review if confidence is borderline
-#             requires_manual_review=(vision_result.get('confidence', 1) < 0.85)
-#         )
-        
-#         db.session.add(bug)
-#         db.session.flush()  # Get bug.id without committing
-        
-#         # Step 8: Generate stats using LLM
-#         stat_generator = LLMStatGenerator()
-        
-#         bug_info = {
-#             'scientific_name': bug.scientific_name,
-#             'common_name': bug.common_name,
-#             'size_mm': bug.species_info.average_size_mm if bug.species_info else None,
-#             'traits': _extract_traits_from_bug(bug),
-#             'species_info': bug.species_info.to_dict() if bug.species_info else None
-#         }
-        
-#         stats = stat_generator.generate_stats_with_llm(bug_info)
-        
-#         # Apply stats
-#         bug.attack = stats['attack']
-#         bug.defense = stats['defense']
-#         bug.speed = stats['speed']
-#         bug.special_ability = stats.get('special_ability')
-#         bug.stats_generation_method = 'llm_contextual'
-#         bug.stats_generated = True
-        
-#         # Step 9: Assign tier
-#         tier_recommendation = assign_tier_and_generate_stats(bug)
-#         bug.tier = tier_recommendation['tier']
-        
-#         # Step 10: Auto-generate flair
-#         bug.generate_flair()
-        
-#         # Commit everything
-#         db.session.commit()
-        
-#         # Step 11: Show success with warnings if any
-#         flash(f'{nickname} has entered the {tier_recommendation["tier_name"]} tier! {tier_recommendation["tier_icon"]}', 'success')
-        
-#         if verification_result.get('warnings'):
-#             for warning in verification_result['warnings']:
-#                 flash(f'Note: {warning}', 'info')
-        
-#         if bug.requires_manual_review:
-#             flash('Your bug will be reviewed by moderators to confirm species identification.', 'info')
-        
-#         return redirect(url_for('bugs.view_bug', bug_id=bug.id))
-        
-#     except Exception as e:
-#         # Cleanup on error
-#         if os.path.exists(temp_path):
-#             os.remove(temp_path)
-        
-#         db.session.rollback()
-#         flash(f'Error processing submission: {str(e)}', 'danger')
-#         return redirect(url_for('bugs.submit_bug'))
 
 @bp.route('/bug/submit', methods=['GET', 'POST'])
 @login_required
@@ -408,6 +294,52 @@ def _extract_traits_from_bug(bug):
     return traits
 
 
+@bp.route('/bug/<int:bug_id>/comment', methods=['POST'])
+@login_required
+def add_comment(bug_id):
+    """Add a comment to a bug"""
+    bug = Bug.query.get_or_404(bug_id)
+    comment_text = request.form.get('comment')
+    
+    if not comment_text:
+        flash('Comment cannot be empty', 'warning')
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+    
+    comment = Comment(
+        text=comment_text,
+        bug_id=bug_id,
+        user_id=current_user.id
+    )
+    
+    db.session.add(comment)
+    db.session.commit()
+    
+    flash('Comment added!', 'success')
+    return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+
+
+@bp.route('/bug/<int:bug_id>/lore', methods=['POST'])
+@login_required
+def add_lore(bug_id):
+    """Add lore entry to a bug"""
+    bug = Bug.query.get_or_404(bug_id)
+    lore_text = request.form.get('lore')
+    
+    if not lore_text:
+        flash('Lore cannot be empty', 'warning')
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+    
+    lore = BugLore(
+        lore_text=lore_text,
+        bug_id=bug_id,
+        user_id=current_user.id
+    )
+    
+    db.session.add(lore)
+    db.session.commit()
+    
+    flash('Lore added to the legend!', 'success')
+    return redirect(url_for('bugs.view_bug', bug_id=bug_id))
 
 # API endpoint for pre-upload verification
 @bp.route('/api/bug/pre-verify', methods=['POST'])

@@ -18,6 +18,25 @@ document.addEventListener('DOMContentLoaded', function() {
         imageInput.addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (file) {
+                // If the page provides its own submission preview elements
+                // (the multi-step form in `submit_bug.html`), update those
+                // instead of creating a duplicate preview here.
+                const pagePreviewDiv = document.getElementById('imagePreview');
+                const pageFinalDiv = document.getElementById('finalImagePreview');
+
+                if (pagePreviewDiv || pageFinalDiv) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const imgHtml = `<img src="${e.target.result}" alt="Preview" class="img-fluid">`;
+                        if (pagePreviewDiv) pagePreviewDiv.innerHTML = imgHtml;
+                        if (pageFinalDiv) pageFinalDiv.innerHTML = imgHtml;
+                    };
+                    reader.readAsDataURL(file);
+                    return;
+                }
+
+                // Fallback: create a small inline preview for pages without
+                // a dedicated preview area.
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     // Create preview if it doesn't exist

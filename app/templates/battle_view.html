@@ -11,7 +11,7 @@
 <div class="row mb-4">
     <div class="col-md-5">
         <div class="card text-center">
-            <img src="{{ url_for('static', filename='../uploads/' + battle.bug1.image_path) }}" 
+                <img src="{{ url_for('main.uploaded_file', filename=battle.bug1.image_path) }}" 
                  class="card-img-top" alt="{{ battle.bug1.name }}" style="max-height: 300px; object-fit: cover;">
             <div class="card-body">
                 <h3>{{ battle.bug1.name }}</h3>
@@ -30,7 +30,7 @@
 
     <div class="col-md-5">
         <div class="card text-center">
-            <img src="{{ url_for('static', filename='../uploads/' + battle.bug2.image_path) }}" 
+                <img src="{{ url_for('main.uploaded_file', filename=battle.bug2.image_path) }}" 
                  class="card-img-top" alt="{{ battle.bug2.name }}" style="max-height: 300px; object-fit: cover;">
             <div class="card-body">
                 <h3>{{ battle.bug2.name }}</h3>

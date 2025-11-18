@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Apply to {{ tournament.name }} - Bug Arena{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1 class="mb-4">Apply to {{ tournament.name }}</h1>
+
+  {% if not eligible_bugs %}
+  <div class="alert alert-info">No eligible bugs found for your account. Make sure your bugs meet the tournament requirements.</div>
+  <a href="{{ url_for('tournaments.view_tournament', tournament_id=tournament.id) }}" class="btn btn-secondary">Back</a>
+  {% else %}
+  <form method="post">
+    <div class="mb-3">
+      <label for="bug_id" class="form-label">Select a bug to apply</label>
+      <select id="bug_id" name="bug_id" class="form-select" required>
+        <option value="">Choose a bug</option>
+        {% for bug in eligible_bugs %}
+        <option value="{{ bug.id }}">{{ bug.nickname }} — {{ bug.display_name }} ({{ bug.tier or 'No tier' }})</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Submit Application</button>
+    <a href="{{ url_for('tournaments.view_tournament', tournament_id=tournament.id) }}" class="btn btn-secondary">Cancel</a>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}
