@@ -21,6 +21,24 @@ def create_app(config_class=Config):
     login_manager.init_app(app)
     bootstrap.init_app(app)
 
+    # Compatibility shim: some Flask/Werkzeug combinations pass a 'partitioned' kw
+    # to Response.set_cookie which older Werkzeug versions don't accept. Wrap
+    # the method to silently ignore 'partitioned' so sessions save without error.
+    try:
+        from flask.wrappers import Response as _FlaskResponse
+        _orig_set_cookie = _FlaskResponse.set_cookie
+
+        def _set_cookie_compat(self, *args, **kwargs):
+            if 'partitioned' in kwargs:
+                kwargs.pop('partitioned', None)
+            return _orig_set_cookie(self, *args, **kwargs)
+
+        _FlaskResponse.set_cookie = _set_cookie_compat
+    except Exception:
+        # If anything goes wrong here, fail silently — it only affects cookie
+        # argument compatibility for older Werkzeug versions.
+        pass
+
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs('database', exist_ok=True)
     

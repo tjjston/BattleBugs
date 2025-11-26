@@ -40,31 +40,251 @@
         </div>
     </div>
 
-    <!-- Battles -->
-    {% if battles %}
-    <h3>Tournament Battles</h3>
-    <div class="list-group">
-        {% for battle in battles %}
-        <a href="{{ url_for('battles.view_battle', battle_id=battle.id) }}" 
-           class="list-group-item list-group-item-action">
-            <div class="d-flex w-100 justify-content-between">
-                <h5 class="mb-1">
-                    Round {{ battle.round_number }}: 
-                    {{ battle.bug1.nickname }} vs {{ battle.bug2.nickname }}
-                </h5>
-                <small>{{ battle.battle_date.strftime('%b %d') if battle.battle_date else 'Scheduled' }}</small>
+        <!-- Live Bracket (server-rendered simplified markup) -->
+        <h3>Live Bracket</h3>
+
+        {%- if matches_by_round is defined -%}
+            <div class="theme theme-dark">
+                <div class="bracket disable-image">
+                                                {%- for rn in rounds_sorted -%}
+                                                <div class="column {{ loop.index }}">
+                                                    {%- for m in matches_by_round[rn] -%}
+                                {# Build data attributes for a lightweight modal preview/result view #}
+                                                                {%- set match_number = m.match_number if m.match_number is defined and m.match_number else loop.index %}
+                                                                <div class="match {% if m.winner_id and (m.winner_id == (m.bug1_id or 0)) %}winner-top{% elif m.winner_id and (m.winner_id == (m.bug2_id or 0)) %}winner-bottom{% endif %}" data-match-id="{{ m.id }}" data-match-number="{{ match_number }}"
+                                                                                 data-battle-id="{{ m.battle_id or '' }}"
+                                                                                 data-winner-id="{{ m.winner_id or '' }}"
+                                                                                 data-scheduled-for="{{ m.scheduled_for.isoformat() if m.scheduled_for else '' }}"
+                                                                                 data-completed-at="{{ m.completed_at.isoformat() if m.completed_at else '' }}">
+                                                                        <div class="match-header">Match {{ match_number }}</div>
+                                                                        <div class="match-top team" data-b1-nickname="{{ m.bug1.nickname if m.bug1 else '' }}" data-b1-species="{{ (m.bug1.common_name or m.bug1.scientific_name) if m.bug1 else '' }}" data-b1-seed="{{ m.bug1.seed_number if m.bug1 else '' }}" data-b1-wins="{{ m.bug1.wins if m.bug1 else 0 }}" data-b1-losses="{{ m.bug1.losses if m.bug1 else 0 }}" data-b1-attack="{{ m.bug1.attack if m.bug1 else 0 }}" data-b1-defense="{{ m.bug1.defense if m.bug1 else 0 }}" data-b1-speed="{{ m.bug1.speed if m.bug1 else 0 }}">
+                                        <span class="image"></span>
+                                        <span class="seed">{{ m.bug1.seed_number if m.bug1 else '' }}</span>
+                                        <span class="name">{% if m.bug1 %}{{ m.bug1.nickname }} / {{ m.bug1.common_name or m.bug1.scientific_name }}{% else %}TBD{% endif %}</span>
+                                        <span class="score">{{ m.bug1_score if (m.bug1_score is defined and m.bug1_score is not none) else '' }}</span>
+                                    </div>
+                                                                        <div class="match-bottom team" data-b2-nickname="{{ m.bug2.nickname if m.bug2 else '' }}" data-b2-species="{{ (m.bug2.common_name or m.bug2.scientific_name) if m.bug2 else '' }}" data-b2-seed="{{ m.bug2.seed_number if m.bug2 else '' }}" data-b2-wins="{{ m.bug2.wins if m.bug2 else 0 }}" data-b2-losses="{{ m.bug2.losses if m.bug2 else 0 }}" data-b2-attack="{{ m.bug2.attack if m.bug2 else 0 }}" data-b2-defense="{{ m.bug2.defense if m.bug2 else 0 }}" data-b2-speed="{{ m.bug2.speed if m.bug2 else 0 }}">
+                                        <span class="image"></span>
+                                        <span class="seed">{{ m.bug2.seed_number if m.bug2 else '' }}</span>
+                                        <span class="name">{% if m.bug2 %}{{ m.bug2.nickname }} / {{ m.bug2.common_name or m.bug2.scientific_name }}{% else %}TBD{% endif %}</span>
+                                        <span class="score">{{ m.bug2_score if (m.bug2_score is defined and m.bug2_score is not none) else '' }}</span>
+                                    </div>
+                                    <div class="match-lines">
+                                        <div class="line one"></div>
+                                        <div class="line two"></div>
+                                    </div>
+                                    <div class="match-lines alt">
+                                        <div class="line one"></div>
+                                    </div>
+                                    {%- if current_user.is_authenticated -%}
+                                        <div class="mt-2">
+                                                    {%- if m.battle_id -%}
+                                                        <a href="{{ url_for('battles.view_battle', battle_id=m.battle_id) }}" class="btn btn-sm btn-outline-light" onclick="event.stopPropagation();">View Battle</a>
+                                                    {%- elif m.bug1_id and m.bug2_id -%}
+                                                        <form method="POST" action="{{ url_for('battles.new_battle') }}" style="display:inline;" onsubmit="event.stopPropagation();">
+                                                            <input type="hidden" name="bug1_id" value="{{ m.bug1_id }}" />
+                                                            <input type="hidden" name="bug2_id" value="{{ m.bug2_id }}" />
+                                                            <input type="hidden" name="tournament_id" value="{{ m.tournament_id }}" />
+                                                            <input type="hidden" name="match_id" value="{{ m.id }}" />
+                                                            <button type="submit" class="btn btn-sm btn-success" onclick="event.stopPropagation();">Start Fight</button>
+                                                        </form>
+                                                    {%- endif -%}
+                                        </div>
+                                    {%- endif -%}
+                                </div>
+                            {%- endfor -%}
+                        </div>
+                    {%- endfor -%}
+                </div>
             </div>
-            {% if battle.winner %}
-            <p class="mb-1">Winner: <strong>{{ battle.winner.nickname }}</strong></p>
-            {% endif %}
-        </a>
-        {% endfor %}
-    </div>
-    {% else %}
-    <div class="alert alert-info">
-        <p>No battles yet. Waiting for tournament to start!</p>
-    </div>
-    {% endif %}
+        {%- elif battles is defined -%}
+            <div class="theme theme-dark">
+                <div class="bracket disable-image">
+                    <div class="column one">
+                        {%- for b in battles -%}
+                            {%- set match_number = loop.index %}
+                            <div class="match {% if b.winner and b.winner.id == (b.bug1.id if b.bug1 else 0) %}winner-top{% elif b.winner and b.winner.id == (b.bug2.id if b.bug2 else 0) %}winner-bottom{% endif %}" data-match-id="{{ b.id }}" data-match-number="{{ match_number }}" data-battle-id="{{ b.id }}" data-winner-id="{{ b.winner_id or '' }}" data-completed-at="{{ b.battle_date.isoformat() if b.battle_date else '' }}">
+                                <div class="match-header">Match {{ match_number }}</div>
+                                <div class="match-top team" data-b1-nickname="{{ b.bug1.nickname if b.bug1 else '' }}" data-b1-species="{{ (b.bug1.common_name or b.bug1.scientific_name) if b.bug1 else '' }}" data-b1-seed="{{ b.bug1.seed_number if b.bug1 else '' }}" data-b1-wins="{{ b.bug1.wins if b.bug1 else 0 }}" data-b1-losses="{{ b.bug1.losses if b.bug1 else 0 }}" data-b1-attack="{{ b.bug1.attack if b.bug1 else 0 }}" data-b1-defense="{{ b.bug1.defense if b.bug1 else 0 }}" data-b1-speed="{{ b.bug1.speed if b.bug1 else 0 }}">
+                                    <span class="image"></span>
+                                    <span class="seed">{{ b.bug1.seed_number if b.bug1 else '' }}</span>
+                                    <span class="name">{% if b.bug1 %}{{ b.bug1.nickname }} / {{ b.bug1.common_name or b.bug1.scientific_name }}{% else %}TBD{% endif %}</span>
+                                    <span class="score">{{ b.bug1_score if (b.bug1_score is defined and b.bug1_score is not none) else '' }}</span>
+                                </div>
+                                <div class="match-bottom team" data-b2-nickname="{{ b.bug2.nickname if b.bug2 else '' }}" data-b2-species="{{ (b.bug2.common_name or b.bug2.scientific_name) if b.bug2 else '' }}" data-b2-seed="{{ b.bug2.seed_number if b.bug2 else '' }}" data-b2-wins="{{ b.bug2.wins if b.bug2 else 0 }}" data-b2-losses="{{ b.bug2.losses if b.bug2 else 0 }}" data-b2-attack="{{ b.bug2.attack if b.bug2 else 0 }}" data-b2-defense="{{ b.bug2.defense if b.bug2 else 0 }}" data-b2-speed="{{ b.bug2.speed if b.bug2 else 0 }}">
+                                    <span class="image"></span>
+                                    <span class="seed">{{ b.bug2.seed_number if b.bug2 else '' }}</span>
+                                    <span class="name">{% if b.bug2 %}{{ b.bug2.nickname }} / {{ b.bug2.common_name or b.bug2.scientific_name }}{% else %}TBD{% endif %}</span>
+                                    <span class="score">{{ b.bug2_score if (b.bug2_score is defined and b.bug2_score is not none) else '' }}</span>
+                                </div>
+                                <div class="match-lines">
+                                    <div class="line one"></div>
+                                    <div class="line two"></div>
+                                </div>
+                                <div class="match-lines alt">
+                                    <div class="line one"></div>
+                                </div>
+                                {%- if current_user.is_authenticated -%}
+                                    <div class="mt-2">
+                                        {%- if b.id -%}
+                                            <a href="{{ url_for('battles.view_battle', battle_id=b.id) }}" class="btn btn-sm btn-outline-light" onclick="event.stopPropagation();">View Battle</a>
+                                        {%- elif b.bug1_id and b.bug2_id -%}
+                                            <form method="POST" action="{{ url_for('battles.new_battle') }}" style="display:inline;" onsubmit="event.stopPropagation();">
+                                                <input type="hidden" name="bug1_id" value="{{ b.bug1_id }}" />
+                                                <input type="hidden" name="bug2_id" value="{{ b.bug2_id }}" />
+                                                <input type="hidden" name="tournament_id" value="{{ b.tournament_id if b.tournament_id else '' }}" />
+                                                <button type="submit" class="btn btn-sm btn-success" onclick="event.stopPropagation();">Start Fight</button>
+                                            </form>
+                                        {%- endif -%}
+                                    </div>
+                                {%- endif -%}
+                            </div>
+                        {%- endfor -%}
+                    </div>
+                </div>
+            </div>
+        {%- else -%}
+            <div class="alert alert-info">No bracket data available.</div>
+        {%- endif -%}
+
+        <style>
+        /* Simplified bracket CSS from user-provided snippet */
+        /* Allow the bracket to grow naturally so the page can scroll */
+        .theme { height: auto; width: 100%; position: relative; }
+        .bracket { padding: 40px; margin: 5px; display:flex; flex-direction:row; position:relative; align-items:flex-start; }
+        .column { display:flex; flex-direction:column; min-height:auto; justify-content:flex-start; align-content:flex-start; gap:28px; padding-right:8px; }
+        .match { position:relative; display:flex; flex-direction:column; min-width:260px; max-width:320px; height:88px; margin:22px 32px 22px 0; padding:10px; }
+        .bracket { column-gap: 36px; }
+        .match-header { font-size:0.85rem; color:#9aa6b2; margin-bottom:6px; }
+        .match .team { display:flex; align-items:center; width:100%; height:100%; border:1px solid #000; position:relative; }
+        .match .team span { padding-left:8px; }
+        .match .team span:last-child { padding-right:8px; }
+        .match .team .score { margin-left:auto; }
+        .match .team:first-child { margin-bottom:-1px; }
+        .match-lines { display:block; position:absolute; top:50%; bottom:0; margin-top:0px; right:-1px; }
+        .match-lines .line { background: red; position:absolute; }
+        .match-lines .line.one { height:1px; width:12px; }
+        .match-lines .line.two { height:44px; width:1px; left:11px; }
+        .match-lines.alt { left:-12px; }
+        .match:nth-child(even) .match-lines .line.two { transform: translate(0, -100%); }
+        .column:first-child .match-lines.alt { display:none; }
+        .column:last-child .match-lines { display:none; }
+        .column:last-child .match-lines.alt { display:block; }
+        .disable-image .image, .disable-seed .seed, .disable-name .name, .disable-score .score { display:none !important; }
+        /* Dark theme accents */
+        .theme-dark { background: #0e1217; border-color: #040607; }
+        .theme-dark .match-lines .line { background: #36404e; }
+        .theme-dark .team { background: #182026; border-color: #232c36; color: #6b798c; }
+        .theme-dark .winner-top .match-top, .theme-dark .winner-bottom .match-bottom { background:#232c36; color:#e3e8ef; border-color:#36404e; z-index:1; }
+        .theme-dark .winner-top .match-top .score, .theme-dark .winner-bottom .match-bottom .score { color:#03d9ce; }
+        </style>
+
+        <!-- Modal for match preview / result -->
+        <div class="modal fade" id="matchPreviewModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="matchPreviewTitle">Match Preview</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body" id="matchPreviewBody">
+                        Loading…
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        (function(){
+            // Lightweight click-to-preview for server-rendered matches
+            const modalEl = document.getElementById('matchPreviewModal');
+            let bsModal = null;
+            function ensureModal(){ if(!bsModal) bsModal = new bootstrap.Modal(modalEl); }
+
+                        function renderStatBars(attack, defense, speed){
+                                const pad = (v)=>Math.max(3, Math.min(100, Math.round(v)));
+                                return `
+                                    <div class="stat-bars" style="margin-top:6px;">
+                                        <div class="stat-bar" style="background:#2b6cb0; width:${pad(attack)}%; margin-right:4px; height:8px; display:inline-block; vertical-align:middle; border-radius:3px"></div>
+                                        <div class="stat-bar" style="background:#276749; width:${pad(defense)}%; margin-right:4px; height:8px; display:inline-block; vertical-align:middle; border-radius:3px"></div>
+                                        <div class="stat-bar" style="background:#b45309; width:${pad(speed)}%; height:8px; display:inline-block; vertical-align:middle; border-radius:3px"></div>
+                                    </div>`;
+                        }
+
+                        function renderBugLine(name, species, seed, wins, losses, attack, defense, speed){
+                                const display = name ? `${name} / ${species || ''}` : 'TBD';
+                                const base = `<div class="mb-2"><strong>${display}</strong> ${seed?('<span class="text-muted">#'+seed+'</span>'):''} <div class="text-muted">${wins||0}W • ${losses||0}L</div></div>`;
+                                return base + renderStatBars(attack||0, defense||0, speed||0);
+                        }
+
+            function showMatch(e){
+                const match = e.currentTarget;
+                const title = document.getElementById('matchPreviewTitle');
+                const body = document.getElementById('matchPreviewBody');
+                const mid = match.getAttribute('data-match-id') || match.getAttribute('data-battle-id') || '';
+                const mnum = match.getAttribute('data-match-number') || '';
+                title.textContent = mnum ? 'Match ' + mnum : (mid ? 'Match ' + mid : 'Match Preview');
+
+                // read data attributes from child team elements if present
+                const top = match.querySelector('.match-top');
+                const bot = match.querySelector('.match-bottom');
+                const b1 = top ? {
+                    nickname: top.dataset.b1Nickname || top.getAttribute('data-b1-nickname') || (top.querySelector('.name')?top.querySelector('.name').textContent.trim():''),
+                    species: top.dataset.b1Species || top.getAttribute('data-b1-species') || '',
+                    seed: top.dataset.b1Seed || top.getAttribute('data-b1-seed') || '' ,
+                    wins: top.dataset.b1Wins || top.getAttribute('data-b1-wins') || 0,
+                    losses: top.dataset.b1Losses || top.getAttribute('data-b1-losses') || 0,
+                    attack: parseInt(top.dataset.b1Attack || top.getAttribute('data-b1-attack') || 0,10),
+                    defense: parseInt(top.dataset.b1Defense || top.getAttribute('data-b1-defense') || 0,10),
+                    speed: parseInt(top.dataset.b1Speed || top.getAttribute('data-b1-speed') || 0,10)
+                } : null;
+                const b2 = bot ? {
+                    nickname: bot.dataset.b2Nickname || bot.getAttribute('data-b2-nickname') || (bot.querySelector('.name')?bot.querySelector('.name').textContent.trim():''),
+                    species: bot.dataset.b2Species || bot.getAttribute('data-b2-species') || '',
+                    seed: bot.dataset.b2Seed || bot.getAttribute('data-b2-seed') || '' ,
+                    wins: bot.dataset.b2Wins || bot.getAttribute('data-b2-wins') || 0,
+                    losses: bot.dataset.b2Losses || bot.getAttribute('data-b2-losses') || 0,
+                    attack: parseInt(bot.dataset.b2Attack || bot.getAttribute('data-b2-attack') || 0,10),
+                    defense: parseInt(bot.dataset.b2Defense || bot.getAttribute('data-b2-defense') || 0,10),
+                    speed: parseInt(bot.dataset.b2Speed || bot.getAttribute('data-b2-speed') || 0,10)
+                } : null;
+
+                const winnerId = match.getAttribute('data-winner-id') || '';
+                const battleId = match.getAttribute('data-battle-id') || '';
+                const completedAt = match.getAttribute('data-completed-at') || '';
+
+                let html = '';
+                html += '<div>' + (b1 ? renderBugLine(b1.nickname, b1.species, b1.seed, b1.wins, b1.losses, b1.attack, b1.defense, b1.speed) : '<div class="text-muted">TBD</div>') + '</div>';
+                html += '<div>' + (b2 ? renderBugLine(b2.nickname, b2.species, b2.seed, b2.wins, b2.losses, b2.attack, b2.defense, b2.speed) : '<div class="text-muted">TBD</div>') + '</div>';
+
+                if(winnerId){
+                    // find winner name if available
+                    let winnerName = '';
+                    if(b1 && b1.nickname && winnerId == (match.querySelector('[data-b1-seed]')? match.querySelector('[data-b1-seed]').getAttribute('data-b1-seed') : '')){
+                        winnerName = b1.nickname;
+                    }
+                    html += `<div class="mt-2 text-success">Result: Winner ID ${winnerId}${completedAt ? ' — ' + completedAt : ''}</div>`;
+                } else if(battleId){
+                    html += `<div class="mt-2 text-muted">Linked battle: ${battleId}</div>`;
+                } else {
+                    html += `<div class="mt-2 text-muted">Preview only — no result yet.</div>`;
+                }
+
+                body.innerHTML = html;
+                ensureModal();
+                bsModal.show();
+            }
+
+            // Attach handlers
+            document.querySelectorAll('.match').forEach(m => {
+                m.classList.add('clickable');
+                m.addEventListener('click', showMatch);
+            });
+        })();
+        </script>
 
     {% if current_user.is_authenticated and tournament.status == 'upcoming' %}
     <div class="mt-4">

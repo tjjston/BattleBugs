@@ -324,10 +324,10 @@ class TournamentManager:
                         match_number=len(next_round_matches) + 1
                     )
                     db.session.add(next_match)
-                    
+
                     # Link previous matches to this one
-                    match1.next_match_id = next_match.id
-                    match2.next_match_id = next_match.id
+                    match1.next_match = next_match
+                    match2.next_match = next_match
                     
                     next_round_matches.append(next_match)
             

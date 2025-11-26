@@ -6,6 +6,7 @@ from app.services.permission_system import require_role, UserRole
 from datetime import datetime
 from app.services.tournament_system import TournamentManager, TournamentEligibilityChecker
 import random
+from flask import jsonify
 
 bp = Blueprint('tournaments', __name__)
 
@@ -25,25 +26,90 @@ def list_tournaments():
 @bp.route('/tournament/<int:tournament_id>')
 def view_tournament(tournament_id):
     tournament = Tournament.query.get_or_404(tournament_id)
-    battles = Battle.query.filter_by(tournament_id=tournament_id).order_by(Battle.round_number, Battle.battle_date).all()
-
-    # If no Battle records exist yet, fall back to TournamentMatch bracket structure
-    if not battles:
-        from types import SimpleNamespace
-        matches = TournamentMatch.query.filter_by(tournament_id=tournament_id).order_by(TournamentMatch.round_number, TournamentMatch.match_number).all()
-        # Map matches to lightweight objects that the template expects (id, round_number, bug1, bug2, battle_date, winner)
-        battles = []
+    # Prefer TournamentMatch bracket structure and build columns server-side
+    matches = TournamentMatch.query.filter_by(tournament_id=tournament_id).order_by(TournamentMatch.round_number, TournamentMatch.match_number).all()
+    if matches:
+        matches_by_round = {}
         for m in matches:
-            obj = SimpleNamespace()
-            obj.id = m.id
-            obj.round_number = getattr(m, 'round_number', None)
-            obj.bug1 = m.bug1
-            obj.bug2 = m.bug2
-            obj.battle_date = None
-            obj.winner = getattr(m, 'winner', None)
-            battles.append(obj)
+            rn = m.round_number or 1
+            matches_by_round.setdefault(rn, []).append(m)
+        # sort rounds
+        rounds_sorted = sorted(matches_by_round.keys())
+        return render_template('tournament_view.html', tournament=tournament, matches_by_round=matches_by_round, rounds_sorted=rounds_sorted)
 
+    # Fallback: if no TournamentMatch entries, show Battle rows (older flow)
+    battles = Battle.query.filter_by(tournament_id=tournament_id).order_by(Battle.round_number, Battle.battle_date).all()
     return render_template('tournament_view.html', tournament=tournament, battles=battles)
+
+
+@bp.route('/tournament/<int:tournament_id>/bracket_data')
+def tournament_bracket_data(tournament_id):
+    """Return structured bracket data (JSON) for live-updating front-end."""
+    tournament = Tournament.query.get_or_404(tournament_id)
+
+    # Prefer TournamentMatch records if present, otherwise use Battle entries
+    matches = TournamentMatch.query.filter_by(tournament_id=tournament_id).order_by(TournamentMatch.round_number, TournamentMatch.match_number).all()
+    nodes = []
+    if matches:
+        for m in matches:
+            def serial_bug(bug):
+                if not bug:
+                    return None
+                # Try to find a seed from TournamentApplication if present
+                seed = None
+                try:
+                    app_row = TournamentApplication.query.filter_by(tournament_id=tournament_id, bug_id=bug.id).first()
+                    if app_row and getattr(app_row, 'seed_number', None):
+                        seed = app_row.seed_number
+                except Exception:
+                    seed = None
+
+                return {
+                    'id': bug.id,
+                    'nickname': bug.nickname,
+                    'seed': seed,
+                    'attack': bug.attack,
+                    'defense': bug.defense,
+                    'speed': bug.speed,
+                    'wins': bug.wins,
+                    'losses': bug.losses,
+                    'flair': bug.flair,
+                }
+
+            nodes.append({
+                'id': m.id,
+                'round': m.round_number,
+                'match': m.match_number,
+                'bug1': serial_bug(m.bug1),
+                'bug2': serial_bug(m.bug2),
+                'winner_id': m.winner_id,
+                'battle_id': m.battle_id,
+                'scheduled_for': m.scheduled_for.isoformat() if m.scheduled_for else None,
+                'completed_at': m.completed_at.isoformat() if m.completed_at else None,
+                'next_match_id': m.next_match_id,
+            })
+    else:
+        battles = Battle.query.filter_by(tournament_id=tournament_id).order_by(Battle.round_number, Battle.battle_date).all()
+        for b in battles:
+            nodes.append({
+                'id': b.id,
+                'round': b.round_number,
+                'match': None,
+                'bug1': {'id': b.bug1.id, 'nickname': b.bug1.nickname, 'attack': b.bug1.attack, 'defense': b.bug1.defense, 'speed': b.bug1.speed, 'flair': b.bug1.flair},
+                'bug2': {'id': b.bug2.id, 'nickname': b.bug2.nickname, 'attack': b.bug2.attack, 'defense': b.bug2.defense, 'speed': b.bug2.speed, 'flair': b.bug2.flair},
+                'winner_id': b.winner_id,
+                'battle_id': b.id,
+                'scheduled_for': b.battle_date.isoformat() if b.battle_date else None,
+                'completed_at': b.battle_date.isoformat() if b.battle_date else None,
+                'next_match_id': None,
+            })
+
+    return jsonify({
+        'tournament_id': tournament.id,
+        'tournament_name': tournament.name,
+        'status': tournament.status,
+        'nodes': nodes
+    })
 
 
 @bp.route('/tournament/<int:tournament_id>/apply', methods=['GET', 'POST'])
