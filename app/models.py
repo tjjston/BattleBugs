@@ -4,6 +4,7 @@ This integrates with your existing models.py
 """
 
 from datetime import datetime
+import json
 from app import db, login_manager
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -28,6 +29,7 @@ class User(UserMixin, db.Model):
     tournaments_won = db.Column(db.Integer, default=0)
     bugs_submitted = db.Column(db.Integer, default=0)
     best_bug_elo = db.Column(db.Integer, default=0)
+    accolade_points = db.Column(db.Integer, default=0)
 
     
     # Relationships
@@ -186,6 +188,8 @@ class Bug(db.Model):
     image_hash = db.Column(db.String(64)) 
     requires_manual_review = db.Column(db.Boolean, default=False)
     review_notes = db.Column(db.Text)
+    enrichment_status = db.Column(db.String(20), default='pending')  # pending, processing, complete, failed
+    enrichment_error = db.Column(db.Text)
     
     # Location data
     location_found = db.Column(db.String(200))
@@ -249,8 +253,6 @@ class Bug(db.Model):
             self.flair = "🔥 Powerhouse"
         else:
             self.flair = "🌟 Rising Star"
-        
-        db.session.commit()
         return self.flair
     
     def get_public_lore(self):
@@ -297,6 +299,65 @@ class BugAchievement(db.Model):
     
     def __repr__(self):
         return f'<Achievement {self.achievement_name}>'
+
+
+class Job(db.Model):
+    """Lightweight background job record for enrichment and maintenance work."""
+    id = db.Column(db.Integer, primary_key=True)
+    type = db.Column(db.String(80), nullable=False, index=True)
+    status = db.Column(db.String(20), default='queued', nullable=False, index=True)
+    payload_json = db.Column(db.Text)
+    result_json = db.Column(db.Text)
+    error = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    attempts = db.Column(db.Integer, default=0, nullable=False)
+
+    @property
+    def payload(self):
+        if not self.payload_json:
+            return {}
+        try:
+            return json.loads(self.payload_json)
+        except (TypeError, ValueError):
+            return {}
+
+    @payload.setter
+    def payload(self, value):
+        self.payload_json = json.dumps(value or {})
+
+    @property
+    def result(self):
+        if not self.result_json:
+            return {}
+        try:
+            return json.loads(self.result_json)
+        except (TypeError, ValueError):
+            return {}
+
+    @result.setter
+    def result(self, value):
+        self.result_json = json.dumps(value or {})
+
+    def __repr__(self):
+        return f'<Job {self.id} {self.type} {self.status}>'
+
+
+class CurrencyTransaction(db.Model):
+    """Ledger for player-earned and spent Accolade Points."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    amount = db.Column(db.Integer, nullable=False)
+    reason = db.Column(db.String(120), nullable=False)
+    reference_type = db.Column(db.String(50))
+    reference_id = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    user = db.relationship('User', backref=db.backref('currency_transactions', lazy='dynamic'))
+
+    def __repr__(self):
+        return f'<CurrencyTransaction {self.user_id} {self.amount} {self.reason}>'
 
 
 class Battle(db.Model):
@@ -431,3 +492,25 @@ class BugLore(db.Model):
     
     def __repr__(self):
         return f'<BugLore {self.id}>'
+
+
+class CommentVote(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    comment_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('comment_id', 'user_id', name='uq_comment_vote_user'),
+    )
+
+
+class BugLoreVote(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    lore_id = db.Column(db.Integer, db.ForeignKey('bug_lore.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('lore_id', 'user_id', name='uq_lore_vote_user'),
+    )

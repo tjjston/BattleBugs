@@ -19,8 +19,8 @@ class LLMProvider(Enum):
 class LLMModel(Enum):
     """Available models per provider"""
     # Anthropic
-    CLAUDE_SONNET_4 = ("anthropic", "claude-sonnet-4-20250514")
-    CLAUDE_OPUS_4 = ("anthropic", "claude-opus-4-20250514")
+    CLAUDE_SONNET_4 = ("anthropic", "claude-sonnet-4-6")
+    CLAUDE_OPUS_4 = ("anthropic", "claude-opus-4-7")
     
     # OpenAI
     GPT_4 = ("openai", "gpt-4")
@@ -28,9 +28,11 @@ class LLMModel(Enum):
     GPT_35_TURBO = ("openai", "gpt-3.5-turbo")
     
     # Ollama (local)
+    QWEN36_35B = ("ollama", "qwen 3.6:35b")
+    QWEN35_35B = ("ollama", "qwen 3.6:35b")  # Backward-compatible config alias
     LLAMA3 = ("ollama", "gpt-oss:120b")
     MISTRAL = ("ollama", "kimi-k2-thinking:cloud")
-    CODELLAMA = ("ollama", 	"qwen3vl")
+    CODELLAMA = ("ollama", "qwen3vl")
     
     def __init__(self, provider: str, model_name: str):
         self.provider = provider
@@ -42,14 +44,14 @@ class LLMConfig:
     Centralized LLM configuration
     Set your preferred model here or via environment variable
     """
-    DEFAULT_MODEL = LLMModel.CLAUDE_SONNET_4
+    DEFAULT_MODEL = LLMModel.QWEN36_35B
 
     TASK_MODELS = {
-        'battle_narrative': LLMModel.CLAUDE_SONNET_4, 
-        'stat_generation': LLMModel.GPT_4, 
-        'vision_analysis': LLMModel.CLAUDE_SONNET_4,  
-        'species_identification': LLMModel.GPT_4,     
-        'quick_tasks': LLMModel.GPT_35_TURBO,      
+        'battle_narrative': LLMModel.QWEN36_35B,
+        'stat_generation': LLMModel.QWEN36_35B,
+        'vision_analysis': LLMModel.QWEN36_35B,
+        'species_identification': LLMModel.QWEN36_35B,
+        'quick_tasks': LLMModel.QWEN36_35B,
     }
     
     @classmethod
@@ -137,7 +139,7 @@ class LLMService:
             else:
                 model = LLMConfig.DEFAULT_MODEL
         
-        print(f"Using {model.provider}/{model.model_name} for task: {task or 'general'}")
+        current_app.logger.info("Using %s/%s for task: %s", model.provider, model.model_name, task or 'general')
         
         # Route to appropriate provider
         if model.provider == "anthropic":

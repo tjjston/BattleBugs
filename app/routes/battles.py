@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_required
 from app import db
 from app.models import Bug, Battle, TournamentMatch
-from app.services.battle_engine import simulate_battle
+from app.services.battle_engine import simulate_battle, calculate_battle_stats, visible_win_summary
 
 bp = Blueprint('battles', __name__)
 
@@ -16,8 +16,10 @@ def list_battles():
 
 @bp.route('/battle/<int:battle_id>')
 def view_battle(battle_id):
-    battle = Battle.query.get_or_404(battle_id)
-    return render_template('battle_view.html', battle=battle)
+    battle = db.get_or_404(Battle, battle_id)
+    battle_stats = calculate_battle_stats(battle.bug1, battle.bug2)
+    summary = visible_win_summary(battle)
+    return render_template('battle_view.html', battle=battle, battle_stats=battle_stats, win_summary=summary)
 
 @bp.route('/battle/new', methods=['GET', 'POST'])
 @login_required
@@ -36,8 +38,8 @@ def new_battle():
             flash('A bug cannot battle itself!', 'warning')
             return redirect(url_for('battles.new_battle'))
         
-        bug1 = Bug.query.get_or_404(bug1_id)
-        bug2 = Bug.query.get_or_404(bug2_id)
+        bug1 = db.get_or_404(Bug, bug1_id)
+        bug2 = db.get_or_404(Bug, bug2_id)
 
         # Simulate the battle, optionally linking it to a tournament/round
         battle = simulate_battle(bug1, bug2, tournament_id=tournament_id if tournament_id else None, round_number=0)

@@ -1,0 +1,66 @@
+{
+  "positive_bug_images": [
+    {
+      "path": "test bugs/BBBBQ-2-213658853.png",
+      "expected": "approved_candidate"
+    },
+    {
+      "path": "test bugs/OIP-1715674037.jpg",
+      "expected": "approved_candidate"
+    },
+    {
+      "path": "test bugs/OIP-1940662157.jpg",
+      "expected": "approved_candidate"
+    },
+    {
+      "path": "test bugs/OIP-592934125.jpg",
+      "expected": "approved_candidate"
+    },
+    {
+      "path": "test bugs/OIP-6110393.jpg",
+      "expected": "approved_candidate"
+    },
+    {
+      "path": "test bugs/OIP-63027469.jpg",
+      "expected": "approved_candidate"
+    },
+    {
+      "path": "test bugs/goliath+beetle-1140189694.jpg",
+      "expected": "approved_candidate"
+    },
+    {
+      "path": "test bugs/pexels-photo-1096287-3344265619.jpg",
+      "expected": "approved_candidate"
+    }
+  ],
+  "negative_submission_images": [
+    {
+      "path": "test bugs/negative tests/bug diagram.jpg",
+      "expected": "reject_submission"
+    },
+    {
+      "path": "test bugs/negative tests/cartoon.jpg",
+      "expected": "reject_submission"
+    },
+    {
+      "path": "test bugs/negative tests/cartoon2.jpg",
+      "expected": "reject_submission"
+    },
+    {
+      "path": "test bugs/negative tests/dog.jpg",
+      "expected": "reject_submission"
+    },
+    {
+      "path": "test bugs/negative tests/drawn bug.jpg",
+      "expected": "reject_submission"
+    },
+    {
+      "path": "test bugs/negative tests/google image.jpg",
+      "expected": "reject_submission"
+    },
+    {
+      "path": "test bugs/negative tests/multiple bugs.jpg",
+      "expected": "reject_submission"
+    }
+  ]
+}

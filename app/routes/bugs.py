@@ -7,11 +7,18 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
-from app.models import Bug, Species, Comment, BugLore
+from app.models import Bug, Species, Comment, BugLore, CommentVote, BugLoreVote, Job
 from sqlalchemy import func
 from app.services.vision_service import comprehensive_bug_verification
 from app.services.tier_system import LLMStatGenerator, TierSystem, assign_tier_and_generate_stats
 from app.services.taxonomy import TaxonomyService
+from app.services.permission_system import require_role, UserRole
+from app.services.economy import (
+    InsufficientCurrencyError,
+    STAT_REGENERATION_COST,
+    should_charge_for_stat_regeneration,
+    spend_currency,
+)
 import os
 from datetime import datetime
 import imagehash
@@ -66,16 +73,19 @@ def list_bugs():
 @bp.route('/bug/<int:bug_id>')
 def view_bug(bug_id):
     """View individual bug profile"""
-    bug = Bug.query.get_or_404(bug_id)
+    bug = db.get_or_404(Bug, bug_id)
     comments = Comment.query.filter_by(bug_id=bug_id)\
         .order_by(Comment.created_at.desc()).all()
     lore = BugLore.query.filter_by(bug_id=bug_id)\
         .order_by(BugLore.upvotes.desc()).all()
+    jobs = Job.query.filter(Job.payload_json.contains(f'"bug_id": {bug.id}'))\
+        .order_by(Job.created_at.desc()).all()
     
     return render_template('bug_profile.html', 
                          bug=bug, 
                          comments=comments,
-                         lore=lore)
+                         lore=lore,
+                         jobs=jobs)
 
 def handle_submission():
     """Process bug submission with LLM-controlled classification"""
@@ -118,7 +128,13 @@ def handle_submission():
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     temp_filename = f"temp_{current_user.id}_{timestamp}_{filename}"
     temp_path = os.path.join(current_app.config['UPLOAD_FOLDER'], temp_filename)
-    file.save(temp_path)
+    try:
+        os.makedirs(current_app.config['UPLOAD_FOLDER'], exist_ok=True)
+        file.save(temp_path)
+    except OSError as e:
+        current_app.logger.exception("Could not save uploaded bug image")
+        flash(f'Could not save upload. Check UPLOAD_FOLDER permissions: {e}', 'danger')
+        return redirect(url_for('bugs.submit_bug'))
     
     try:
         # LLM Classification
@@ -230,16 +246,13 @@ def handle_submission():
         bug.tier = TierSystem.assign_tier(bug)
         tier_info = TIER_DEFINITIONS.get(bug.tier, {})
         
-        # Generate visual lore
-        try:
-            from app.services.visual_lore_generator import VisualLoreAnalyzer
-            lore_analyzer = VisualLoreAnalyzer()
-            lore_analyzer.apply_visual_lore_to_bug(bug, final_path)
-        except Exception as e:
-            print(f"Visual lore generation failed: {e}")
-        
+        # Queue slower enrichment work so submission stays responsive.
+        from app.services.achievements import award_submission_achievements
+        from app.services.job_queue import enqueue_bug_enrichment
+
+        award_submission_achievements(bug)
         bug.generate_flair()
-        db.session.commit()
+        enqueue_bug_enrichment(bug, final_path)
         
         # Success messages
         if user_species_guess:
@@ -291,9 +304,13 @@ def _can_edit_bug(bug):
 @login_required
 def recalc_bug_stats(bug_id):
     """Preview LLM-recalculated stats with option to adjust before applying."""
-    bug = Bug.query.get_or_404(bug_id)
+    bug = db.get_or_404(Bug, bug_id)
     if not _can_edit_bug(bug):
         flash('You do not have permission to recalculate this bug\'s stats.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+    costs_points = should_charge_for_stat_regeneration(current_user, bug)
+    if costs_points and (current_user.accolade_points or 0) < STAT_REGENERATION_COST:
+        flash(f'Stat regeneration costs {STAT_REGENERATION_COST} Accolade Points. You have {current_user.accolade_points or 0}.', 'warning')
         return redirect(url_for('bugs.view_bug', bug_id=bug.id))
 
     stat_generator = LLMStatGenerator()
@@ -324,14 +341,17 @@ def recalc_bug_stats(bug_id):
         'recalc_stats.html',
         bug=bug,
         current={'attack': bug.attack, 'defense': bug.defense, 'speed': bug.speed, 'special_ability': bug.special_ability, 'tier': bug.tier},
-        proposed={**proposed, 'tier': proposed_tier}
+        proposed={**proposed, 'tier': proposed_tier},
+        stat_regeneration_cost=STAT_REGENERATION_COST,
+        costs_points=costs_points,
+        accolade_balance=current_user.accolade_points or 0
     )
 
 
 @bp.route('/bug/<int:bug_id>/recalc/confirm', methods=['POST'])
 @login_required
 def confirm_recalc_bug_stats(bug_id):
-    bug = Bug.query.get_or_404(bug_id)
+    bug = db.get_or_404(Bug, bug_id)
     if not _can_edit_bug(bug):
         flash('You do not have permission to update this bug\'s stats.', 'danger')
         return redirect(url_for('bugs.view_bug', bug_id=bug.id))
@@ -349,6 +369,15 @@ def confirm_recalc_bug_stats(bug_id):
             if v < 0 or v > 100:
                 raise ValueError('Stats must be between 0 and 100')
 
+        if should_charge_for_stat_regeneration(current_user, bug):
+            spend_currency(
+                current_user,
+                STAT_REGENERATION_COST,
+                'stat_regeneration',
+                'bug',
+                bug.id,
+            )
+
         bug.attack = attack
         bug.defense = defense
         bug.speed = speed
@@ -363,6 +392,9 @@ def confirm_recalc_bug_stats(bug_id):
 
         db.session.commit()
         flash('Stats updated successfully.', 'success')
+    except InsufficientCurrencyError as e:
+        db.session.rollback()
+        flash(str(e), 'warning')
     except Exception as e:
         db.session.rollback()
         flash(f'Failed to update stats: {e}', 'danger')
@@ -373,7 +405,7 @@ def confirm_recalc_bug_stats(bug_id):
 @bp.route('/bug/<int:bug_id>/recalc/deny', methods=['POST'])
 @login_required
 def deny_recalc_bug_stats(bug_id):
-    bug = Bug.query.get_or_404(bug_id)
+    bug = db.get_or_404(Bug, bug_id)
     if not _can_edit_bug(bug):
         flash('You do not have permission to modify this bug.', 'danger')
         return redirect(url_for('bugs.view_bug', bug_id=bug.id))
@@ -457,7 +489,7 @@ def _extract_traits_from_bug(bug):
 @login_required
 def add_comment(bug_id):
     """Add a comment to a bug"""
-    bug = Bug.query.get_or_404(bug_id)
+    bug = db.get_or_404(Bug, bug_id)
     comment_text = request.form.get('comment')
     
     if not comment_text:
@@ -481,7 +513,7 @@ def add_comment(bug_id):
 @login_required
 def add_lore(bug_id):
     """Add lore entry to a bug"""
-    bug = Bug.query.get_or_404(bug_id)
+    bug = db.get_or_404(Bug, bug_id)
     lore_text = request.form.get('lore')
     
     if not lore_text:
@@ -495,10 +527,42 @@ def add_lore(bug_id):
     )
     
     db.session.add(lore)
+    from app.services.achievements import award_lore_participation
+    award_lore_participation(bug)
     db.session.commit()
     
     flash('Lore added to the legend!', 'success')
     return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+
+
+@bp.route('/comment/<int:comment_id>/upvote', methods=['POST'])
+@login_required
+def upvote_comment(comment_id):
+    comment = Comment.query.get_or_404(comment_id)
+    existing = CommentVote.query.filter_by(comment_id=comment.id, user_id=current_user.id).first()
+    if existing:
+        return jsonify({'success': True, 'upvotes': comment.upvotes, 'already_voted': True}), 200
+
+    vote = CommentVote(comment_id=comment.id, user_id=current_user.id)
+    comment.upvotes = (comment.upvotes or 0) + 1
+    db.session.add(vote)
+    db.session.commit()
+    return jsonify({'success': True, 'upvotes': comment.upvotes}), 200
+
+
+@bp.route('/lore/<int:lore_id>/upvote', methods=['POST'])
+@login_required
+def upvote_lore(lore_id):
+    lore = BugLore.query.get_or_404(lore_id)
+    existing = BugLoreVote.query.filter_by(lore_id=lore.id, user_id=current_user.id).first()
+    if existing:
+        return jsonify({'success': True, 'upvotes': lore.upvotes, 'already_voted': True}), 200
+
+    vote = BugLoreVote(lore_id=lore.id, user_id=current_user.id)
+    lore.upvotes = (lore.upvotes or 0) + 1
+    db.session.add(vote)
+    db.session.commit()
+    return jsonify({'success': True, 'upvotes': lore.upvotes}), 200
 
 # API endpoint for pre-upload verification
 @bp.route('/api/bug/pre-verify', methods=['POST'])
@@ -577,6 +641,7 @@ def pre_verify_bug():
 # Admin route to review flagged bugs
 @bp.route('/admin/review-bugs')
 @login_required
+@require_role(UserRole.MODERATOR)
 def review_bugs():
     """View bugs that need manual review"""
     
@@ -589,11 +654,10 @@ def review_bugs():
 
 @bp.route('/admin/bug/<int:bug_id>/approve', methods=['POST'])
 @login_required
+@require_role(UserRole.MODERATOR)
 def approve_bug(bug_id):
     """Approve a bug after manual review"""
-    # TODO: Add admin check
-    
-    bug = Bug.query.get_or_404(bug_id)
+    bug = db.get_or_404(Bug, bug_id)
     
     bug.requires_manual_review = False
     bug.is_verified = True
@@ -608,10 +672,11 @@ def approve_bug(bug_id):
 
 @bp.route('/admin/bug/<int:bug_id>/reject', methods=['POST'])
 @login_required
+@require_role(UserRole.MODERATOR)
 def reject_bug(bug_id):
     """Reject a bug after manual review"""
     
-    bug = Bug.query.get_or_404(bug_id)
+    bug = db.get_or_404(Bug, bug_id)
     
     bug.review_notes = request.form.get('notes', 'Rejected by moderator')
     
@@ -623,13 +688,10 @@ def reject_bug(bug_id):
 
 @bp.route('/admin/bug/<int:bug_id>/correct_species', methods=['POST'])
 @login_required
+@require_role(UserRole.MODERATOR)
 def correct_bug_species(bug_id):
     """Allow admins/mods to correct the species assignment for a bug."""
-    bug = Bug.query.get_or_404(bug_id)
-    # Simple role check
-    if getattr(current_user, 'role', 'USER') not in ['MODERATOR', 'ADMIN', 'OWNER']:
-        flash('You do not have permission to change species.', 'danger')
-        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+    bug = db.get_or_404(Bug, bug_id)
 
     species_id = request.form.get('species_id')
     common_name = request.form.get('common_name')

@@ -13,7 +13,9 @@ bp = Blueprint('tournaments', __name__)
 @bp.route('/tournaments')
 def list_tournaments():
 
-    upcoming = Tournament.query.filter_by(status='upcoming').all()
+    upcoming = Tournament.query.filter(
+        Tournament.status.in_(['upcoming', 'registration'])
+    ).all()
     active = Tournament.query.filter_by(status='active').all()
     completed = Tournament.query.filter_by(status='completed')\
         .order_by(Tournament.end_date.desc()).all()
@@ -25,7 +27,7 @@ def list_tournaments():
 
 @bp.route('/tournament/<int:tournament_id>')
 def view_tournament(tournament_id):
-    tournament = Tournament.query.get_or_404(tournament_id)
+    tournament = db.get_or_404(Tournament, tournament_id)
     # Prefer TournamentMatch bracket structure and build columns server-side
     matches = TournamentMatch.query.filter_by(tournament_id=tournament_id).order_by(TournamentMatch.round_number, TournamentMatch.match_number).all()
     if matches:
@@ -45,7 +47,7 @@ def view_tournament(tournament_id):
 @bp.route('/tournament/<int:tournament_id>/bracket_data')
 def tournament_bracket_data(tournament_id):
     """Return structured bracket data (JSON) for live-updating front-end."""
-    tournament = Tournament.query.get_or_404(tournament_id)
+    tournament = db.get_or_404(Tournament, tournament_id)
 
     # Prefer TournamentMatch records if present, otherwise use Battle entries
     matches = TournamentMatch.query.filter_by(tournament_id=tournament_id).order_by(TournamentMatch.round_number, TournamentMatch.match_number).all()
@@ -116,7 +118,7 @@ def tournament_bracket_data(tournament_id):
 @login_required
 def apply_tournament(tournament_id):
     """Allow a logged-in user to apply one of their eligible bugs to a tournament."""
-    tournament = Tournament.query.get_or_404(tournament_id)
+    tournament = db.get_or_404(Tournament, tournament_id)
 
     # GET: show eligible bugs owned by user
     if request.method == 'GET':
@@ -141,7 +143,7 @@ def apply_tournament(tournament_id):
 @bp.route('/tournament/<int:tournament_id>/edit', methods=['GET', 'POST'])
 @require_role(UserRole.MODERATOR)
 def edit_tournament(tournament_id):
-    tournament = Tournament.query.get_or_404(tournament_id)
+    tournament = db.get_or_404(Tournament, tournament_id)
 
     if request.method == 'POST':
         tournament.name = request.form.get('name') or tournament.name
@@ -170,7 +172,7 @@ def edit_tournament(tournament_id):
 @bp.route('/tournament/<int:tournament_id>/delete', methods=['POST'])
 @require_role(UserRole.MODERATOR)
 def delete_tournament(tournament_id):
-    tournament = Tournament.query.get_or_404(tournament_id)
+    tournament = db.get_or_404(Tournament, tournament_id)
 
     # Remove related matches, applications, and battles safely
     TournamentMatch.query.filter_by(tournament_id=tournament.id).delete()
@@ -189,41 +191,49 @@ def create_tournament():
         name = request.form.get('name')
         start_date = datetime.strptime(request.form.get('start_date'), '%Y-%m-%d')
 
-        # Create tournament using only supported model fields
-        tournament = Tournament(
-            name=name,
-            start_date=start_date,
-            status='upcoming'
-        )
+        # Validate max participants
+        max_participants = None
+        max_participants_raw = request.form.get('max_participants')
+        if max_participants_raw:
+            try:
+                max_participants = int(max_participants_raw)
+                if max_participants < 2:
+                    flash('Tournament must allow at least 2 participants.', 'danger')
+                    return redirect(url_for('tournaments.create_tournament'))
+            except ValueError:
+                flash('Invalid participants number; ignoring.', 'warning')
 
-        # Registration deadline: optional. Support an explicit "no deadline" checkbox.
+        # Validate registration deadline
+        registration_deadline = None
         no_deadline = request.form.get('no_deadline') == '1'
         reg_deadline_raw = request.form.get('registration_deadline')
-        if no_deadline:
-            tournament.registration_deadline = None
-        elif reg_deadline_raw:
+        if not no_deadline and reg_deadline_raw:
             try:
-                tournament.registration_deadline = datetime.strptime(reg_deadline_raw, '%Y-%m-%d')
+                registration_deadline = datetime.strptime(reg_deadline_raw, '%Y-%m-%d')
+                if registration_deadline >= start_date:
+                    flash('Registration deadline must be before the tournament start date.', 'danger')
+                    return redirect(url_for('tournaments.create_tournament'))
             except ValueError:
                 flash('Invalid registration deadline; ignoring.', 'warning')
 
-        # Optional max participants
-        max_participants = request.form.get('max_participants')
-        if max_participants:
-            try:
-                tournament.max_participants = int(max_participants)
-            except ValueError:
-                flash('Invalid participants number; ignoring.', 'warning')
+        tournament = Tournament(
+            name=name,
+            start_date=start_date,
+            status='registration',
+            max_participants=max_participants,
+            registration_deadline=registration_deadline,
+        )
+
         # Tier restriction and allow above
         tier = request.form.get('tier')
         if tier:
             tournament.tier = tier
             allow_above = request.form.get('allow_tier_above')
             tournament.allow_tier_above = True if allow_above == '1' else False
-        
+
         db.session.add(tournament)
         db.session.commit()
-        
+
         flash(f'Tournament "{name}" created!', 'success')
         return redirect(url_for('tournaments.view_tournament', tournament_id=tournament.id))
     
@@ -262,9 +272,9 @@ def generate_tournament_bracket(tournament: Tournament):
 @bp.route('/tournament/<int:tournament_id>/start', methods=['POST'])
 @login_required
 def start_tournament(tournament_id):
-    tournament = Tournament.query.get_or_404(tournament_id)
+    tournament = db.get_or_404(Tournament, tournament_id)
     
-    if tournament.status != 'upcoming':
+    if tournament.status not in ('upcoming', 'registration'):
         flash('Tournament already started or completed', 'warning')
         return redirect(url_for('tournaments.view_tournament', tournament_id=tournament_id))
     # Generate bracket using TournamentManager which uses approved applications

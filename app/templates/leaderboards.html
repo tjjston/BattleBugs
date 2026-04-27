@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Leaderboards - BattleBugs{% endblock %}
+
+{% block content %}
+<h1>Leaderboards</h1>
+
+<div class="row g-4">
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><strong>Most Wins</strong></div>
+      <div class="card-body">
+        {% for bug in top_wins %}
+        <div class="d-flex justify-content-between border-bottom py-2">
+          <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">{{ bug.nickname }}</a>
+          <span>{{ bug.wins }}W</span>
+        </div>
+        {% else %}
+        <p class="text-muted">No battles yet.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><strong>Best Win Rate</strong></div>
+      <div class="card-body">
+        {% for bug in top_win_rate %}
+        <div class="d-flex justify-content-between border-bottom py-2">
+          <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">{{ bug.nickname }}</a>
+          <span>{{ "%.1f"|format(bug.win_rate) }}%</span>
+        </div>
+        {% else %}
+        <p class="text-muted">Need at least three battles to qualify.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><strong>Top Collectors</strong></div>
+      <div class="card-body">
+        {% for user in top_users %}
+        <div class="d-flex justify-content-between border-bottom py-2">
+          <a href="{{ url_for('main.user_profile', user_id=user.id) }}">{{ user.username }}</a>
+          <span>{{ user.bugs.count() }} bugs</span>
+        </div>
+        {% else %}
+        <p class="text-muted">No collectors yet.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -174,8 +174,8 @@ class TournamentManager:
     @staticmethod
     def apply_to_tournament(bug_id: int, tournament_id: int, user_id: int) -> TournamentApplication:
         """Submit a bug to a tournament"""
-        bug = Bug.query.get_or_404(bug_id)
-        tournament = Tournament.query.get_or_404(tournament_id)
+        bug = db.get_or_404(Bug, bug_id)
+        tournament = db.get_or_404(Tournament, tournament_id)
         
         # Check eligibility
         eligibility = TournamentEligibilityChecker.check_eligibility(bug, tournament)
@@ -204,7 +204,7 @@ class TournamentManager:
     @staticmethod
     def approve_application(application_id: int, reviewer_id: int) -> TournamentApplication:
         """Approve a tournament application (moderator+)"""
-        application = TournamentApplication.query.get_or_404(application_id)
+        application = db.get_or_404(TournamentApplication, application_id)
         
         application.status = 'approved'
         application.reviewed_at = datetime.utcnow()
@@ -226,7 +226,7 @@ class TournamentManager:
         import math
         import random
         
-        tournament = Tournament.query.get_or_404(tournament_id)
+        tournament = db.get_or_404(Tournament, tournament_id)
         
         # Get approved applications
         applications = TournamentApplication.query.filter_by(
