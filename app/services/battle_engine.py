@@ -204,50 +204,58 @@ def simulate_battle(bug1: Bug, bug2: Bug, tournament_id: Optional[int] = None, r
         award_battle_achievements(winner, bug2 if winner.id == bug1.id else bug1)
 
     db.session.add(battle)
-    _track_rival_encounter(bug1, bug2)
+    _track_rival_encounter(bug1, bug2, winner)
     db.session.commit()
 
     return battle
 
 
-def _track_rival_encounter(bug1: Bug, bug2: Bug) -> None:
-    """Record a rival encounter between two bugs (idempotent — increments count)."""
+def _track_rival_encounter(bug1: Bug, bug2: Bug, winner: Optional[Bug] = None) -> None:
+    """Record a rival encounter and update per-side win counts."""
     b1_id, b2_id = sorted([bug1.id, bug2.id])
     rival = BugRival.query.filter_by(bug1_id=b1_id, bug2_id=b2_id).first()
     if rival:
         rival.encounter_count += 1
         rival.last_encounter_at = datetime.utcnow()
+        if winner:
+            if winner.id == b1_id:
+                rival.bug1_wins = (rival.bug1_wins or 0) + 1
+            else:
+                rival.bug2_wins = (rival.bug2_wins or 0) + 1
     else:
-        rival = BugRival(bug1_id=b1_id, bug2_id=b2_id)
+        b1w = 1 if (winner and winner.id == b1_id) else 0
+        b2w = 1 if (winner and winner.id == b2_id) else 0
+        rival = BugRival(bug1_id=b1_id, bug2_id=b2_id, bug1_wins=b1w, bug2_wins=b2w)
         db.session.add(rival)
 
 
 def determine_winner_with_xfactor(bug1: Bug, bug2: Bug) -> Optional[Bug]:
+    """Determine winner using the full 6-stat system + xfactor (hidden).
+
+    Stat roles:
+      attack   — raw strike force (weight 2.0)
+      defense  — structural protection (weight 1.5)
+      speed    — agility / evasion (weight 1.2)
+      lethality — weapon/venom potency; AMPLIFIES type advantage when > 50 (weight 1.0)
+      grip      — engagement control; counters opponent speed advantage (weight 0.8)
+      cunning   — tactical instinct; REDUCES type disadvantage when > 50 (weight 0.7)
     """
-    Determine winner using stats + SECRET XFACTOR
-    
-    The xfactor adds subtle randomness that makes sense narratively
-    without players knowing it exists.
-    """
+    def _s(b: Bug, attr: str, default: int = 50) -> int:
+        return max(1, getattr(b, attr, default) or default)
+
     def base_power(b: Bug) -> float:
-        """Calculate base power from visible stats"""
         return (
-            b.attack * 2.0
-            + b.defense * 1.5
-            + b.speed * 1.2
-            + (b.special_attack if hasattr(b, 'special_attack') else 0)
-            + (b.special_defense if hasattr(b, 'special_defense') else 0)
-            + (b.health * 0.5 if hasattr(b, 'health') else 0)
+            _s(b, 'attack', 5) * 2.0
+            + _s(b, 'defense', 5) * 1.5
+            + _s(b, 'speed', 5) * 1.2
+            + _s(b, 'lethality') * 1.0
+            + _s(b, 'grip') * 0.8
+            + _s(b, 'cunning') * 0.7
         )
-    
+
     bug1_power = base_power(bug1)
     bug2_power = base_power(bug2)
-    
-    # Apply matchup modifiers (from attack/defense types if they exist)
-    bug1_modifier = 1.0
-    bug2_modifier = 1.0
-    
-    # Matchup multipliers based on attack vs defense types
+
     atk1 = getattr(bug1, 'attack_type', None)
     def2 = getattr(bug2, 'defense_type', None)
     atk2 = getattr(bug2, 'attack_type', None)
@@ -255,10 +263,27 @@ def determine_winner_with_xfactor(bug1: Bug, bug2: Bug) -> Optional[Bug]:
 
     m1 = get_matchup_multiplier(atk1, def2)
     m2 = get_matchup_multiplier(atk2, def1)
-    bug1_modifier *= m1
-    bug2_modifier *= m2
 
-    # Size multipliers (pass attack types so size-agnostic attacks can ignore size)
+    # Cunning: recover part of a type disadvantage (biological tactical instinct)
+    # max cunning (100) halves the deficit; cunning 50 = no recovery
+    c1, c2 = _s(bug1, 'cunning'), _s(bug2, 'cunning')
+    if m1 < 1.0:
+        m1 += ((c1 - 50) / 100.0) * (1.0 - m1)   # positive only when cunning > 50
+    if m2 < 1.0:
+        m2 += ((c2 - 50) / 100.0) * (1.0 - m2)
+
+    # Lethality: amplify a type advantage beyond the base multiplier
+    # lethality 50 = unchanged; 100 = doubles the bonus; 25 = halves it
+    l1, l2 = _s(bug1, 'lethality'), _s(bug2, 'lethality')
+    if m1 > 1.0:
+        m1 = 1.0 + (m1 - 1.0) * (l1 / 50.0)
+    if m2 > 1.0:
+        m2 = 1.0 + (m2 - 1.0) * (l2 / 50.0)
+
+    bug1_modifier = m1
+    bug2_modifier = m2
+
+    # Size multipliers (size-agnostic attacks skip size math)
     s1, s2 = get_size_multipliers(
         getattr(bug1, 'size_class', None),
         getattr(bug2, 'size_class', None),
@@ -267,34 +292,52 @@ def determine_winner_with_xfactor(bug1: Bug, bug2: Bug) -> Optional[Bug]:
     )
     bug1_modifier *= s1
     bug2_modifier *= s2
-    
+
+    # Grip: engagement control bonus — high grip vs. low grip opponent
+    # Scales ±8%; also flattens opponent's raw speed advantage in a grapple
+    g1, g2 = _s(bug1, 'grip'), _s(bug2, 'grip')
+    grip_delta_1 = (g1 - g2) / 100.0   # -1 to +1
+    grip_delta_2 = -grip_delta_1
+    bug1_modifier *= 1.0 + grip_delta_1 * 0.08
+    bug2_modifier *= 1.0 + grip_delta_2 * 0.08
+
+    # Rivalry: rivals have studied each other — each bug's biggest weapon is anticipated
+    # and countered, reducing its effective contribution by 10%.
+    b1_id, b2_id = sorted([bug1.id, bug2.id])
+    rival = BugRival.query.filter_by(bug1_id=b1_id, bug2_id=b2_id).first()
+    if rival and rival.encounter_count >= 2:
+        for bug, is_bug1 in ((bug1, True), (bug2, False)):
+            dom_contribution = max(
+                _s(bug, 'attack', 5) * 2.0,
+                _s(bug, 'defense', 5) * 1.5,
+                _s(bug, 'speed', 5) * 1.2,
+                _s(bug, 'lethality') * 1.0,
+                _s(bug, 'grip') * 0.8,
+                _s(bug, 'cunning') * 0.7,
+            )
+            penalty = dom_contribution * 0.10
+            if is_bug1:
+                bug1_power -= penalty
+            else:
+                bug2_power -= penalty
+
     bug1_power *= bug1_modifier
     bug2_power *= bug2_modifier
-    
-    # XFactor influences power by up to 10% +5.0 xfactor = +10% power boost; -5.0 xfactor = -10% power penalty
-    
-    xfactor_multiplier_1 = 1.0 + (bug1.xfactor * 0.02)  # -10% to +10%
-    xfactor_multiplier_2 = 1.0 + (bug2.xfactor * 0.02)
-    
-    bug1_power *= xfactor_multiplier_1
-    bug2_power *= xfactor_multiplier_2
-    
-    # Xfactor remains hidden from users; admins can inspect persisted secrets.
-    # ═══════════════════════════════════════════════════════
-    bug1_power *= random.uniform(0.98, 1.02)  # Only ±2% random
+
+    # XFactor: hidden ±10% (admin-only knowledge)
+    bug1_power *= 1.0 + (bug1.xfactor * 0.02)
+    bug2_power *= 1.0 + (bug2.xfactor * 0.02)
+
+    # Tiny random factor — keeps identical matchups interesting
+    bug1_power *= random.uniform(0.98, 1.02)
     bug2_power *= random.uniform(0.98, 1.02)
-    
-    # Decide winner
+
     if abs(bug1_power) < 1e-9 and abs(bug2_power) < 1e-9:
-        return None  # Draw
-    
-    eps = 1e-3
-    diff = bug1_power - bug2_power
-    
-    if abs(diff) <= eps:
-        return None  # Draw
-    
-    return bug1 if diff > 0 else bug2
+        return None
+    if abs(bug1_power - bug2_power) <= 1e-3:
+        return None
+
+    return bug1 if bug1_power > bug2_power else bug2
 
 
 def get_matchup_notes(bug1: Bug, bug2: Bug):
@@ -320,8 +363,15 @@ def calculate_battle_stats(bug1: Bug, bug2: Bug) -> dict:
     """
     Return display-friendly stats (DOES NOT reveal xfactor to users)
     """
-    bug1_power = bug1.attack + bug1.defense + bug1.speed
-    bug2_power = bug2.attack + bug2.defense + bug2.speed
+    def _display_power(b):
+        return (
+            (b.attack or 0) + (b.defense or 0) + (b.speed or 0)
+            + (getattr(b, 'lethality', 50) or 50)
+            + (getattr(b, 'grip', 50) or 50)
+            + (getattr(b, 'cunning', 50) or 50)
+        )
+    bug1_power = _display_power(bug1)
+    bug2_power = _display_power(bug2)
     
     # Compute matchup and size modifiers (visible to users as 'expected advantage')
     atk_mult_1 = get_matchup_multiplier(getattr(bug1, 'attack_type', None), getattr(bug2, 'defense_type', None))

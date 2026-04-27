@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for
 from flask import send_from_directory, current_app
 from app import db
-from app.models import Bug, Battle, Tournament, User
+from app.models import Bug, Battle, Tournament, User, Notification
 from sqlalchemy import desc, func
 from app.services.permission_system import AdminUserManager
 from app.services.news_service import get_current_season, get_recent_activity, get_cached_briefing
@@ -123,3 +123,26 @@ def user_profile(user_id):
 def my_profile():
     """Redirect to the current user's public profile."""
     return redirect(url_for('main.user_profile', user_id=current_user.id))
+
+
+@bp.route('/notifications')
+@login_required
+def notifications():
+    """List all notifications for the current user and mark them read."""
+    notifs = current_user.notifications\
+        .order_by(Notification.created_at.desc()).all()
+    unread_ids = [n.id for n in notifs if not n.is_read]
+    if unread_ids:
+        Notification.query.filter(Notification.id.in_(unread_ids))\
+            .update({'is_read': True}, synchronize_session=False)
+        db.session.commit()
+    return render_template('notifications.html', notifications=notifs)
+
+
+@bp.app_context_processor
+def inject_unread_notifications():
+    """Make unread notification count available to all templates."""
+    count = 0
+    if current_user.is_authenticated:
+        count = current_user.notifications.filter_by(is_read=False).count()
+    return {'unread_notification_count': count}

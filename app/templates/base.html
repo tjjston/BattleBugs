@@ -51,6 +51,16 @@
                     <li class="nav-item">
                         <span class="nav-link">{{ current_user.accolade_points or 0 }} AP</span>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link position-relative" href="{{ url_for('main.notifications') }}">
+                            🔔
+                            {% if unread_notification_count %}
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size:0.6rem;">
+                                {{ unread_notification_count }}
+                            </span>
+                            {% endif %}
+                        </a>
+                    </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
                             {{ current_user.username }}

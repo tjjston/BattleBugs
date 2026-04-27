@@ -4,6 +4,7 @@ Integrates with GBIF (Global Biodiversity Information Facility) and iNaturalist
 """
 
 import requests
+from flask import current_app
 from app import db
 from app.models import Species
 from datetime import datetime, timedelta
@@ -48,20 +49,20 @@ class TaxonomyService:
                 trait_results = self._search_by_characteristics(query)
                 results.extend(trait_results)
             except Exception as e:
-                print(f"Trait search error: {e}")
+                current_app.logger.warning("Trait search failed: %s", e)
 
         # Name-based external searches (GBIF + iNaturalist)
         try:
             gbif_results = self._search_gbif(query)
             results.extend(gbif_results)
         except Exception as e:
-            print(f"GBIF search error: {e}")
+            current_app.logger.warning("GBIF search failed: %s", e)
 
         try:
             inat_results = self._search_inaturalist(query)
             results.extend(inat_results)
         except Exception as e:
-            print(f"iNaturalist search error: {e}")
+            current_app.logger.warning("iNaturalist search failed: %s", e)
 
         # Merge/dedupe results by scientific_name, prefer cached/local, and compute combined score
         merged = {}
@@ -181,7 +182,7 @@ class TaxonomyService:
                         if not common_name and vern_data.get('results'):
                             common_name = vern_data['results'][0].get('vernacularName')
                 except Exception as e:
-                    print(f"Error fetching vernacular name for {species_key}: {e}")
+                    current_app.logger.warning("Vernacular name fetch failed for %s: %s", species_key, e)
             
             # Fetch image
             image_url = None
@@ -197,7 +198,7 @@ class TaxonomyService:
                                     image_url = media.get('identifier')
                                     break
                 except Exception as e:
-                    print(f"Error fetching image for {species_key}: {e}")
+                    current_app.logger.warning("Species image fetch failed for %s: %s", species_key, e)
             
             # Clean up common name
             if common_name and scientific_name:
@@ -375,7 +376,7 @@ class TaxonomyService:
                 'data_source': 'gbif'
             }
         except Exception as e:
-            print(f"Error fetching GBIF details: {e}")
+            current_app.logger.warning("GBIF detail fetch failed: %s", e)
             return None
     
     def _fetch_inaturalist_details(self, inaturalist_id):
@@ -399,7 +400,7 @@ class TaxonomyService:
                 'data_source': 'inaturalist'
             }
         except Exception as e:
-            print(f"Error fetching iNaturalist details: {e}")
+            current_app.logger.warning("iNaturalist detail fetch failed: %s", e)
             return None
     
     def _cache_species(self, species_data):

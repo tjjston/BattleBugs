@@ -3,10 +3,10 @@ Admin Dashboard Routes
 Access to secret bug stats, xfactors, matchup predictions
 """
 
-from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, current_app
 from flask_login import login_required, current_user
 from app import db
-from app.models import Bug, Battle, Tournament, User
+from app.models import Bug, Battle, Tournament, User, Job, ClassificationFlag, Notification, SystemSetting
 from app.services.permission_system import (
     require_role, UserRole, AdminBugAnalyzer, AdminUserManager,
     can_view_secrets
@@ -42,7 +42,8 @@ def dashboard():
     
     # Flagged bugs
     flagged_bugs = Bug.query.filter_by(requires_manual_review=True).count()
-    
+    pending_classification_flags = ClassificationFlag.query.filter_by(status='pending').count()
+
     return render_template('admin/dashboard.html',
                          total_bugs=total_bugs,
                          total_users=total_users,
@@ -52,7 +53,8 @@ def dashboard():
                          recent_bugs=recent_bugs,
                          recent_battles=recent_battles,
                          pending_apps=pending_apps,
-                         flagged_bugs=flagged_bugs)
+                         flagged_bugs=flagged_bugs,
+                         pending_classification_flags=pending_classification_flags)
 
 
 @bp.route('/bug/<int:bug_id>/secrets')
@@ -336,6 +338,10 @@ def db_explorer():
     NOTE: This endpoint allows running arbitrary SQL as the application user.
     It's admin-only and intended for development/ops. Use with caution.
     """
+    if not current_app.config.get('ENABLE_DB_EXPLORER', False):
+        flash('DB explorer is disabled. Set ENABLE_DB_EXPLORER=true to enable it.', 'warning')
+        return redirect(url_for('admin.dashboard'))
+
     inspector = sa.inspect(db.engine)
     tables = inspector.get_table_names()
 
@@ -352,6 +358,13 @@ def db_explorer():
         else:
             try:
                 # Use text() for safety and to get result metadata
+                lowered = sql.lower().lstrip()
+                is_read = lowered.startswith('select') or lowered.startswith('pragma')
+                if not is_read and not current_app.config.get('DB_EXPLORER_ALLOW_WRITES', False):
+                    message = 'Write SQL is disabled. Set DB_EXPLORER_ALLOW_WRITES=true to allow it.'
+                    return render_template('admin/db_explorer.html', tables=tables, selected_table=selected_table,
+                                           columns=columns, rows=rows, message=message)
+
                 stmt = text(sql)
                 res = db.session.execute(stmt)
                 # If query returns rows, fetch them (limit client-side)
@@ -411,6 +424,312 @@ def reveal_battle_secrets(battle_id):
     secrets = reveal_xfactor_secrets(battle)
     
     return render_template('admin/battle_secrets.html', battle=battle, secrets=secrets)
+
+
+@bp.route('/jobs')
+@login_required
+@require_role(UserRole.ADMIN)
+def jobs():
+    status = request.args.get('status')
+    query = Job.query
+    if status:
+        query = query.filter_by(status=status)
+    jobs = query.order_by(Job.created_at.desc()).limit(100).all()
+    return render_template('admin/jobs.html', jobs=jobs, status=status)
+
+
+@bp.route('/jobs/<int:job_id>/retry', methods=['POST'])
+@login_required
+@require_role(UserRole.ADMIN)
+def retry_job(job_id):
+    from app.services.job_queue import retry_job as retry_background_job
+
+    retry_background_job(job_id)
+    flash('Job queued for retry.', 'success')
+    return redirect(url_for('admin.jobs'))
+
+
+@bp.route('/classification-flags')
+@login_required
+@require_role(UserRole.MODERATOR)
+def classification_flags():
+    """List all pending classification dispute flags."""
+    status_filter = request.args.get('status', 'pending')
+    flags = ClassificationFlag.query\
+        .filter_by(status=status_filter)\
+        .order_by(ClassificationFlag.created_at.asc())\
+        .all()
+    return render_template(
+        'admin/classification_flags.html',
+        flags=flags,
+        status_filter=status_filter,
+    )
+
+
+@bp.route('/classification-flags/<int:flag_id>/dismiss', methods=['POST'])
+@login_required
+@require_role(UserRole.MODERATOR)
+def dismiss_classification_flag(flag_id):
+    """Mark a classification dispute as dismissed (classification stands)."""
+    from datetime import datetime as _dt
+    flag = db.get_or_404(ClassificationFlag, flag_id)
+    flag.status = 'dismissed'
+    flag.reviewer_id = current_user.id
+    flag.reviewer_notes = (request.form.get('notes') or '').strip() or None
+    flag.reviewed_at = _dt.utcnow()
+
+    user_message = (request.form.get('user_message') or '').strip()
+    if user_message:
+        notif = Notification(
+            user_id=flag.flagging_user_id,
+            message=f'Your classification dispute for "{flag.bug.nickname}" was reviewed: {user_message}',
+            link_url=f'/bug/{flag.bug_id}',
+        )
+        db.session.add(notif)
+
+    db.session.commit()
+    flash('Flag dismissed — original classification stands.', 'info')
+    return redirect(url_for('admin.classification_flags'))
+
+
+@bp.route('/classification-flags/<int:flag_id>/correct', methods=['POST'])
+@login_required
+@require_role(UserRole.MODERATOR)
+def correct_from_flag(flag_id):
+    """Apply species correction from a classification flag, update bug fields, and notify the user."""
+    from datetime import datetime as _dt
+    flag = db.get_or_404(ClassificationFlag, flag_id)
+    bug = db.get_or_404(Bug, flag.bug_id)
+
+    new_common = (request.form.get('common_name') or '').strip() or None
+    new_scientific = (request.form.get('scientific_name') or '').strip() or None
+    new_order = (request.form.get('order') or '').strip() or None
+    new_family = (request.form.get('family') or '').strip() or None
+    notes = (request.form.get('notes') or '').strip() or None
+    user_message = (request.form.get('user_message') or '').strip()
+
+    if new_common:
+        bug.common_name = new_common
+    if new_scientific:
+        bug.scientific_name = new_scientific
+
+    # Also update the linked Species record if one exists
+    if bug.species_id and (new_common or new_scientific):
+        from app.models import Species
+        sp = db.session.get(Species, bug.species_id)
+        if sp:
+            if new_common:
+                sp.common_name = new_common
+            if new_scientific:
+                sp.scientific_name = new_scientific
+            if new_order:
+                sp.order = new_order
+            if new_family:
+                sp.family = new_family
+
+    flag.status = 'reviewed'
+    flag.reviewer_id = current_user.id
+    flag.reviewer_notes = notes
+    flag.reviewed_at = _dt.utcnow()
+
+    msg = user_message or f'Your dispute was accepted — "{bug.nickname}" has been reclassified as {new_common or new_scientific or "corrected"}.'
+    notif = Notification(
+        user_id=flag.flagging_user_id,
+        message=msg,
+        link_url=f'/bug/{flag.bug_id}',
+    )
+    db.session.add(notif)
+    db.session.commit()
+    flash(f'Classification updated for {bug.nickname} and user notified.', 'success')
+    return redirect(url_for('admin.classification_flags'))
+
+
+@bp.route('/settings', methods=['GET', 'POST'])
+@login_required
+@require_role(UserRole.ADMIN)
+def system_settings():
+    """Admin system settings: LLM provider toggle, classifier toggle, URLs."""
+    from app.services.llm_manager import LLMModel
+
+    if request.method == 'POST':
+        keys = [
+            'llm_provider',
+            'llm_model_battle_narrative', 'llm_model_stat_generation',
+            'llm_model_vision_analysis', 'llm_model_species_identification',
+            'llm_model_quick_tasks',
+            'classifier_enabled', 'classifier_required',
+            'ollama_url', 'classifier_url',
+        ]
+        for k in keys:
+            v = request.form.get(k, '').strip()
+            if v:
+                SystemSetting.set(k, v, user_id=current_user.id)
+            else:
+                # Empty value → delete override so app config takes over
+                row = db.session.get(SystemSetting, k)
+                if row:
+                    db.session.delete(row)
+        db.session.commit()
+        flash('Settings saved.', 'success')
+        return redirect(url_for('admin.system_settings'))
+
+    settings = {row.key: row.value for row in SystemSetting.query.all()}
+    llm_models = [m.name for m in LLMModel]
+    return render_template('admin/settings.html', settings=settings, llm_models=llm_models)
+
+
+# ── Bug management ────────────────────────────────────────────────────────────
+
+@bp.route('/bugs')
+@login_required
+@require_role(UserRole.MODERATOR)
+def bug_list():
+    """Searchable bug list for admin editing."""
+    q = request.args.get('q', '').strip()
+    tier = request.args.get('tier', '')
+    condition = request.args.get('condition', '')
+    page = request.args.get('page', 1, type=int)
+
+    query = Bug.query
+    if q:
+        like = f'%{q}%'
+        query = query.filter(
+            sa.or_(Bug.nickname.ilike(like), Bug.common_name.ilike(like),
+                   Bug.scientific_name.ilike(like))
+        )
+    if tier:
+        query = query.filter_by(tier=tier)
+    if condition:
+        query = query.filter_by(condition=condition)
+    pagination = query.order_by(Bug.submission_date.desc()).paginate(page=page, per_page=30, error_out=False)
+    return render_template('admin/bug_list.html', pagination=pagination, q=q, tier=tier, condition=condition)
+
+
+@bp.route('/bug/<int:bug_id>/edit', methods=['GET', 'POST'])
+@login_required
+@require_role(UserRole.MODERATOR)
+def edit_bug(bug_id):
+    """Edit a bug's stats, condition, tier, and classification."""
+    bug = db.get_or_404(Bug, bug_id)
+
+    if request.method == 'POST':
+        action = request.form.get('action', 'save')
+
+        if action == 'regenerate_stats':
+            try:
+                from app.services.tier_system import TierSystem
+                TierSystem.regenerate_stats_for_bug(bug)
+                db.session.commit()
+                flash('Stats regenerated via LLM.', 'success')
+            except Exception as exc:
+                flash(f'Stat regeneration failed: {exc}', 'danger')
+            return redirect(url_for('admin.edit_bug', bug_id=bug.id))
+
+        # Apply manual edits
+        def _int(key, default):
+            try:
+                return int(request.form.get(key, default))
+            except (ValueError, TypeError):
+                return default
+
+        def _float(key, default):
+            try:
+                return float(request.form.get(key, default))
+            except (ValueError, TypeError):
+                return default
+
+        bug.nickname = request.form.get('nickname', bug.nickname).strip() or bug.nickname
+        bug.common_name = request.form.get('common_name', '').strip() or None
+        bug.scientific_name = request.form.get('scientific_name', '').strip() or None
+        bug.tier = request.form.get('tier', bug.tier)
+        bug.condition = request.form.get('condition', bug.condition)
+        bug.condition_notes = request.form.get('condition_notes', '').strip() or None
+        bug.attack = _int('attack', bug.attack)
+        bug.defense = _int('defense', bug.defense)
+        bug.speed = _int('speed', bug.speed)
+        bug.lethality = _int('lethality', bug.lethality or 50)
+        bug.grip = _int('grip', bug.grip or 50)
+        bug.cunning = _int('cunning', bug.cunning or 50)
+        bug.xfactor = _float('xfactor', bug.xfactor or 0.0)
+        bug.xfactor_reason = request.form.get('xfactor_reason', '').strip() or bug.xfactor_reason
+        bug.is_zombug = request.form.get('is_zombug') == '1'
+        bug.is_retired = request.form.get('is_retired') == '1'
+        bug.requires_manual_review = request.form.get('requires_manual_review') == '1'
+        bug.flair = request.form.get('flair', '').strip() or None
+        notes = request.form.get('admin_notes', '').strip()
+        if notes:
+            bug.review_notes = notes
+
+        db.session.commit()
+        flash(f'{bug.nickname} updated.', 'success')
+        return redirect(url_for('admin.edit_bug', bug_id=bug.id))
+
+    return render_template('admin/edit_bug.html', bug=bug)
+
+
+# ── Tournament management ─────────────────────────────────────────────────────
+
+@bp.route('/tournaments')
+@login_required
+@require_role(UserRole.MODERATOR)
+def tournament_list():
+    """List all tournaments for admin management."""
+    status = request.args.get('status', '')
+    query = Tournament.query
+    if status:
+        query = query.filter_by(status=status)
+    tournaments = query.order_by(Tournament.created_at.desc()).all()
+    return render_template('admin/tournament_list.html', tournaments=tournaments, status=status)
+
+
+@bp.route('/tournament/<int:tournament_id>/edit', methods=['GET', 'POST'])
+@login_required
+@require_role(UserRole.MODERATOR)
+def edit_tournament(tournament_id):
+    """Edit a tournament's details and status."""
+    from datetime import datetime as _dt
+    tournament = db.get_or_404(Tournament, tournament_id)
+
+    if request.method == 'POST':
+        tournament.name = request.form.get('name', tournament.name).strip() or tournament.name
+        tournament.status = request.form.get('status', tournament.status)
+        tournament.tier = request.form.get('tier', '').strip() or None
+        tournament.max_participants = request.form.get('max_participants', type=int) or tournament.max_participants
+        tournament.allow_tier_above = request.form.get('allow_tier_above') == '1'
+
+        start_str = request.form.get('start_date', '').strip()
+        end_str = request.form.get('end_date', '').strip()
+        deadline_str = request.form.get('registration_deadline', '').strip()
+        try:
+            if start_str:
+                tournament.start_date = _dt.fromisoformat(start_str)
+            if end_str:
+                tournament.end_date = _dt.fromisoformat(end_str)
+            if deadline_str:
+                tournament.registration_deadline = _dt.fromisoformat(deadline_str)
+        except ValueError as exc:
+            flash(f'Invalid date format: {exc}', 'danger')
+            return redirect(url_for('admin.edit_tournament', tournament_id=tournament.id))
+
+        db.session.commit()
+        flash(f'Tournament "{tournament.name}" updated.', 'success')
+        return redirect(url_for('admin.edit_tournament', tournament_id=tournament.id))
+
+    applications = tournament.applications if hasattr(tournament, 'applications') else []
+    return render_template('admin/edit_tournament.html', tournament=tournament, applications=applications)
+
+
+@bp.route('/tournament/<int:tournament_id>/delete', methods=['POST'])
+@login_required
+@require_role(UserRole.ADMIN)
+def delete_tournament(tournament_id):
+    """Delete a tournament (admin only)."""
+    tournament = db.get_or_404(Tournament, tournament_id)
+    name = tournament.name
+    db.session.delete(tournament)
+    db.session.commit()
+    flash(f'Tournament "{name}" deleted.', 'warning')
+    return redirect(url_for('admin.tournament_list'))
 
 
 # Context processor to make admin checks available in templates

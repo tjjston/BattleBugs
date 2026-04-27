@@ -36,6 +36,10 @@ class BugClassificationResult:
         self.rejection_reasons = data.get('rejection_reasons', [])
         self.warnings = data.get('warnings', [])
         
+        # Physical condition
+        self.condition = data.get('condition', 'alive') or 'alive'
+        self.condition_notes = data.get('condition_notes', '')
+
         # Metadata
         self.llm_provider = data.get('llm_provider', 'unknown')
         self.llm_model = data.get('llm_model', 'unknown')
@@ -121,8 +125,27 @@ class LLMBugClassifier:
                 'llm_provider': 'none',
                 'llm_model': 'preflight_only'
             })
+
+        # Step 2: Local Hugging Face image classifier.
+        # ph0masta/bug_classifier predicts insect/spider genera, so a confident
+        # prediction is treated as approval. Low-confidence predictions reject
+        # obvious negatives before slower LLM work.
+        hf_result = self._huggingface_analysis(
+            image_path=image_path,
+            user_species_guess=user_species_guess,
+        )
+        if hf_result is not None:
+            if hf_result.approved:
+                duplicate_check = self._check_for_duplicates(image_path, user_id)
+                if duplicate_check['is_duplicate']:
+                    hf_result.approved = False
+                    hf_result.rejection_reasons.append(
+                        f"Duplicate of existing bug: {duplicate_check['duplicate_bug_name']}"
+                    )
+                    hf_result.reasoning += f"\n\nDuplicate detected: {duplicate_check['similarity_score']:.0%} similar."
+            return hf_result
         
-        # Step 2: LLM Analysis with User Hint (FINAL AUTHORITY)
+        # Step 3: LLM fallback with User Hint
         llm_result = self._llm_comprehensive_analysis(
             image_path=image_path,
             nickname=nickname,
@@ -131,7 +154,7 @@ class LLMBugClassifier:
             preflight_warnings=preflight_result.get('warnings', [])
         )
         
-        # Step 3: Duplicate check (only if LLM approved)
+        # Step 4: Duplicate check (only if LLM approved)
         if llm_result.approved:
             duplicate_check = self._check_for_duplicates(image_path, user_id)
             if duplicate_check['is_duplicate']:
@@ -142,6 +165,84 @@ class LLMBugClassifier:
                 llm_result.reasoning += f"\n\nDuplicate detected: {duplicate_check['similarity_score']:.0%} similar."
         
         return llm_result
+
+    def _huggingface_analysis(
+        self,
+        image_path: str,
+        user_species_guess: Optional[str],
+    ) -> Optional[BugClassificationResult]:
+        if not current_app.config.get('HF_BUG_CLASSIFIER_ENABLED', True):
+            return None
+
+        from app.services.huggingface_bug_classifier import HuggingFaceBugClassifier
+
+        prediction = HuggingFaceBugClassifier().classify(image_path)
+        if not prediction.available:
+            if current_app.config.get('HF_BUG_CLASSIFIER_REQUIRED', False):
+                return BugClassificationResult({
+                    'approved': False,
+                    'confidence': 0.0,
+                    'is_arthropod': False,
+                    'rejection_reasons': [f'Hugging Face classifier unavailable: {prediction.error}'],
+                    'reasoning': 'Local Hugging Face classifier is required but could not run.',
+                    'quality_assessment': 'Image quality not assessed by classifier.',
+                    'llm_provider': 'huggingface',
+                    'llm_model': current_app.config.get('HF_BUG_CLASSIFIER_MODEL', 'ph0masta/bug_classifier'),
+                })
+            return None
+
+        label = prediction.label or 'unknown genus'
+        warnings = [
+            f"Hugging Face classifier prediction: {label} ({prediction.confidence:.0%})."
+        ]
+
+        user_guess_matches = None
+        user_guess_feedback = ''
+        if user_species_guess:
+            user_guess_matches = label.lower() in user_species_guess.lower() or user_species_guess.lower() in label.lower()
+            if user_guess_matches:
+                user_guess_feedback = f"Your guess is close to the model prediction: {label}."
+            else:
+                user_guess_feedback = f"The local classifier predicted {label}; your guess was kept as a hint only."
+
+        if not prediction.approved:
+            return BugClassificationResult({
+                'approved': False,
+                'confidence': prediction.confidence,
+                'is_arthropod': False,
+                'identified_species': label,
+                'common_name': label,
+                'scientific_name': label,
+                'user_guess_matches': user_guess_matches,
+                'user_guess_feedback': user_guess_feedback,
+                'reasoning': f"The local Hugging Face classifier did not confidently identify this as a known bug genus.",
+                'quality_assessment': 'Classifier confidence below the configured threshold.',
+                'rejection_reasons': [
+                    f"Bug classifier confidence too low: {prediction.confidence:.0%}"
+                ],
+                'warnings': warnings,
+                'llm_provider': 'huggingface',
+                'llm_model': current_app.config.get('HF_BUG_CLASSIFIER_MODEL', 'ph0masta/bug_classifier'),
+            })
+
+        return BugClassificationResult({
+            'approved': True,
+            'confidence': prediction.confidence,
+            'is_arthropod': True,
+            'identified_species': label,
+            'common_name': label,
+            'scientific_name': label,
+            'order': None,
+            'family': None,
+            'user_guess_matches': user_guess_matches,
+            'user_guess_feedback': user_guess_feedback,
+            'reasoning': f"Local Hugging Face classifier identified the image as {label}.",
+            'quality_assessment': 'Accepted by local image classifier.',
+            'rejection_reasons': [],
+            'warnings': warnings,
+            'llm_provider': 'huggingface',
+            'llm_model': current_app.config.get('HF_BUG_CLASSIFIER_MODEL', 'ph0masta/bug_classifier'),
+        })
     
     def _preflight_checks(self, image_path: str) -> Dict[str, Any]:
         """Fast, non-LLM checks for obvious disqualifiers"""
@@ -229,7 +330,7 @@ class LLMBugClassifier:
             return BugClassificationResult(result_data)
             
         except Exception as e:
-            print(f"LLM classification error: {e}")
+            current_app.logger.warning("LLM classification failed: %s", e)
             
             return BugClassificationResult({
                 'approved': False,
@@ -289,6 +390,7 @@ Your job: Analyze this image and determine if it should be APPROVED or REJECTED.
 - Photo appears to be of real specimen (not drawing/toy/CGI)
 - Confidence >= 75%
 - If user provided species guess: it's reasonably accurate (same order/family)
+- Dead, squashed, or damaged specimens are ALL accepted — condition is recorded and affects stats
 
 ❌ **REJECT if:**
 - Not an arthropod (vertebrates, mollusks, worms, etc.)
@@ -298,6 +400,17 @@ Your job: Analyze this image and determine if it should be APPROVED or REJECTED.
 - Poor image quality
 - Confidence < 75%
 - **User's species guess is wildly inaccurate** (suggests manipulation attempt)
+
+🐛 **PHYSICAL CONDITION ASSESSMENT (required for all submissions):**
+Assess the bug's physical state and set `condition` to one of:
+- `alive` — Bug appears alive and fully intact
+- `dead` — Bug is dead but body is largely whole (will undergo Zombugification — stat modifiers applied)
+- `squashed` — Bug is visibly crushed, flattened, or severely deformed
+- `damaged_wings` — Wings are visibly torn, missing, or broken; body otherwise intact
+- `damaged_legs` — One or more legs are missing or broken; body otherwise intact
+- `damaged` — Other visible damage (scarring, missing antennae, general wear)
+
+In `condition_notes`, describe specifically what you observed about the specimen's physical state in 1–2 sentences.
 
 ⚠️ **MANIPULATION DETECTION:**
 If user's guess is wrong by more than one taxonomic level:
@@ -320,7 +433,9 @@ If user's guess is wrong by more than one taxonomic level:
   "reasoning": "2-3 sentences explaining decision",
   "quality_assessment": "Brief image quality assessment",
   "rejection_reasons": ["List specific reasons if rejected, empty if approved"],
-  "warnings": ["Any concerns even if approved, empty if none"]
+  "warnings": ["Any concerns even if approved, empty if none"],
+  "condition": "alive|dead|squashed|damaged_wings|damaged_legs|damaged",
+  "condition_notes": "1-2 sentences describing the specimen's physical state"
 }}
 
 **EXAMPLES OF USER_GUESS_FEEDBACK:**
@@ -359,7 +474,7 @@ Analyze the image now and respond with your classification decision."""
             elif self.preferred_provider == 'openai':
                 return LLMModel.GPT_4
             elif self.preferred_provider == 'ollama':
-                return LLMModel.LLAMA3_VISION
+                return LLMModel.QWEN36_35B
         
         return LLMConfig.get_model_for_task('vision_analysis')
     

@@ -44,7 +44,16 @@
 <div class="mt-4">
   <a class="btn btn-primary me-2" href="{{ url_for('admin.manage_users') }}">Manage Users</a>
   <a class="btn btn-outline-secondary me-2" href="{{ url_for('admin.moderation_queue') }}">Moderation Queue</a>
+  <a class="btn btn-outline-secondary me-2 position-relative" href="{{ url_for('admin.classification_flags') }}">
+    Classification Disputes
+    {% if pending_classification_flags %}
+    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+      {{ pending_classification_flags }}
+    </span>
+    {% endif %}
+  </a>
   <a class="btn btn-outline-secondary me-2" href="{{ url_for('admin.db_explorer') }}">DB Explorer</a>
-  <a class="btn btn-outline-secondary" href="{{ url_for('admin.xfactor_insights') }}">X-Factor Insights</a>
+  <a class="btn btn-outline-secondary me-2" href="{{ url_for('admin.xfactor_insights') }}">X-Factor Insights</a>
+  <a class="btn btn-outline-secondary" href="{{ url_for('admin.jobs') }}">Background Jobs</a>
 </div>
 {% endblock %}

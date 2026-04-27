@@ -1,0 +1,145 @@
+{% extends 'base.html' %}
+{% block title %}Classification Disputes{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2>Classification Disputes</h2>
+  <div class="btn-group">
+    <a href="{{ url_for('admin.classification_flags', status='pending') }}"
+       class="btn btn-sm {{ 'btn-primary' if status_filter == 'pending' else 'btn-outline-primary' }}">Pending</a>
+    <a href="{{ url_for('admin.classification_flags', status='reviewed') }}"
+       class="btn btn-sm {{ 'btn-primary' if status_filter == 'reviewed' else 'btn-outline-primary' }}">Reviewed</a>
+    <a href="{{ url_for('admin.classification_flags', status='dismissed') }}"
+       class="btn btn-sm {{ 'btn-primary' if status_filter == 'dismissed' else 'btn-outline-primary' }}">Dismissed</a>
+  </div>
+</div>
+
+{% if not flags %}
+<div class="alert alert-info">No {{ status_filter }} disputes.</div>
+{% endif %}
+
+{% for flag in flags %}
+<div class="card mb-4 border-{{ 'warning' if flag.status == 'pending' else 'secondary' }}">
+  <div class="card-header d-flex justify-content-between align-items-start">
+    <div>
+      <strong>
+        <a href="{{ url_for('bugs.view_bug', bug_id=flag.bug.id) }}">{{ flag.bug.nickname }}</a>
+      </strong>
+      <span class="text-muted small ms-2">
+        flagged by <strong>{{ flag.flagging_user.username }}</strong>
+        on {{ flag.created_at.strftime('%b %d, %Y %H:%M') }}
+      </span>
+    </div>
+    <span class="badge bg-{{ 'warning text-dark' if flag.status == 'pending' else 'secondary' }}">{{ flag.status }}</span>
+  </div>
+
+  <div class="card-body">
+    <div class="row">
+
+      {# Bug image + current classification #}
+      <div class="col-md-3 text-center">
+        <img src="{{ url_for('main.uploaded_file', filename=flag.bug.image_path) }}"
+             class="img-fluid rounded mb-2" style="max-height:150px; object-fit:contain;" alt="{{ flag.bug.nickname }}">
+        <div class="small text-muted">
+          <div><strong>Current classification</strong></div>
+          <div>{{ flag.bug.common_name or '—' }}</div>
+          <div><em>{{ flag.bug.scientific_name or '—' }}</em></div>
+          {% if flag.bug.species_info %}
+          <div class="mt-1">Order: {{ flag.bug.species_info.order or '—' }}</div>
+          <div>Family: {{ flag.bug.species_info.family or '—' }}</div>
+          {% endif %}
+          <div class="mt-1">AI confidence: {{ '%.0f%%' % (flag.bug.vision_confidence * 100) if flag.bug.vision_confidence else 'unknown' }}</div>
+        </div>
+      </div>
+
+      {# Dispute details #}
+      <div class="col-md-4">
+        <h6>User's Dispute</h6>
+        {% if flag.suggested_species %}
+        <p class="mb-1"><strong>Suggested:</strong> {{ flag.suggested_species }}</p>
+        {% endif %}
+        <p class="border rounded p-2 bg-light">{{ flag.reason }}</p>
+        {% if flag.reviewer_notes %}
+        <p class="text-muted small"><strong>Reviewer notes:</strong> {{ flag.reviewer_notes }}</p>
+        {% endif %}
+      </div>
+
+      {# Actions #}
+      {% if flag.status == 'pending' %}
+      <div class="col-md-5">
+        <h6>Resolve</h6>
+
+        {# Dismiss #}
+        <details class="mb-3">
+          <summary class="btn btn-sm btn-outline-secondary w-100 text-start">Dismiss — classification stands</summary>
+          <form method="POST" action="{{ url_for('admin.dismiss_classification_flag', flag_id=flag.id) }}" class="mt-2">
+            <div class="mb-2">
+              <label class="form-label small">Message to user (optional)</label>
+              <textarea class="form-control form-control-sm" name="user_message" rows="2"
+                        placeholder="Explain why the original classification is correct…"></textarea>
+            </div>
+            <div class="mb-2">
+              <label class="form-label small">Internal notes (not sent to user)</label>
+              <textarea class="form-control form-control-sm" name="notes" rows="1"
+                        placeholder="Admin-only notes"></textarea>
+            </div>
+            <button type="submit" class="btn btn-sm btn-secondary w-100">Dismiss</button>
+          </form>
+        </details>
+
+        {# Correct + notify #}
+        <details>
+          <summary class="btn btn-sm btn-warning w-100 text-start">Agree &amp; correct classification</summary>
+          <form method="POST" action="{{ url_for('admin.correct_from_flag', flag_id=flag.id) }}" class="mt-2">
+            <div class="mb-2">
+              <label class="form-label small">New common name</label>
+              <input type="text" class="form-control form-control-sm" name="common_name"
+                     value="{{ flag.suggested_species or flag.bug.common_name or '' }}">
+            </div>
+            <div class="mb-2">
+              <label class="form-label small">New scientific name</label>
+              <input type="text" class="form-control form-control-sm" name="scientific_name"
+                     value="{{ flag.bug.scientific_name or '' }}">
+            </div>
+            <div class="row g-2 mb-2">
+              <div class="col">
+                <label class="form-label small">Order</label>
+                <input type="text" class="form-control form-control-sm" name="order"
+                       value="{{ flag.bug.species_info.order if flag.bug.species_info else '' }}">
+              </div>
+              <div class="col">
+                <label class="form-label small">Family</label>
+                <input type="text" class="form-control form-control-sm" name="family"
+                       value="{{ flag.bug.species_info.family if flag.bug.species_info else '' }}">
+              </div>
+            </div>
+            <div class="mb-2">
+              <label class="form-label small">Message to user <span class="text-danger">*</span></label>
+              <textarea class="form-control form-control-sm" name="user_message" rows="2" required
+                        placeholder="Explain the correction to the user — this will be sent as a notification…">Your dispute was accepted. We've updated the classification for {{ flag.bug.nickname }}.</textarea>
+            </div>
+            <div class="mb-2">
+              <label class="form-label small">Internal notes</label>
+              <textarea class="form-control form-control-sm" name="notes" rows="1"
+                        placeholder="Admin-only notes"></textarea>
+            </div>
+            <button type="submit" class="btn btn-sm btn-warning w-100">Apply correction &amp; notify user</button>
+          </form>
+        </details>
+      </div>
+
+      {% else %}
+      <div class="col-md-5 text-muted small">
+        <strong>Reviewed by {{ flag.reviewer.username if flag.reviewer else '—' }}</strong>
+        on {{ flag.reviewed_at.strftime('%b %d, %Y') if flag.reviewed_at else '—' }}
+        {% if flag.reviewer_notes %}
+        <p class="mt-2">{{ flag.reviewer_notes }}</p>
+        {% endif %}
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

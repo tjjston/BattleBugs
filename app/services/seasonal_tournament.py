@@ -43,6 +43,31 @@ def get_season_key(dt: Optional[datetime] = None) -> str:
     return f'{name}_{year}'
 
 
+def get_season_date_range(season_name: str, season_year: int) -> tuple[datetime, datetime]:
+    """Return (start, end) datetimes for a season.
+
+    Winter_YYYY spans Dec YYYY – Feb YYYY+1.
+    """
+    import calendar as _cal
+    bounds = {
+        'spring': (3, 5),
+        'summer': (6, 8),
+        'autumn': (9, 11),
+        'winter': (12, 2),
+    }
+    start_month, end_month = bounds[season_name]
+    if season_name == 'winter':
+        start = datetime(season_year, 12, 1)
+        end_year = season_year + 1
+        last_day = _cal.monthrange(end_year, 2)[1]
+        end = datetime(end_year, 2, last_day, 23, 59, 59)
+    else:
+        start = datetime(season_year, start_month, 1)
+        last_day = _cal.monthrange(season_year, end_month)[1]
+        end = datetime(season_year, end_month, last_day, 23, 59, 59)
+    return start, end
+
+
 def _tournament_start_date(season_name: str, season_year: int) -> date:
     """Return the canonical start date for the season's tournament."""
     meta = _SEASONS[season_name]

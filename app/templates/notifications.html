@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}Notifications{% endblock %}
+
+{% block content %}
+<h2>Notifications</h2>
+
+{% if not notifications %}
+<div class="alert alert-info mt-3">You have no notifications.</div>
+{% else %}
+<div class="list-group mt-3">
+  {% for n in notifications %}
+  <a href="{{ n.link_url or '#' }}"
+     class="list-group-item list-group-item-action {{ '' if n.is_read else 'list-group-item-warning' }}">
+    <div class="d-flex justify-content-between">
+      <span>{{ n.message }}</span>
+      <small class="text-muted ms-3 text-nowrap">{{ n.created_at.strftime('%b %d, %Y') }}</small>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

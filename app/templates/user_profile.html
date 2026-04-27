@@ -13,6 +13,7 @@
       <div class="card-body">
         <p><strong>Role:</strong> {{ user.role or 'USER' }}</p>
         <p><strong>ELO:</strong> {{ user.elo }}</p>
+        <p><strong>Accolade Points:</strong> {{ user.accolade_points or 0 }}</p>
         <p><strong>Status:</strong>
           {% if user.is_banned %}
             <span class="badge bg-danger">BANNED</span>
@@ -20,6 +21,32 @@
             <span class="badge bg-success">Active</span>
           {% endif %}
         </p>
+
+        {# Species-guess accuracy badge #}
+        {% set badge = user.guess_badge %}
+        {% if badge %}
+        <hr>
+        <div class="text-center">
+          <span class="badge bg-{{ badge.color }} fs-5 px-3 py-2">
+            {{ badge.icon }} {{ badge.name }}
+          </span>
+          <p class="text-muted small mt-1">{{ badge.desc }}</p>
+          {% set total = user.total_guesses or 0 %}
+          {% set correct = user.correct_guesses or 0 %}
+          {% if total > 0 %}
+          <p class="text-muted small mb-0">
+            {{ correct }}/{{ total }} correct
+            ({{ '%.0f' % (correct / total * 100) }}%)
+          </p>
+          {% endif %}
+        </div>
+        {% elif (user.total_guesses or 0) > 0 %}
+        <hr>
+        <p class="text-muted small text-center">
+          {{ user.correct_guesses or 0 }}/{{ user.total_guesses }} correct guesses
+          — keep going to earn a badge!
+        </p>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -38,6 +65,23 @@
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<div class="card mt-4">
+  <div class="card-header"><strong>Recent Field Journal</strong></div>
+  <div class="card-body">
+    {% for bug in recent_bugs %}
+    <div class="border-bottom py-2">
+      <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">{{ bug.nickname }}</a>
+      <span class="text-muted small">
+        {{ bug.common_name or bug.scientific_name or 'Unknown species' }}
+        {% if bug.location_found %} · {{ bug.location_found }}{% endif %}
+      </span>
+    </div>
+    {% else %}
+    <p class="text-muted">No bugs submitted yet.</p>
+    {% endfor %}
   </div>
 </div>
 {% endblock %}

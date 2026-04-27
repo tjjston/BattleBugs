@@ -1,0 +1,17 @@
+<svg width="900" height="640" viewBox="0 0 900 640" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Reference photo style illustration of an armored beetle">
+  <rect width="900" height="640" fill="#172019"/>
+  <path d="M0 450c140-90 288-70 410-28s246 55 490-43v261H0z" fill="#2f6f3d"/>
+  <path d="M0 512c165-62 345-48 520 12 118 40 234 55 380 12v104H0z" fill="#101510"/>
+  <circle cx="736" cy="112" r="72" fill="#c8ff2e" opacity=".9"/>
+  <g transform="translate(450 315)">
+    <ellipse cx="0" cy="32" rx="142" ry="92" fill="#151916" stroke="#c8ff2e" stroke-width="8"/>
+    <ellipse cx="0" cy="-65" rx="96" ry="76" fill="#202820" stroke="#c8ff2e" stroke-width="7"/>
+    <path d="M0-136v260" stroke="#c8ff2e" stroke-width="5" opacity=".55"/>
+    <path d="M-92 2c-86-26-132-64-170-130M92 2c86-26 132-64 170-130M-106 65c-80 2-134 36-178 92M106 65c80 2 134 36 178 92M-54 112c-46 46-68 82-78 143M54 112c46 46 68 82 78 143" stroke="#dbe9bd" stroke-width="15" stroke-linecap="round" fill="none"/>
+    <path d="M-58-134c-48-62-84-94-142-112M58-134c48-62 84-94 142-112" stroke="#dbe9bd" stroke-width="10" stroke-linecap="round" fill="none"/>
+    <circle cx="-36" cy="-88" r="9" fill="#c8ff2e"/>
+    <circle cx="36" cy="-88" r="9" fill="#c8ff2e"/>
+  </g>
+  <path d="M86 138h220" stroke="#c8ff2e" stroke-width="6"/>
+  <path d="M86 166h150" stroke="#f7f7f0" stroke-width="4" opacity=".9"/>
+</svg>

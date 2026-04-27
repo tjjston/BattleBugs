@@ -14,39 +14,39 @@ TIER_DEFINITIONS = {
     'uber': {
         'name': 'Legendary',
         'description': 'Legendary bugs - the absolute strongest',
-        'min_power': 270,  # Attack + Defense + Speed >= 270 (0-100 scale)
+        'min_power': 540,  # sum of all 6 stats (max 600)
         'icon': '👑',
         'color': '#FFD700'
     },
     'ou': {
         'name': 'A Tier',
         'description': 'Top tier competitors',
-        'min_power': 240,
-        'max_power': 260,
+        'min_power': 480,
+        'max_power': 539,
         'icon': '⭐',
         'color': '#C0C0C0'
     },
     'uu': {
-        'name': 'B Tier', 
+        'name': 'B Tier',
         'description': 'Strong but not overpowered',
-        'min_power': 200,
-        'max_power': 230,
+        'min_power': 400,
+        'max_power': 479,
         'icon': '🥈',
         'color': '#CD7F32'
     },
     'ru': {
         'name': 'C Tier',
         'description': 'Middle of the pack',
-        'min_power': 160,
-        'max_power': 190,
+        'min_power': 320,
+        'max_power': 399,
         'icon': '🥉',
         'color': '#8B7355'
     },
     'nu': {
         'name': 'D Tier',
         'description': 'Underdogs with heart',
-        'min_power': 120,
-        'max_power': 150,
+        'min_power': 240,
+        'max_power': 319,
         'icon': '💪',
         'color': '#A9A9A9'
     },
@@ -54,7 +54,7 @@ TIER_DEFINITIONS = {
         'name': 'Little Cup',
         'description': 'The brave beginners',
         'min_power': 0,
-        'max_power': 110,
+        'max_power': 239,
         'icon': '🌱',
         'color': '#90EE90'
     }
@@ -68,8 +68,13 @@ class TierSystem:
     
     @staticmethod
     def calculate_power_rating(bug):
-        """Calculate overall power rating"""
-        return bug.attack + bug.defense + bug.speed
+        """Calculate overall power rating across all 6 combat stats"""
+        return (
+            (bug.attack or 0) + (bug.defense or 0) + (bug.speed or 0)
+            + (getattr(bug, 'lethality', 50) or 50)
+            + (getattr(bug, 'grip', 50) or 50)
+            + (getattr(bug, 'cunning', 50) or 50)
+        )
     
     @staticmethod
     def assign_tier(bug):
@@ -341,64 +346,45 @@ class LLMStatGenerator:
 
 **Instructions:**
 1. Compare this bug to the reference dataset to calibrate power level
-2. Consider: size, venom, armor, speed, predatory behavior, defensive capabilities
-3. Assign stats (1-100 scale):
-   - Attack: Offensive capability (venom, pincers, mandibles, strike power)
-   - Defense: Survivability (armor, size, evasion, hardiness)
-   - Speed: Agility and reaction time
-4. Total stats should be balanced based on tier:
-   - Legendary (Uber): 270-300 total
-   - Strong (OU): 240-269 total
-   - Average (UU): 200-239 total
-   - Weak (RU): 160-199 total
-   - Very Weak (NU/ZU): 120-159 total
+2. Assign all six stats (1-100 scale):
+   - Attack: Raw offensive power — mandible strength, strike force, body mass used offensively
+   - Defense: Survivability — armor thickness, cuticle hardness, regenerative toughness
+   - Speed: Agility and movement — reaction time, acceleration, evasion in the open
+   - Lethality: How effectively the bug exploits type advantages — venom potency, precision strike, biological weaponry (e.g. explosive sprays, neurotoxin, acid)
+   - Grip: Engagement control — clinging ability, grapple strength, limb hooks, suction (determines who controls range)
+   - Cunning: Tactical adaptation — ability to mitigate type disadvantages through feints, terrain use, ambush timing, behavioral flexibility
+3. Six-stat total budget by tier:
+   - Legendary (Uber): 540-600 total
+   - Strong (OU): 480-539 total
+   - Average (UU): 400-479 total
+   - Below Average (RU): 320-399 total
+   - Weak (NU): 240-319 total
+   - Very Weak (ZU): 0-239 total
 
-5. Offensive Type Attribute:
-    - piercing,
-    - crushing
-    - slashing
-    - venom
-    - chemical
-    - grappling 
-
-
-6. Defensive Type Attribute:
-    - hard_shell
-    - segmented armor
-    - evasive
-    - soft
-    - camouflaged
-    - toxic skin
-    - hairy/spiny
-    - thick hide
-
-7. Size Category:
-    - tiny (0-5mm)
-    - small (6-20mm)
-    - medium (21-50mm)
-    - large (51-150mm)
-    - massive (151mm+)
-
-8. Assign a special ability based on the bug's real characteristics
-9. Provide reasoning for your stat allocation
+4. Offensive Type: piercing | crushing | slashing | venom | chemical | grappling
+5. Defensive Type: hard_shell | segmented_armor | evasive | hairy_spiny | toxic_skin | thick_hide
+6. Size Category: tiny (0-5mm) | small (6-20mm) | medium (21-50mm) | large (51-150mm) | massive (151mm+)
+7. Assign a special ability based on the bug's real biological traits
+8. Provide reasoning for the stat allocation
 
 Respond in this EXACT JSON format (no markdown):
 {{
   "attack": 1-100,
   "defense": 1-100,
   "speed": 1-100,
-    "attack_type": "piercing|crushing|slashing|venom|chemical|grappling",
-    "defense_type": "hard_shell|segmented_armor|evasive|hairy_spiny|toxic_skin|thick_hide",
-    "size_category": "tiny 1-5mm|small 6-20mm|medium 21-50mm|large 51-150mm|massive 151mm+",
+  "lethality": 1-100,
+  "grip": 1-100,
+  "cunning": 1-100,
+  "attack_type": "piercing|crushing|slashing|venom|chemical|grappling",
+  "defense_type": "hard_shell|segmented_armor|evasive|hairy_spiny|toxic_skin|thick_hide",
+  "size_category": "tiny|small|medium|large|massive",
   "special_ability": "Ability name based on real traits",
-  
   "reasoning": "Brief explanation of stat allocation",
-  "tier_recommendation": "uber/ou/uu/ru/nu/zu",
+  "tier_recommendation": "uber|ou|uu|ru|nu|zu",
   "confidence": 0.0-1.0
 }}
 
-BE REALISTIC: Most bugs should be in the 180-220 total stat range. Only truly legendary bugs get 270+, also keep in mind most of these bugs will be native to the midwest USA and not exotic species,
- a normal distribution of stats should reflect that.
+BE REALISTIC: Most bugs should sit in the 360-440 total range (all six stats). Only truly exceptional predators reach 540+. Most bugs encountered in the midwest USA are common species — calibrate accordingly.
 """
         
         try:
@@ -423,25 +409,25 @@ BE REALISTIC: Most bugs should be in the 180-220 total stat range. Only truly le
             # Validate
             if not all(k in result for k in ['attack', 'defense', 'speed']):
                 raise ValueError("Missing required stat fields")
-            
-            # Ensure stats are in range
-            result['attack'] = max(1, min(100, result['attack']))
-            result['defense'] = max(1, min(100, result['defense']))
-            result['speed'] = max(1, min(100, result['speed']))
-            
+
+            # Clamp all stats to valid range
+            for stat in ('attack', 'defense', 'speed'):
+                result[stat] = max(1, min(100, result[stat]))
+            result['lethality'] = max(1, min(100, result.get('lethality', 50)))
+            result['grip'] = max(1, min(100, result.get('grip', 50)))
+            result['cunning'] = max(1, min(100, result.get('cunning', 50)))
+
             return result
-            
+
         except Exception as e:
-            print(f"LLM stat generation error: {e}")
-            # Fallback to reasonable defaults
+            current_app.logger.warning("LLM stat generation failed: %s", e)
             return {
-                'attack': 50,
-                'defense': 50,
-                'speed': 50,
+                'attack': 50, 'defense': 50, 'speed': 50,
+                'lethality': 50, 'grip': 50, 'cunning': 50,
                 'special_ability': 'Survival Instinct',
                 'reasoning': f'LLM generation failed: {str(e)}. Using balanced defaults.',
                 'tier_recommendation': 'uu',
-                'confidence': 0.3
+                'confidence': 0.3,
             }
     
     def _build_reference_context(self):
@@ -495,11 +481,12 @@ BE REALISTIC: Most bugs should be in the 180-220 total stat range. Only truly le
         
         stats = self.generate_stats_with_llm(bug_info)
         
-        # Update bug
-        # Scale stats to 0-100 for better disparity
         bug.attack = max(0, min(100, int(stats['attack'])))
         bug.defense = max(0, min(100, int(stats['defense'])))
         bug.speed = max(0, min(100, int(stats['speed'])))
+        bug.lethality = max(0, min(100, int(stats.get('lethality', 50))))
+        bug.grip = max(0, min(100, int(stats.get('grip', 50))))
+        bug.cunning = max(0, min(100, int(stats.get('cunning', 50))))
         bug.special_ability = stats.get('special_ability')
         # Capture combat characteristic suggestions from the LLM
         if 'attack_type' in stats:
@@ -564,13 +551,15 @@ def assign_tier_and_generate_stats(bug, use_llm=True):
         generator = LLMStatGenerator()
         bug = generator.regenerate_stats_for_bug(bug)
     else:
-        # Use simple stat generation
         from app.services.taxonomy import StatsGenerator
         generator = StatsGenerator()
         stats = generator.generate_stats(bug)
         bug.attack = stats['attack']
         bug.defense = stats['defense']
         bug.speed = stats['speed']
+        bug.lethality = stats.get('lethality', 50)
+        bug.grip = stats.get('grip', 50)
+        bug.cunning = stats.get('cunning', 50)
         bug.special_ability = stats.get('special_ability')
     
     # Always assign tier after stats are set

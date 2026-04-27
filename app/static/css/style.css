@@ -1,45 +1,103 @@
-/* Bug Arena Custom Styles */
-
 :root {
-    --primary-color: #2c3e50;
-    --secondary-color: #27ae60;
-    --danger-color: #e74c3c;
-    --warning-color: #f39c12;
+    --arena-bg: #101510;
+    --arena-surface: #f7f7f0;
+    --arena-panel: #ffffff;
+    --arena-ink: #172019;
+    --arena-muted: #667063;
+    --arena-line: #d9decc;
+    --arena-acid: #c8ff2e;
+    --arena-moss: #2f6f3d;
+    --arena-rust: #b94f23;
+    --arena-violet: #6147ff;
+    --arena-shadow: 0 14px 40px rgba(16, 21, 16, 0.14);
+    --primary-color: var(--arena-moss);
+    --secondary-color: #1e8f62;
+    --danger-color: #b63525;
+    --warning-color: #d88918;
 }
 
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    color: var(--arena-ink);
+    background:
+        linear-gradient(180deg, rgba(200, 255, 46, 0.12), rgba(247, 247, 240, 0) 260px),
+        radial-gradient(circle at top left, rgba(97, 71, 255, 0.14), transparent 320px),
+        var(--arena-surface);
 }
 
 main {
     flex: 1;
 }
 
-/* Navigation */
+.container {
+    max-width: 1180px;
+}
+
+.navbar {
+    background: #101510 !important;
+    border-bottom: 3px solid var(--arena-acid);
+}
+
 .navbar-brand {
-    font-weight: bold;
-    font-size: 1.5em;
+    font-weight: 900;
+    font-size: 1.45rem;
+    letter-spacing: 0;
+    text-transform: uppercase;
 }
 
-/* Cards */
+.navbar-dark .navbar-nav .nav-link {
+    color: rgba(255, 255, 255, 0.78);
+    font-weight: 700;
+}
+
+.navbar-dark .navbar-nav .nav-link:hover,
+.navbar-dark .navbar-nav .nav-link:focus {
+    color: var(--arena-acid);
+}
+
+.dropdown-menu {
+    border: 1px solid rgba(16, 21, 16, 0.12);
+    border-radius: 8px;
+    box-shadow: var(--arena-shadow);
+}
+
+h1, h2, h3, h4, h5 {
+    color: var(--arena-ink);
+    font-weight: 900;
+    letter-spacing: 0;
+}
+
+a {
+    color: #23633b;
+}
+
+a:hover {
+    color: #173f26;
+}
+
 .card {
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    transition: transform 0.2s;
+    border: 1px solid rgba(16, 21, 16, 0.12);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(16, 21, 16, 0.08);
     margin-bottom: 20px;
+    overflow: hidden;
 }
 
-.card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+.card-header {
+    background: #eef3df;
+    border-bottom: 1px solid var(--arena-line);
+    font-weight: 800;
 }
 
-/* Jumbotron */
 .jumbotron {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background:
+        linear-gradient(135deg, rgba(16, 21, 16, 0.92), rgba(47, 111, 61, 0.88)),
+        url("data:image/svg+xml,%3Csvg width='120' height='120' viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23c8ff2e' stroke-opacity='.23' stroke-width='2'%3E%3Cpath d='M20 20h80v80H20z'/%3E%3Cpath d='M20 60h80M60 20v80M36 36l48 48M84 36 36 84'/%3E%3C/g%3E%3C/svg%3E");
     color: white;
+    border-radius: 8px;
 }
 
 /* Bug Images */
@@ -70,6 +128,12 @@ main {
 /* Progress Bars */
 .progress {
     height: 20px;
+    background-color: #e7eadb;
+    border-radius: 999px;
+}
+
+.progress-bar {
+    font-weight: 800;
 }
 
 /* Battle Narrative */
@@ -107,14 +171,8 @@ main {
 /* Footer */
 .footer {
     margin-top: auto;
-    border-top: 1px solid #dee2e6;
-}
-
-/* Responsive Images */
-@media (max-width: 768px) {
-    .bug-image {
-        max-height: 250px;
-    }
+    border-top: 1px solid var(--arena-line);
+    background: #eef3df !important;
 }
 
 /* Species search improvements */
@@ -161,14 +219,76 @@ main {
 
 /* Custom Buttons */
 .btn-arena {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
+    background: var(--arena-ink);
+    color: var(--arena-acid);
+    border: 1px solid var(--arena-ink);
+    font-weight: 800;
 }
 
 .btn-arena:hover {
-    background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
-    color: white;
+    background: var(--arena-acid);
+    color: var(--arena-ink);
+    border-color: var(--arena-acid);
+}
+
+.btn-primary {
+    --bs-btn-bg: var(--arena-moss);
+    --bs-btn-border-color: var(--arena-moss);
+    --bs-btn-hover-bg: #255b31;
+    --bs-btn-hover-border-color: #255b31;
+    --bs-btn-active-bg: #1e4a29;
+    --bs-btn-active-border-color: #1e4a29;
+}
+
+.btn-outline-primary {
+    --bs-btn-color: var(--arena-moss);
+    --bs-btn-border-color: var(--arena-moss);
+    --bs-btn-hover-bg: var(--arena-moss);
+    --bs-btn-hover-border-color: var(--arena-moss);
+}
+
+.btn-success {
+    --bs-btn-bg: #14391f;
+    --bs-btn-border-color: #14391f;
+    --bs-btn-hover-bg: var(--arena-acid);
+    --bs-btn-hover-color: var(--arena-ink);
+    --bs-btn-hover-border-color: var(--arena-acid);
+}
+
+.form-control,
+.form-select {
+    border-color: #cbd2bd;
+    border-radius: 8px;
+}
+
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--arena-moss);
+    box-shadow: 0 0 0 0.2rem rgba(47, 111, 61, 0.18);
+}
+
+.alert {
+    border-radius: 8px;
+}
+
+.bb-shell {
+    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid rgba(16, 21, 16, 0.1);
+    border-radius: 8px;
+    box-shadow: var(--arena-shadow);
+}
+
+.bb-kicker {
+    color: var(--arena-rust);
+    font-weight: 900;
+    text-transform: uppercase;
+    font-size: 0.76rem;
+}
+
+.bb-mobile-stack {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
 }
 
 /* Bug Card Hover Effect */
@@ -196,4 +316,56 @@ main {
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+}
+
+@media (max-width: 768px) {
+    body {
+        background:
+            linear-gradient(180deg, rgba(200, 255, 46, 0.14), rgba(247, 247, 240, 0) 220px),
+            var(--arena-surface);
+    }
+
+    main.container {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .bug-image {
+        max-height: 250px;
+    }
+
+    .navbar-brand {
+        font-size: 1.18rem;
+    }
+
+    .card {
+        margin-bottom: 14px;
+    }
+
+    .btn,
+    .form-control,
+    .form-select {
+        min-height: 44px;
+    }
+
+    .btn-group,
+    .input-group {
+        width: 100%;
+    }
+
+    .btn-group {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0.5rem;
+    }
+
+    .btn-group > .btn {
+        border-radius: 8px !important;
+        width: 100%;
+    }
+
+    .bb-mobile-stack {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
 }

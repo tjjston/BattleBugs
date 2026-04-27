@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block title %}Admin — Tournaments{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="mb-0">Tournament Management</h1>
+  <a href="{{ url_for('tournaments.create_tournament') }}" class="btn btn-primary">New Tournament</a>
+</div>
+
+<form class="d-flex gap-2 mb-3" method="get">
+  <select name="status" class="form-select" style="max-width:200px">
+    <option value="">All Statuses</option>
+    {% for s in ['registration','upcoming','active','completed','cancelled'] %}
+    <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s|title }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn btn-outline-primary">Filter</button>
+</form>
+
+<table class="table table-sm table-hover align-middle">
+  <thead class="table-light">
+    <tr><th>ID</th><th>Name</th><th>Status</th><th>Tier</th><th>Start Date</th><th>Participants</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for t in tournaments %}
+    <tr>
+      <td class="text-muted">#{{ t.id }}</td>
+      <td><a href="{{ url_for('tournaments.view_tournament', tournament_id=t.id) }}" target="_blank">{{ t.name }}</a></td>
+      <td>
+        <span class="badge bg-{{ 'success' if t.status == 'active' else 'primary' if t.status == 'registration' else 'secondary' if t.status == 'completed' else 'warning text-dark' if t.status == 'upcoming' else 'danger' }}">
+          {{ t.status }}
+        </span>
+      </td>
+      <td>{% if t.tier %}<span class="badge bg-secondary">{{ t.tier|upper }}</span>{% else %}—{% endif %}</td>
+      <td class="text-muted small">{{ t.start_date.strftime('%Y-%m-%d') if t.start_date else '—' }}</td>
+      <td class="text-muted small">{{ t.applications|length if t.applications else 0 }} / {{ t.max_participants or '∞' }}</td>
+      <td><a href="{{ url_for('admin.edit_tournament', tournament_id=t.id) }}" class="btn btn-sm btn-outline-primary">Edit</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="text-center text-muted">No tournaments found.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

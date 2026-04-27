@@ -31,7 +31,11 @@ class User(UserMixin, db.Model):
     best_bug_elo = db.Column(db.Integer, default=0)
     accolade_points = db.Column(db.Integer, default=0)
 
-    
+    # Species-guess accuracy tracking (cosmetic badges only)
+    total_guesses   = db.Column(db.Integer, default=0)
+    correct_guesses = db.Column(db.Integer, default=0)
+    skipped_guesses = db.Column(db.Integer, default=0)
+
     # Relationships
     bugs = db.relationship('Bug', backref='owner', lazy='dynamic')
     comments = db.relationship('Comment', backref='author', lazy='dynamic')
@@ -42,7 +46,49 @@ class User(UserMixin, db.Model):
     
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
-    
+
+    @property
+    def guess_badge(self):
+        """Return cosmetic badge dict based on species-guess accuracy, or None."""
+        total   = self.total_guesses   or 0
+        correct = self.correct_guesses or 0
+        skipped = self.skipped_guesses or 0
+
+        # Never bothered guessing with meaningful submission history
+        if total == 0:
+            if skipped >= 5:
+                return {'icon': '🦆', 'name': 'Above It All', 'color': 'secondary',
+                        'desc': "Has never attempted a species identification"}
+            return None
+
+        # Only one guess ever, and it was correct
+        if total == 1 and correct == 1:
+            return {'icon': '🍀', 'name': "Beginner's Luck", 'color': 'success',
+                    'desc': "Nailed it on the first and only try"}
+
+        # Need at least 5 guesses before an accuracy badge is awarded
+        if total < 5:
+            return None
+
+        accuracy = correct / total
+        if accuracy >= 0.90:
+            return {'icon': '🏆', 'name': 'Perfect Identifier', 'color': 'warning',
+                    'desc': 'Near-flawless species identification accuracy'}
+        if accuracy >= 0.70:
+            return {'icon': '🔬', 'name': 'Expert Entomologist', 'color': 'primary',
+                    'desc': 'Consistently accurate — knows their bugs cold'}
+        if accuracy >= 0.50:
+            return {'icon': '🦋', 'name': 'Bug Whisperer', 'color': 'info',
+                    'desc': 'More often right than wrong'}
+        if accuracy >= 0.30:
+            return {'icon': '🎯', 'name': 'Field Researcher', 'color': 'secondary',
+                    'desc': 'Trying their best out there'}
+        if accuracy >= 0.10:
+            return {'icon': '🎰', 'name': 'Shot in the Dark', 'color': 'warning',
+                    'desc': 'Guesses with wild optimism, occasionally gets lucky'}
+        return {'icon': '🤡', 'name': 'Spectacularly Wrong', 'color': 'danger',
+                'desc': 'Confidently incorrect, every single time'}
+
     def __repr__(self):
         return f'<User {self.username}>'
 
@@ -156,9 +202,14 @@ class Bug(db.Model):
     attack = db.Column(db.Integer, default=5)
     defense = db.Column(db.Integer, default=5)
     speed = db.Column(db.Integer, default=5)
+    # Legacy columns kept for DB compat; no longer used in battle formula
     special_attack = db.Column(db.Integer, default=5)
     special_defense = db.Column(db.Integer, default=5)
     health = db.Column(db.Integer, default=100)
+    # Extended combat stats (replace the legacy three above in the formula)
+    lethality = db.Column(db.Integer, default=50)   # weapon/venom potency; amplifies type advantage
+    grip = db.Column(db.Integer, default=50)        # engagement control; counters speed/evasion
+    cunning = db.Column(db.Integer, default=50)     # tactical instinct; partially offsets type disadvantage
     # Combat characteristic fields (visible + used in battle logic)
     attack_type = db.Column(db.String(50))   # e.g., piercing, crushing, slashing, venom, chemical, grappling
     defense_type = db.Column(db.String(50))  # e.g., hard_shell, segmented_armor, evasive, hairy_spiny, toxic_skin, thick_hide
@@ -210,6 +261,11 @@ class Bug(db.Model):
 
     # Cumulative stat growth from battle milestones (display only)
     stat_growth = db.Column(db.Integer, default=0)
+
+    # Physical condition detected at submission
+    is_zombug = db.Column(db.Boolean, default=False)
+    condition = db.Column(db.String(30), default='alive')    # alive|dead|squashed|damaged_wings|damaged_legs|damaged
+    condition_notes = db.Column(db.Text)                     # LLM-observed description of the bug's state
     
     # Relationships
     comments = db.relationship('Comment', backref='bug', lazy='dynamic', cascade='all, delete-orphan')
@@ -533,6 +589,9 @@ class BugRival(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_encounter_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    bug1_wins = db.Column(db.Integer, default=0, nullable=False)
+    bug2_wins = db.Column(db.Integer, default=0, nullable=False)
+
     bug1 = db.relationship('Bug', foreign_keys=[bug1_id])
     bug2 = db.relationship('Bug', foreign_keys=[bug2_id])
 
@@ -545,3 +604,94 @@ class BugRival(db.Model):
 
     def __repr__(self):
         return f'<BugRival {self.bug1_id} vs {self.bug2_id} x{self.encounter_count}>'
+
+
+class ClassificationFlag(db.Model):
+    """User-submitted dispute of a bug's AI classification."""
+    __tablename__ = 'classification_flag'
+
+    id = db.Column(db.Integer, primary_key=True)
+    bug_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
+    flagging_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    reason = db.Column(db.Text, nullable=False)
+    suggested_species = db.Column(db.String(200))
+    status = db.Column(db.String(20), default='pending', nullable=False)  # pending | reviewed | dismissed
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    reviewed_at = db.Column(db.DateTime)
+    reviewer_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    reviewer_notes = db.Column(db.Text)
+
+    bug = db.relationship('Bug', backref=db.backref('classification_flags', lazy='dynamic'))
+    flagging_user = db.relationship('User', foreign_keys=[flagging_user_id], backref='submitted_flags')
+    reviewer = db.relationship('User', foreign_keys=[reviewer_id])
+
+    __table_args__ = (
+        db.UniqueConstraint('bug_id', 'flagging_user_id', name='uq_flag_per_user_per_bug'),
+    )
+
+    def __repr__(self):
+        return f'<ClassificationFlag bug={self.bug_id} status={self.status}>'
+
+
+class Notification(db.Model):
+    """In-app notification for a user."""
+    __tablename__ = 'notification'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    link_url = db.Column(db.String(500))
+    is_read = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('notifications', lazy='dynamic'))
+
+    def __repr__(self):
+        return f'<Notification user={self.user_id} read={self.is_read}>'
+
+
+class BlockedImageHash(db.Model):
+    """Image hashes permanently blocked from resubmission (e.g. failed zombug conversions)."""
+    __tablename__ = 'blocked_image_hash'
+
+    id = db.Column(db.Integer, primary_key=True)
+    image_hash = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    reason = db.Column(db.String(100), default='zombug_failed')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<BlockedImageHash {self.image_hash[:8]}… reason={self.reason}>'
+
+
+class SystemSetting(db.Model):
+    """Admin-controlled key/value settings that override config defaults at runtime."""
+    __tablename__ = 'system_setting'
+
+    key = db.Column(db.String(64), primary_key=True)
+    value = db.Column(db.Text, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+
+    @classmethod
+    def get(cls, key, default=None):
+        """Return setting value or default. Safe to call outside app context."""
+        try:
+            row = db.session.get(cls, key)
+            return row.value if row else default
+        except Exception:
+            return default
+
+    @classmethod
+    def set(cls, key, value, user_id=None):
+        row = db.session.get(cls, key)
+        if row:
+            row.value = str(value)
+            row.updated_at = datetime.utcnow()
+            if user_id:
+                row.updated_by_id = user_id
+        else:
+            row = cls(key=key, value=str(value), updated_by_id=user_id)
+            db.session.add(row)
+
+    def __repr__(self):
+        return f'<SystemSetting {self.key}={self.value!r}>'

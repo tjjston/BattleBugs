@@ -55,6 +55,36 @@
     </div>
 </div>
 
+<div class="card mb-4">
+    <div class="card-header">
+        <h4 class="mb-0">Matchup Breakdown</h4>
+    </div>
+    <div class="card-body">
+        <div class="row text-center mb-3">
+            <div class="col-md-6">
+                <h5>{{ battle.bug1.name }}</h5>
+                <p class="mb-1">Base Power: {{ battle_stats.bug1_power }}</p>
+                <p class="mb-1">Visible Modifier: {{ battle_stats.bug1_modifier }}</p>
+                <p class="mb-0">Expected Effective Power: {{ battle_stats.predicted_bug1_effective }}</p>
+            </div>
+            <div class="col-md-6">
+                <h5>{{ battle.bug2.name }}</h5>
+                <p class="mb-1">Base Power: {{ battle_stats.bug2_power }}</p>
+                <p class="mb-1">Visible Modifier: {{ battle_stats.bug2_modifier }}</p>
+                <p class="mb-0">Expected Effective Power: {{ battle_stats.predicted_bug2_effective }}</p>
+            </div>
+        </div>
+        {% if battle_stats.matchup_notes %}
+        <ul class="mb-3">
+            {% for note in battle_stats.matchup_notes %}
+            <li>{{ note }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        <p class="mb-0"><strong>Visible read:</strong> {{ win_summary }}</p>
+    </div>
+</div>
+
 <div class="alert alert-success text-center" role="alert">
     <h3>Winner: {{ battle.winner.name if battle.winner else 'Draw' }} 🏆</h3>
     {% if battle.winner %}

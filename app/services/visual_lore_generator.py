@@ -174,7 +174,7 @@ BE CREATIVE! Find interesting details. If the bug is near a twig, maybe it's a L
             return result
             
         except Exception as e:
-            print(f"Visual lore analysis error: {e}")
+            current_app.logger.warning("Visual lore analysis failed: %s", e)
             # Fallback - neutral analysis
             return {
                 "visual_lore_analysis": "Standard bug in typical environment",
@@ -227,10 +227,7 @@ BE CREATIVE! Find interesting details. If the bug is near a twig, maybe it's a L
         
         db.session.commit()
         
-        print(f"🔮 SECRET LORE APPLIED to {bug.nickname}:")
-        print(f"   xfactor: {bug.xfactor:+.1f}")
-        print(f"   Reason: {bug.xfactor_reason}")
-        print(f"   Battle hook: {analysis.get('battle_hook', 'N/A')}")
+        current_app.logger.info("Secret lore applied to bug %s", bug.id)
         
         return bug
 
@@ -308,7 +305,7 @@ Write an exciting narrative that makes the battle memorable!
             
             return message.content[0].text
     except Exception as e:
-        print(f"Lore-enhanced narrative error: {e}")
+        current_app.logger.warning("Lore-enhanced narrative failed: %s", e)
     
     # Fallback
     return f"""

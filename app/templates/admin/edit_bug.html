@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+{% block title %}Edit Bug — {{ bug.nickname }}{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-3">
+  <h1 class="mb-0">Edit: {{ bug.nickname }}</h1>
+  <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="btn btn-sm btn-outline-secondary" target="_blank">View Profile</a>
+  <a href="{{ url_for('admin.bug_list') }}" class="btn btn-sm btn-outline-secondary">← Bug List</a>
+</div>
+
+<div class="row g-4">
+  <div class="col-md-3">
+    <img src="{{ url_for('static', filename=bug.image_path.replace('app/static/', '')) if 'app/static/' in bug.image_path else url_for('static', filename='img/' + bug.image_path.split('/')[-1]) }}"
+         class="img-fluid rounded shadow" alt="{{ bug.nickname }}"
+         onerror="this.src='/static/img/placeholder.png'">
+    <div class="mt-2 text-muted small">
+      <div>Wins: {{ bug.wins }} / Losses: {{ bug.losses }}</div>
+      <div>Submitted: {{ bug.submission_date.strftime('%Y-%m-%d') if bug.submission_date else '—' }}</div>
+      <div>Owner: {{ bug.owner.username if bug.owner else '—' }}</div>
+    </div>
+  </div>
+
+  <div class="col-md-9">
+    <form method="post">
+      <input type="hidden" name="action" value="save">
+
+      <div class="card mb-3">
+        <div class="card-header"><strong>Identity</strong></div>
+        <div class="card-body row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Nickname</label>
+            <input type="text" name="nickname" class="form-control" value="{{ bug.nickname }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Common Name</label>
+            <input type="text" name="common_name" class="form-control" value="{{ bug.common_name or '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Scientific Name</label>
+            <input type="text" name="scientific_name" class="form-control" value="{{ bug.scientific_name or '' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Tier</label>
+            <select name="tier" class="form-select">
+              <option value="">— none —</option>
+              {% for t in ['uber','ou','uu','ru','nu','zu'] %}
+              <option value="{{ t }}" {% if bug.tier == t %}selected{% endif %}>{{ t|upper }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Flair</label>
+            <input type="text" name="flair" class="form-control" value="{{ bug.flair or '' }}" placeholder="🧟 Zombug">
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header"><strong>Condition</strong></div>
+        <div class="card-body row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Condition</label>
+            <select name="condition" class="form-select">
+              {% for c in ['alive','dead','squashed','damaged_wings','damaged_legs','damaged'] %}
+              <option value="{{ c }}" {% if bug.condition == c %}selected{% endif %}>{{ c }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label">Condition Notes</label>
+            <input type="text" name="condition_notes" class="form-control" value="{{ bug.condition_notes or '' }}">
+          </div>
+          <div class="col-auto">
+            <div class="form-check form-switch mt-2">
+              <input class="form-check-input" type="checkbox" name="is_zombug" value="1" id="isZombug"
+                     {% if bug.is_zombug %}checked{% endif %}>
+              <label class="form-check-label" for="isZombug">Zombug</label>
+            </div>
+          </div>
+          <div class="col-auto">
+            <div class="form-check form-switch mt-2">
+              <input class="form-check-input" type="checkbox" name="is_retired" value="1" id="isRetired"
+                     {% if bug.is_retired %}checked{% endif %}>
+              <label class="form-check-label" for="isRetired">Retired</label>
+            </div>
+          </div>
+          <div class="col-auto">
+            <div class="form-check form-switch mt-2">
+              <input class="form-check-input" type="checkbox" name="requires_manual_review" value="1" id="needsReview"
+                     {% if bug.requires_manual_review %}checked{% endif %}>
+              <label class="form-check-label" for="needsReview">Needs Review</label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header"><strong>Combat Stats</strong></div>
+        <div class="card-body">
+          <div class="row g-3">
+            {% for stat, label, color in [
+              ('attack','Attack','danger'), ('defense','Defense','primary'), ('speed','Speed','success'),
+              ('lethality','Lethality','warning'), ('grip','Grip','purple'), ('cunning','Cunning','info')
+            ] %}
+            <div class="col-6 col-md-2">
+              <label class="form-label text-{{ color if color != 'purple' else 'secondary' }}"><strong>{{ label }}</strong></label>
+              <input type="number" name="{{ stat }}" class="form-control"
+                     value="{{ bug[stat] if bug[stat] is not none else (50 if stat in ['lethality','grip','cunning'] else 5) }}"
+                     min="1" max="{% if stat in ['lethality','grip','cunning'] %}100{% else %}10{% endif %}">
+            </div>
+            {% endfor %}
+          </div>
+          <div class="row g-3 mt-1">
+            <div class="col-md-3">
+              <label class="form-label">X-Factor</label>
+              <input type="number" step="0.1" name="xfactor" class="form-control" value="{{ bug.xfactor or 0.0 }}" min="-5" max="5">
+            </div>
+            <div class="col-md-9">
+              <label class="form-label">X-Factor Reason</label>
+              <input type="text" name="xfactor_reason" class="form-control" value="{{ bug.xfactor_reason or '' }}">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header"><strong>Admin Notes</strong></div>
+        <div class="card-body">
+          <textarea name="admin_notes" class="form-control" rows="2" placeholder="Internal review notes (optional)">{{ bug.review_notes or '' }}</textarea>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+
+    <form method="post" class="mt-2" onsubmit="return confirm('Regenerate stats via LLM? This will overwrite current stats.')">
+      <input type="hidden" name="action" value="regenerate_stats">
+      <button type="submit" class="btn btn-outline-warning btn-sm">Regenerate Stats via LLM</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

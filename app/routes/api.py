@@ -2,13 +2,69 @@
 API routes for AJAX requests and external integrations
 """
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from flask_login import login_required, current_user
 from app import db
 from app.models import Species, Bug, BugAchievement
+from app.services.permission_system import can_edit_bug
+from app.services.economy import (
+    InsufficientCurrencyError,
+    STAT_REGENERATION_COST,
+    should_charge_for_stat_regeneration,
+    spend_currency,
+)
 from app.services.taxonomy import TaxonomyService, StatsGenerator
 
 bp = Blueprint('api', __name__, url_prefix='/api')
+
+
+def _fallback_nicknames(context):
+    common = (context.get('common_name') or '').strip()
+    scientific = (context.get('scientific_name') or '').strip()
+    seed = common or scientific or 'Bug'
+    base = seed.split()[0].capitalize() if seed else 'Bug'
+    return [
+        f'{base} Prime',
+        f'Iron {base}',
+        f'{base} Vex',
+        f'Thorn {base}',
+        f'{base} Static',
+        f'Verdant {base}',
+    ]
+
+
+def _fallback_lore(context):
+    hint = (context.get('hint') or 'a mysterious arena challenger').strip()
+    return {
+        'background': f'Known in the field notes as {hint}, this warrior arrived with a reputation built in hidden places.',
+        'motivation': 'Fights to earn a place among the arena legends.',
+        'personality': 'Alert, stubborn, and quick to turn small openings into decisive moves.',
+    }
+
+
+def _fallback_species(context):
+    desc = (context.get('description') or '').lower()
+    if 'spider' in desc:
+        return [{'common_name': 'Jumping spider', 'scientific_name': 'Salticidae specimen'}]
+    if 'mantis' in desc:
+        return [{'common_name': 'Mantis', 'scientific_name': 'Mantodea specimen'}]
+    if 'wasp' in desc or 'bee' in desc:
+        return [{'common_name': 'Wasp or bee', 'scientific_name': 'Hymenoptera specimen'}]
+    if 'moth' in desc or 'butterfly' in desc:
+        return [{'common_name': 'Moth or butterfly', 'scientific_name': 'Lepidoptera specimen'}]
+    return [{'common_name': 'Beetle', 'scientific_name': 'Coleoptera specimen'}]
+
+
+def _parse_json_list_or_lines(text):
+    import json
+
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            return [str(item).strip() for item in parsed if str(item).strip()]
+    except Exception:
+        pass
+    return [line.strip('-* 0123456789.').strip() for line in text.splitlines() if line.strip()]
 
 @bp.route('/species/search')
 def search_species():
@@ -51,11 +107,25 @@ def get_species_by_name(scientific_name):
 
 
 @bp.route('/bug/<int:bug_id>/regenerate-stats', methods=['POST'])
+@login_required
 def regenerate_bug_stats(bug_id):
     """Regenerate stats for a bug based on its species"""
     bug = db.session.get(Bug, bug_id)
     if not bug:
         return jsonify({'error': 'Bug not found'}), 404
+    if not can_edit_bug(current_user, bug):
+        return jsonify({'error': 'Forbidden'}), 403
+    try:
+        if should_charge_for_stat_regeneration(current_user, bug):
+            spend_currency(
+                current_user,
+                STAT_REGENERATION_COST,
+                'stat_regeneration',
+                'bug',
+                bug.id,
+            )
+    except InsufficientCurrencyError as exc:
+        return jsonify({'error': str(exc), 'cost': STAT_REGENERATION_COST, 'balance': current_user.accolade_points or 0}), 402
     
     generator = StatsGenerator()
     new_stats = generator.generate_stats(bug)
@@ -77,11 +147,14 @@ def regenerate_bug_stats(bug_id):
 
 
 @bp.route('/bug/<int:bug_id>/assign-flair', methods=['POST'])
+@login_required
 def assign_flair(bug_id):
     """Manually assign or regenerate flair for a bug"""
     bug = db.session.get(Bug, bug_id)
     if not bug:
         return jsonify({'error': 'Bug not found'}), 404
+    if not can_edit_bug(current_user, bug):
+        return jsonify({'error': 'Forbidden'}), 403
     
     data = request.get_json()
     custom_flair = data.get('flair') if data else None
@@ -181,47 +254,48 @@ def generate_bug_suggestion():
 
     llm = LLMService()
 
-    try:
-        if field == 'nickname':
-            common = context.get('common_name', '')
-            scientific = context.get('scientific_name', '')
-            prompt = f"""Suggest 6 short, punchy warrior-style nicknames for a bug gladiator.\n
+    if field == 'nickname':
+        common = context.get('common_name', '')
+        scientific = context.get('scientific_name', '')
+        prompt = f"""Suggest 6 short, punchy warrior-style nicknames for a bug gladiator.\n
 Context:\n- Common Name: {common}\n- Scientific Name: {scientific}\n
 Return a JSON array of nicknames only."""
+        try:
             resp = llm.generate(prompt, task='quick_tasks', max_tokens=200)
-            # Try to extract lines or JSON array
-            suggestions = []
-            try:
-                suggestions = json.loads(resp)
-            except Exception:
-                # fallback: split lines
-                suggestions = [s.trim() for s in resp.split('\n') if s.trim()]
+            suggestions = _parse_json_list_or_lines(resp)
+            if not suggestions:
+                suggestions = _fallback_nicknames(context)
+            return jsonify({'field': 'nickname', 'suggestions': suggestions[:6]}), 200
+        except Exception as e:
+            current_app.logger.warning("Nickname generation fell back locally: %s", e)
+            return jsonify({'field': 'nickname', 'suggestions': _fallback_nicknames(context), 'fallback': True}), 200
 
-            return jsonify({'field': 'nickname', 'suggestions': suggestions}), 200
-
-        if field == 'lore':
-            # Expect keys like background, motivation hints
-            hint = context.get('hint', '')
-            prompt = f"""Create lore for a bug gladiator. Provide three short sections as JSON: {{'background': '...', 'motivation': '...', 'personality': '...'}}.\nContext hint: {hint}"""
+    if field == 'lore':
+        hint = context.get('hint', '')
+        prompt = f"""Create lore for a bug gladiator. Provide three short sections as JSON: {{"background": "...", "motivation": "...", "personality": "..."}}.\nContext hint: {hint}"""
+        try:
             resp = llm.generate(prompt, task='quick_tasks', max_tokens=400)
             try:
                 parsed = json.loads(resp)
             except Exception:
-                # Best-effort parsing: return as single text
                 parsed = {'background': resp}
             return jsonify({'field': 'lore', 'result': parsed}), 200
+        except Exception as e:
+            current_app.logger.warning("Lore generation fell back locally: %s", e)
+            return jsonify({'field': 'lore', 'result': _fallback_lore(context), 'fallback': True}), 200
 
-        if field == 'species':
-            # Suggest species from a short description or image analysis
-            desc = context.get('description', '')
-            prompt = f"""Given this description: {desc}\nSuggest 3 likely common names and scientific name guesses in JSON format: [{{'common_name':'', 'scientific_name':''}}, ...]"""
+    if field == 'species':
+        desc = context.get('description', '')
+        prompt = f"""Given this description: {desc}\nSuggest 3 likely common names and scientific name guesses in JSON format: [{{"common_name":"", "scientific_name":""}}, ...]"""
+        try:
             resp = llm.generate(prompt, task='species_identification', max_tokens=400)
             try:
                 parsed = json.loads(resp)
             except Exception:
-                parsed = {'text': resp}
+                parsed = _fallback_species(context)
             return jsonify({'field': 'species', 'suggestions': parsed}), 200
+        except Exception as e:
+            current_app.logger.warning("Species generation fell back locally: %s", e)
+            return jsonify({'field': 'species', 'suggestions': _fallback_species(context), 'fallback': True}), 200
 
-        return jsonify({'error': 'Unknown field'}), 400
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    return jsonify({'error': 'Unknown field'}), 400

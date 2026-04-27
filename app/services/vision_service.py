@@ -128,7 +128,7 @@ IMPORTANT:
             return result
             
         except Exception as e:
-            print(f"Vision API error: {e}")
+            current_app.logger.warning("Vision API failed: %s", e)
             # Fallback - assume it's okay but with low confidence
             return {
                 "is_bug": True,
@@ -183,7 +183,7 @@ IMPORTANT:
                         "similarity_score": similarity
                     }
             except Exception as e:
-                print(f"Error checking duplicate for bug {bug.id}: {e}")
+                current_app.logger.warning("Duplicate check failed for bug %s: %s", bug.id, e)
                 continue
         
         return {
@@ -198,7 +198,7 @@ IMPORTANT:
             img = Image.open(image_path)
             return imagehash.average_hash(img, hash_size=8)
         except Exception as e:
-            print(f"Error generating hash: {e}")
+            current_app.logger.warning("Image hash generation failed: %s", e)
             return None
     
     def _get_media_type(self, image_path):

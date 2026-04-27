@@ -66,6 +66,9 @@ def create_app(config_class=Config):
             'is_owner': lambda: is_owner(current_user)
         }
 
-    return app
+    if not app.config.get('TESTING'):
+        from app.services.job_queue import start_scheduler
+        start_scheduler(app)
 
+    return app
 

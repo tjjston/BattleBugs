@@ -39,12 +39,11 @@ class Config:
     LLM_MODEL_SPECIES_IDENTIFICATION = os.environ.get('LLM_MODEL_SPECIES_IDENTIFICATION', 'QWEN36_35B')
     LLM_MODEL_QUICK_TASKS = os.environ.get('LLM_MODEL_QUICK_TASKS', 'QWEN36_35B')
 
-    # Hugging Face local image classifier for submission approval
+    # Bug classifier REST API
+    BUG_CLASSIFIER_URL = os.environ.get('BUG_CLASSIFIER_URL', 'http://192.168.0.99:8082')
     HF_BUG_CLASSIFIER_ENABLED = os.environ.get('HF_BUG_CLASSIFIER_ENABLED', 'true').lower() == 'true'
     HF_BUG_CLASSIFIER_REQUIRED = os.environ.get('HF_BUG_CLASSIFIER_REQUIRED', 'false').lower() == 'true'
-    HF_BUG_CLASSIFIER_MODEL = os.environ.get('HF_BUG_CLASSIFIER_MODEL', 'ph0masta/bug_classifier')
     HF_BUG_CLASSIFIER_MIN_CONFIDENCE = float(os.environ.get('HF_BUG_CLASSIFIER_MIN_CONFIDENCE', 0.45))
-    HF_BUG_CLASSIFIER_TOP_K = int(os.environ.get('HF_BUG_CLASSIFIER_TOP_K', 5))
     
     # Pagination
     BUGS_PER_PAGE = int(os.environ.get('BUGS_PER_PAGE', 20))

@@ -1,0 +1,21 @@
+<svg width="900" height="640" viewBox="0 0 900 640" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Reference photo style illustration of a jumping spider">
+  <rect width="900" height="640" fill="#101510"/>
+  <g stroke="#dbe9bd" stroke-opacity=".34" stroke-width="3">
+    <path d="M450 0v640M0 320h900M122 42l656 556M778 42 122 598"/>
+    <circle cx="450" cy="320" r="260" fill="none"/>
+    <circle cx="450" cy="320" r="150" fill="none"/>
+  </g>
+  <g transform="translate(450 330)">
+    <ellipse cx="0" cy="54" rx="126" ry="96" fill="#332922" stroke="#c8ff2e" stroke-width="7"/>
+    <ellipse cx="0" cy="-58" rx="92" ry="78" fill="#473729" stroke="#c8ff2e" stroke-width="7"/>
+    <path d="M-84-22c-98-42-154-100-222-190M84-22c98-42 154-100 222-190M-112 26c-104 2-172 42-248 116M112 26c104 2 172 42 248 116M-100 94c-92 50-132 104-164 194M100 94c92 50 132 104 164 194M-38 132c-56 78-78 128-86 208M38 132c56 78 78 128 86 208" stroke="#dbe9bd" stroke-width="15" stroke-linecap="round" fill="none"/>
+    <circle cx="-34" cy="-70" r="22" fill="#101510" stroke="#f7f7f0" stroke-width="8"/>
+    <circle cx="34" cy="-70" r="22" fill="#101510" stroke="#f7f7f0" stroke-width="8"/>
+    <circle cx="-34" cy="-70" r="7" fill="#c8ff2e"/>
+    <circle cx="34" cy="-70" r="7" fill="#c8ff2e"/>
+    <circle cx="-72" cy="-48" r="10" fill="#101510"/>
+    <circle cx="72" cy="-48" r="10" fill="#101510"/>
+  </g>
+  <path d="M78 518h220" stroke="#c8ff2e" stroke-width="6"/>
+  <path d="M78 548h150" stroke="#f7f7f0" stroke-width="4" opacity=".9"/>
+</svg>

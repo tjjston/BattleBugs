@@ -63,6 +63,17 @@
                 </div>
                 {% endif %}
                 
+                {% if bug.condition and bug.condition != 'alive' %}
+                {% set _cond_map = {'dead': ('🧟 Zombug', 'success'), 'squashed': ('💀 Battle-Worn', 'danger'), 'damaged_wings': ('🩹 Grounded', 'warning'), 'damaged_legs': ('🦿 Limping', 'warning'), 'damaged': ('⚔️ Scarred', 'secondary')} %}
+                {% set _cd = _cond_map.get(bug.condition, (bug.condition, 'secondary')) %}
+                <div class="mb-2">
+                    <span class="badge bg-{{ _cd[1] }} fs-6">{{ _cd[0] }}</span>
+                    {% if bug.condition_notes %}
+                    <p class="small text-muted mt-1 fst-italic">{{ bug.condition_notes }}</p>
+                    {% endif %}
+                </div>
+                {% endif %}
+
                 <h5>Stats
                     {% if bug.stat_growth and bug.stat_growth > 0 %}
                     <span class="badge bg-success ms-1 small" title="Battle-hardened: +{{ bug.stat_growth }} total stat growth from milestones">⬆ +{{ bug.stat_growth }}</span>
@@ -84,6 +95,24 @@
                     <div class="d-flex justify-content-between"><small>Speed</small><small class="text-muted">{{ bug.speed }}</small></div>
                     <div class="progress">
                         <div class="progress-bar bg-success" style="width: {{ bug.speed }}%"></div>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <div class="d-flex justify-content-between"><small>Lethality</small><small class="text-muted">{{ bug.lethality or 50 }}</small></div>
+                    <div class="progress">
+                        <div class="progress-bar" style="width: {{ bug.lethality or 50 }}%; background-color: #fd7e14;"></div>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <div class="d-flex justify-content-between"><small>Grip</small><small class="text-muted">{{ bug.grip or 50 }}</small></div>
+                    <div class="progress">
+                        <div class="progress-bar" style="width: {{ bug.grip or 50 }}%; background-color: #6f42c1;"></div>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <div class="d-flex justify-content-between"><small>Cunning</small><small class="text-muted">{{ bug.cunning or 50 }}</small></div>
+                    <div class="progress">
+                        <div class="progress-bar" style="width: {{ bug.cunning or 50 }}%; background-color: #20c997;"></div>
                     </div>
                 </div>
 
@@ -111,6 +140,39 @@
                 <small class="text-muted">
                     Submitted by {{ bug.owner.username }} on {{ bug.submission_date.strftime('%B %d, %Y') }}
                 </small>
+
+                {% if current_user.is_authenticated %}
+                {% set already_flagged = bug.classification_flags.filter_by(flagging_user_id=current_user.id).first() %}
+                <div class="mt-3">
+                  {% if already_flagged %}
+                  <p class="small text-muted">
+                    <span class="badge bg-{{ 'warning text-dark' if already_flagged.status == 'pending' else 'secondary' }}">
+                      Classification dispute {{ already_flagged.status }}
+                    </span>
+                  </p>
+                  {% else %}
+                  <button class="btn btn-sm btn-outline-secondary" type="button"
+                          data-bs-toggle="collapse" data-bs-target="#flagClassificationForm">
+                    Dispute Classification
+                  </button>
+                  <div class="collapse mt-2" id="flagClassificationForm">
+                    <form method="POST" action="{{ url_for('bugs.flag_classification', bug_id=bug.id) }}">
+                      <div class="mb-2">
+                        <label class="form-label small">What do you think it actually is?</label>
+                        <input type="text" class="form-control form-control-sm" name="suggested_species"
+                               placeholder="e.g. Gryllus pennsylvanicus (field cricket)">
+                      </div>
+                      <div class="mb-2">
+                        <label class="form-label small">Why do you think the classification is wrong? <span class="text-danger">*</span></label>
+                        <textarea class="form-control form-control-sm" name="reason" rows="2" required
+                                  placeholder="Describe what you observe in the image..."></textarea>
+                      </div>
+                      <button type="submit" class="btn btn-sm btn-warning">Submit Dispute</button>
+                    </form>
+                  </div>
+                  {% endif %}
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>

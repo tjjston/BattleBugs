@@ -6,6 +6,17 @@
 <h2 class="mb-3">Recalculate Stats: {{ bug.nickname }}</h2>
 <p class="text-muted">Review the proposed stats, adjust if needed, then confirm or deny.</p>
 
+{% if costs_points %}
+<div class="alert alert-info">
+  Applying these stats costs <strong>{{ stat_regeneration_cost }} Accolade Points</strong>.
+  Your balance: <strong>{{ accolade_balance }}</strong>.
+</div>
+{% else %}
+<div class="alert alert-secondary">
+  Staff maintenance changes do not spend player Accolade Points.
+</div>
+{% endif %}
+
 <div class="row">
   <div class="col-md-6">
     <div class="card mb-3">
@@ -62,7 +73,9 @@
             <div class="form-text">Leave override unchecked to auto-assign tier from the adjusted stats.</div>
           </div>
           <div class="d-flex gap-2">
-            <button type="submit" class="btn btn-success">Confirm & Apply</button>
+            <button type="submit" class="btn btn-success">
+              Confirm & Apply{% if costs_points %} (-{{ stat_regeneration_cost }} AP){% endif %}
+            </button>
         </form>
         <form method="post" action="{{ url_for('bugs.deny_recalc_bug_stats', bug_id=bug.id) }}">
             <button type="submit" class="btn btn-outline-secondary">Deny Changes</button>

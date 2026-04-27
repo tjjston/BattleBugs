@@ -12,7 +12,7 @@ services:
       - ./database:/app/database
     environment:
       - FLASK_ENV=development
-      - DATABASE_URL=sqlite:///database/app.db
+      - DATABASE_URL=sqlite:////app/database/bug_arena.db
       - SECRET_KEY=${SECRET_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OLLAMA_API_KEY=${OLLAMA_API_KEY}

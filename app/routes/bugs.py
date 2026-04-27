@@ -7,7 +7,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
-from app.models import Bug, Species, Comment, BugLore, CommentVote, BugLoreVote, Job, BugRival
+from app.models import Bug, Species, Comment, BugLore, CommentVote, BugLoreVote, Job, BugRival, ClassificationFlag, BlockedImageHash
 from sqlalchemy import func
 from app.services.vision_service import comprehensive_bug_verification
 from app.services.tier_system import LLMStatGenerator, TierSystem, assign_tier_and_generate_stats
@@ -142,6 +142,26 @@ def handle_submission():
         return redirect(url_for('bugs.submit_bug'))
     
     try:
+        # --- Duplicate / blocked image hash check (before LLM call to save quota) ---
+        candidate_hash = imagehash.average_hash(Image.open(temp_path))
+        h_str = str(candidate_hash)
+
+        # Permanently blocked hashes (e.g. failed zombug conversions)
+        if BlockedImageHash.query.filter_by(image_hash=h_str).first():
+            os.remove(temp_path)
+            flash('This image was previously rejected during Zombugification and cannot be resubmitted.', 'danger')
+            return redirect(url_for('bugs.submit_bug'))
+
+        # Near-duplicate of existing approved bug
+        for (existing_h,) in db.session.query(Bug.image_hash).filter(Bug.image_hash.isnot(None)).all():
+            try:
+                if imagehash.hex_to_hash(existing_h) - candidate_hash <= 8:
+                    os.remove(temp_path)
+                    flash('This bug image has already been submitted.', 'danger')
+                    return redirect(url_for('bugs.submit_bug'))
+            except Exception:
+                continue
+
         # LLM Classification
         from app.services.bug_classifier import classify_bug_submission
         
@@ -153,6 +173,15 @@ def handle_submission():
             user_species_guess=user_species_guess
         )
         
+        # Track species-guess accuracy (cosmetic badge; counted on every attempt)
+        if user_species_guess:
+            current_user.total_guesses = (current_user.total_guesses or 0) + 1
+            if classification.user_guess_matches:
+                current_user.correct_guesses = (current_user.correct_guesses or 0) + 1
+        else:
+            current_user.skipped_guesses = (current_user.skipped_guesses or 0) + 1
+        db.session.flush()  # persist counters; rolled back with session on hard failure
+
         # Check if LLM approved
         if not classification.approved:
             os.remove(temp_path)
@@ -166,7 +195,28 @@ def handle_submission():
             
             return redirect(url_for('bugs.submit_bug'))
         
-        # LLM APPROVED - continue with submission
+        # LLM APPROVED - check condition before committing
+        condition = getattr(classification, 'condition', 'alive') or 'alive'
+        condition_notes = getattr(classification, 'condition_notes', None) or None
+
+        if condition == 'dead':
+            from app.services.condition_system import roll_zombug_success
+            if not roll_zombug_success():
+                os.remove(temp_path)
+                # Permanently block this hash so the image can't be resubmitted
+                try:
+                    blocked = BlockedImageHash(image_hash=str(candidate_hash), reason='zombug_failed')
+                    db.session.add(blocked)
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                flash(
+                    '🧟 Zombugification failed! The reanimation ritual was unsuccessful — '
+                    'this specimen did not survive the process. The image has been permanently blocked.',
+                    'danger',
+                )
+                return redirect(url_for('bugs.submit_bug'))
+
         final_filename = f"{current_user.id}_{timestamp}_{filename}"
         final_path = os.path.join(current_app.config['UPLOAD_FOLDER'], final_filename)
         os.rename(temp_path, final_path)
@@ -191,7 +241,29 @@ def handle_submission():
                 )
                 db.session.add(species_info)
                 db.session.flush()
-        
+
+        # --- Season/species uniqueness check ---
+        if species_info and getattr(species_info, 'id', None):
+            from app.services.seasonal_tournament import get_season_for_date, get_season_date_range
+            _sn, _sy = get_season_for_date()
+            _ss, _se = get_season_date_range(_sn, _sy)
+            existing_this_season = Bug.query.filter(
+                Bug.user_id == current_user.id,
+                Bug.species_id == species_info.id,
+                Bug.is_retired.isnot(True),
+                Bug.submission_date.between(_ss, _se),
+            ).first()
+            if existing_this_season:
+                os.remove(final_path)
+                db.session.rollback()
+                species_label = classification.common_name or species_info.common_name or 'this species'
+                flash(
+                    f'You already have an active {species_label} this season. '
+                    'Each user can only enter one bug per species per season.',
+                    'danger',
+                )
+                return redirect(url_for('bugs.submit_bug'))
+
         # Create Bug entry
         bug = Bug(
             nickname=nickname,
@@ -220,7 +292,7 @@ def handle_submission():
             lore_allies=lore_data.get('allies'),
             lore_rivals=lore_data.get('rivals'),
             
-            image_hash=str(imagehash.average_hash(Image.open(final_path))),
+            image_hash=str(candidate_hash),
             requires_manual_review=(classification.confidence < 0.90)
         )
         
@@ -243,10 +315,23 @@ def handle_submission():
         bug.attack = stats['attack']
         bug.defense = stats['defense']
         bug.speed = stats['speed']
+        bug.lethality = stats.get('lethality', 50)
+        bug.grip = stats.get('grip', 50)
+        bug.cunning = stats.get('cunning', 50)
         bug.special_ability = stats.get('special_ability')
         bug.stats_generation_method = 'llm_contextual'
         bug.stats_generated = True
-        
+
+        # Apply condition modifiers (dead, squashed, damaged, etc.)
+        if condition and condition != 'alive':
+            from app.services.condition_system import apply_condition_modifiers
+            lore_entry = apply_condition_modifiers(bug, condition, llm_notes=condition_notes)
+            bug.condition_notes = lore_entry
+            if condition == 'dead':
+                bug.is_zombug = True
+        else:
+            bug.condition = 'alive'
+
         # Assign tier
         bug.tier = TierSystem.assign_tier(bug)
         tier_info = TIER_DEFINITIONS.get(bug.tier, {})
@@ -268,6 +353,13 @@ def handle_submission():
         
         flash(f'✅ {nickname} approved and entered the arena!', 'success')
         flash(f'{tier_info.get("icon", "")} {tier_info.get("name", bug.tier)}', 'info')
+
+        if bug.is_zombug:
+            flash('🧟 Zombugification successful! This bug has been reanimated with modified combat stats.', 'warning')
+        elif condition and condition != 'alive':
+            from app.services.condition_system import condition_display
+            disp = condition_display(condition)
+            flash(f'{disp["label"]} — condition detected and stat modifiers applied.', 'warning')
         
         for warning in classification.warnings:
             flash(f'⚠️ {warning}', 'warning')
@@ -525,6 +617,38 @@ def _extract_traits_from_bug(bug):
             traits.append('armored exoskeleton')
     
     return traits
+
+
+@bp.route('/bug/<int:bug_id>/flag-classification', methods=['POST'])
+@login_required
+def flag_classification(bug_id):
+    """Allow any authenticated user to dispute a bug's AI classification."""
+    bug = db.get_or_404(Bug, bug_id)
+    reason = (request.form.get('reason') or '').strip()
+    suggested_species = (request.form.get('suggested_species') or '').strip() or None
+
+    if not reason:
+        flash('Please describe why you think the classification is wrong.', 'warning')
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+
+    existing = ClassificationFlag.query.filter_by(
+        bug_id=bug_id, flagging_user_id=current_user.id
+    ).first()
+    if existing:
+        flash('You have already flagged this bug\'s classification.', 'info')
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+
+    flag = ClassificationFlag(
+        bug_id=bug_id,
+        flagging_user_id=current_user.id,
+        reason=reason,
+        suggested_species=suggested_species,
+        status='pending',
+    )
+    db.session.add(flag)
+    db.session.commit()
+    flash('Thanks — your classification dispute has been sent to the moderation team for review.', 'success')
+    return redirect(url_for('bugs.view_bug', bug_id=bug_id))
 
 
 @bp.route('/bug/<int:bug_id>/comment', methods=['POST'])

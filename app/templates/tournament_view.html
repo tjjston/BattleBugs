@@ -7,7 +7,8 @@
     <h1 class="text-center mb-4">{{ tournament.name }} 🏆</h1>
     
     <div class="text-center mb-4">
-        <span class="badge bg-{{ 'warning' if tournament.status == 'upcoming' else 'success' if tournament.status == 'active' else 'secondary' }} fs-5">
+        {% set status_color = 'warning' if tournament.status in ('upcoming','registration') else 'success' if tournament.status == 'active' else 'secondary' %}
+        <span class="badge bg-{{ status_color }} fs-5">
             {{ tournament.status|upper }}
         </span>
     </div>
@@ -54,6 +55,8 @@
                                                                 <div class="match {% if m.winner_id and (m.winner_id == (m.bug1_id or 0)) %}winner-top{% elif m.winner_id and (m.winner_id == (m.bug2_id or 0)) %}winner-bottom{% endif %}" data-match-id="{{ m.id }}" data-match-number="{{ match_number }}"
                                                                                  data-battle-id="{{ m.battle_id or '' }}"
                                                                                  data-winner-id="{{ m.winner_id or '' }}"
+                                                                                 data-bug1-id="{{ m.bug1_id or '' }}"
+                                                                                 data-bug2-id="{{ m.bug2_id or '' }}"
                                                                                  data-scheduled-for="{{ m.scheduled_for.isoformat() if m.scheduled_for else '' }}"
                                                                                  data-completed-at="{{ m.completed_at.isoformat() if m.completed_at else '' }}">
                                                                         <div class="match-header">Match {{ match_number }}</div>
@@ -162,7 +165,7 @@
         .match .team .score { margin-left:auto; }
         .match .team:first-child { margin-bottom:-1px; }
         .match-lines { display:block; position:absolute; top:50%; bottom:0; margin-top:0px; right:-1px; }
-        .match-lines .line { background: red; position:absolute; }
+        .match-lines .line { background: #36404e; position:absolute; }
         .match-lines .line.one { height:1px; width:12px; }
         .match-lines .line.two { height:44px; width:1px; left:11px; }
         .match-lines.alt { left:-12px; }
@@ -171,6 +174,7 @@
         .column:last-child .match-lines { display:none; }
         .column:last-child .match-lines.alt { display:block; }
         .disable-image .image, .disable-seed .seed, .disable-name .name, .disable-score .score { display:none !important; }
+        .match.clickable { cursor: pointer; }
         /* Dark theme accents */
         .theme-dark { background: #0e1217; border-color: #040607; }
         .theme-dark .match-lines .line { background: #36404e; }
@@ -261,16 +265,18 @@
                 html += '<div>' + (b2 ? renderBugLine(b2.nickname, b2.species, b2.seed, b2.wins, b2.losses, b2.attack, b2.defense, b2.speed) : '<div class="text-muted">TBD</div>') + '</div>';
 
                 if(winnerId){
-                    // find winner name if available
-                    let winnerName = '';
-                    if(b1 && b1.nickname && winnerId == (match.querySelector('[data-b1-seed]')? match.querySelector('[data-b1-seed]').getAttribute('data-b1-seed') : '')){
-                        winnerName = b1.nickname;
-                    }
-                    html += `<div class="mt-2 text-success">Result: Winner ID ${winnerId}${completedAt ? ' — ' + completedAt : ''}</div>`;
+                    const bug1Id = match.getAttribute('data-bug1-id') || '';
+                    const bug2Id = match.getAttribute('data-bug2-id') || '';
+                    let winnerName = winnerId == bug1Id ? (b1&&b1.nickname||'Bug '+bug1Id)
+                                   : winnerId == bug2Id ? (b2&&b2.nickname||'Bug '+bug2Id)
+                                   : 'Bug ' + winnerId;
+                    const dateStr = completedAt ? ' on ' + completedAt.split('T')[0] : '';
+                    html += `<div class="mt-2 alert alert-success py-1">🏆 Winner: <strong>${winnerName}</strong>${dateStr}</div>`;
+                    if(battleId) html += `<div class="mt-1"><a href="/battle/${battleId}" class="btn btn-sm btn-outline-secondary">View Full Battle</a></div>`;
                 } else if(battleId){
-                    html += `<div class="mt-2 text-muted">Linked battle: ${battleId}</div>`;
+                    html += `<div class="mt-2"><a href="/battle/${battleId}" class="btn btn-sm btn-outline-secondary">View Battle</a></div>`;
                 } else {
-                    html += `<div class="mt-2 text-muted">Preview only — no result yet.</div>`;
+                    html += `<div class="mt-2 text-muted">No result yet — fight hasn't started.</div>`;
                 }
 
                 body.innerHTML = html;
@@ -286,7 +292,7 @@
         })();
         </script>
 
-    {% if current_user.is_authenticated and tournament.status == 'upcoming' %}
+    {% if current_user.is_authenticated and tournament.status in ('upcoming','registration') %}
     <div class="mt-4">
         <form method="POST" action="{{ url_for('tournaments.start_tournament', tournament_id=tournament.id) }}">
             <button type="submit" class="btn btn-success btn-lg">Start Tournament</button>

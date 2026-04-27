@@ -56,7 +56,31 @@ class LLMConfig:
     
     @classmethod
     def get_model_for_task(cls, task: str) -> LLMModel:
-        """Get the configured model for a specific task"""
+        """Get the configured model for a specific task.
+
+        Priority: admin SystemSetting DB > app config env var > TASK_MODELS default.
+        """
+        # 1. Check admin DB override for this specific task
+        try:
+            from app.models import SystemSetting
+            db_task_model = SystemSetting.get(f'llm_model_{task}')
+            if db_task_model:
+                try:
+                    return LLMModel[db_task_model]
+                except KeyError:
+                    pass
+            # 2. Check global provider override
+            db_provider = SystemSetting.get('llm_provider')
+            if db_provider == 'anthropic':
+                return LLMModel.CLAUDE_SONNET_4
+            elif db_provider == 'openai':
+                return LLMModel.GPT_4
+            elif db_provider == 'ollama':
+                pass  # fall through to default Ollama config
+        except Exception:
+            pass
+
+        # 3. Fall back to app config / env var
         model_name = current_app.config.get(f'LLM_MODEL_{task.upper()}')
         if model_name:
             try:

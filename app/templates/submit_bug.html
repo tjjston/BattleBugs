@@ -5,10 +5,67 @@
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-10">
-        <h2>Submit Your Gladiator to the Arena </h2>
-        <p class="text-muted">Found a warrior bug? Submit it and give it a legendary backstory!</p>
+        <section class="submission-hero bb-shell mb-3">
+            <div>
+                <div class="bb-kicker">Field intake</div>
+                <h2>Submit Your Gladiator to the Arena</h2>
+                <p class="text-muted mb-0">Upload a clear bug photo, forge a backstory, and let the arena classify the challenger.</p>
+            </div>
+            <button class="btn btn-arena" type="button" data-bs-toggle="collapse" data-bs-target="#submissionTutorial">
+                Open Submission Tutorial
+            </button>
+        </section>
+
+        <div class="collapse mb-3" id="submissionTutorial">
+            <div class="tutorial-panel bb-shell">
+                <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+                    <div>
+                        <div class="bb-kicker">Reference guide</div>
+                        <h3 class="mb-1">Walkthrough</h3>
+                        <p class="text-muted mb-0">Use a sample as a reference, then follow the same steps with your own photo.</p>
+                    </div>
+                    <div class="tutorial-step-counter"><span id="tutorialStepNumber">1</span>/4</div>
+                </div>
+
+                <div class="sample-bug-grid mb-3">
+                    <button type="button" class="sample-bug active" onclick="selectTutorialSample('beetle')">
+                        <img src="{{ url_for('static', filename='img/tutorial-beetle.svg') }}" alt="Armored beetle reference">
+                        <span>Armored Beetle</span>
+                    </button>
+                    <button type="button" class="sample-bug" onclick="selectTutorialSample('mantis')">
+                        <img src="{{ url_for('static', filename='img/tutorial-mantis.svg') }}" alt="Mantis reference">
+                        <span>Leaf Mantis</span>
+                    </button>
+                    <button type="button" class="sample-bug" onclick="selectTutorialSample('spider')">
+                        <img src="{{ url_for('static', filename='img/tutorial-spider.svg') }}" alt="Jumping spider reference">
+                        <span>Web Hunter</span>
+                    </button>
+                </div>
+
+                <div class="tutorial-body">
+                    <img id="tutorialSampleImage" src="{{ url_for('static', filename='img/tutorial-beetle.svg') }}" alt="Selected tutorial sample">
+                    <div>
+                        <h4 id="tutorialTitle">1. Upload a sharp photo</h4>
+                        <p id="tutorialCopy">Use a close, well-lit image where the bug is the main subject. Avoid heavy blur, tiny distant subjects, and screenshots.</p>
+                        <div class="bb-mobile-stack">
+                            <button type="button" class="btn btn-outline-primary" onclick="setTutorialStep(-1)">Previous</button>
+                            <button type="button" class="btn btn-primary" onclick="setTutorialStep(1)">Next</button>
+                            <button type="button" class="btn btn-outline-secondary" onclick="applyTutorialSample()">Use Sample Text</button>
+                        </div>
+                        <small class="text-muted d-block mt-2">Sample images are references only. Browser security still requires you to choose your own upload file.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
         
-        <div class="card">
+        <div class="submit-progress mb-3" aria-label="Submission steps">
+            <button type="button" class="step-pill active" data-step-pill="1" onclick="goToStep(1)">Photo</button>
+            <button type="button" class="step-pill" data-step-pill="2" onclick="goToStep(2)">Lore</button>
+            <button type="button" class="step-pill" data-step-pill="3" onclick="goToStep(3)">Species</button>
+            <button type="button" class="step-pill" data-step-pill="4" onclick="goToStep(4)">Review</button>
+        </div>
+
+        <div class="card submission-card">
             <div class="card-body">
                 <form method="POST" enctype="multipart/form-data" id="bugSubmissionForm">
                     
@@ -48,14 +105,14 @@
                                    placeholder="e.g., My backyard, Sahara desert, Amazon rainforest">
                         </div>
 
-                        <button type="button" class="btn btn-primary" onclick="goToStep(2)">
-                            Next: Forge Their Legend →
+                        <button type="button" class="btn btn-primary w-100 w-md-auto" onclick="goToStep(2)">
+                            Next: Forge Their Legend
                         </button>
                     </div>
 
                     <!-- Step 2: User Lore -->
                     <div class="submission-step d-none" id="step2">
-                        <h4>Step 2: Forge Their Legend 📜</h4>
+                        <h4>Step 2: Forge Their Legend</h4>
                         <p class="text-muted">
                             Create your bug's backstory! This will influence battle narratives and make them unique.
                             <strong>Optional but highly recommended!</strong>
@@ -128,15 +185,15 @@
                         </div>
 
 
-                        <div class="btn-group w-100">
+                        <div class="btn-group w-100 submission-actions">
                             <button type="button" class="btn btn-secondary" onclick="goToStep(1)">
-                                ← Back
+                                Back
                             </button>
                             <button type="button" class="btn btn-outline-secondary" onclick="skipLore()">
                                 Skip Lore
                             </button>
                             <button type="button" class="btn btn-primary" onclick="goToStep(3)">
-                                Next: Species ID →
+                                Next: Species ID
                             </button>
                         </div>
                     </div>
@@ -153,7 +210,7 @@
                                 <input type="text" class="form-control" id="speciesSearch" 
                                     placeholder="Search by common name, scientific name, or describe traits (e.g., 'small green stinger')...">
                                 <button class="btn btn-outline-secondary" type="button" onclick="searchSpecies()">
-                                    🔍 Search
+                                Search
                                 </button>
                                 <button class="btn btn-outline-secondary" type="button" onclick="generateSuggestion('species')" title="Suggest species based on context">⚡</button>
                             </div>
@@ -199,7 +256,7 @@
                                 Skip Species
                             </button>
                             <button type="button" class="btn btn-primary" onclick="goToStep(4)">
-                                Review →
+                                Review
                             </button>
                         </div>
                     </div>
@@ -242,12 +299,12 @@
                             </div>
                         </div>
 
-                        <div class="btn-group w-100">
+                        <div class="btn-group w-100 submission-actions">
                             <button type="button" class="btn btn-secondary" onclick="goToStep(3)">
-                                ← Back
+                                Back
                             </button>
                             <button type="submit" class="btn btn-success btn-lg">
-                                ENTER THE ARENA AND BRING HONOR TO YOUR FAMILY!
+                                Enter The Arena
                             </button>
                         </div>
                     </div>
@@ -258,8 +315,108 @@
 </div>
 
 <style>
+.submission-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.15rem;
+}
+
+.submission-hero h2 {
+    margin: 0;
+}
+
+.tutorial-panel {
+    padding: 1rem;
+}
+
+.tutorial-step-counter {
+    min-width: 58px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border: 2px solid #172019;
+    background: #c8ff2e;
+    color: #172019;
+    font-weight: 900;
+    border-radius: 8px;
+}
+
+.sample-bug-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+}
+
+.sample-bug {
+    border: 2px solid #d9decc;
+    background: #fff;
+    border-radius: 8px;
+    padding: 0;
+    overflow: hidden;
+    text-align: left;
+    font-weight: 800;
+    color: #172019;
+}
+
+.sample-bug.active {
+    border-color: #172019;
+    box-shadow: inset 0 -4px 0 #c8ff2e;
+}
+
+.sample-bug img {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    display: block;
+}
+
+.sample-bug span {
+    display: block;
+    padding: 0.65rem;
+}
+
+.tutorial-body {
+    display: grid;
+    grid-template-columns: minmax(220px, 0.85fr) 1fr;
+    gap: 1rem;
+    align-items: center;
+}
+
+.tutorial-body > img {
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid #d9decc;
+}
+
+.submit-progress {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+}
+
+.step-pill {
+    border: 1px solid #cbd2bd;
+    background: #ffffff;
+    border-radius: 8px;
+    padding: 0.75rem 0.5rem;
+    font-weight: 900;
+    color: #667063;
+}
+
+.step-pill.active {
+    background: #172019;
+    border-color: #172019;
+    color: #c8ff2e;
+}
+
+.submission-card {
+    border-top: 5px solid #172019;
+}
+
 .submission-step {
-    padding: 20px 0;
+    padding: 8px 0;
     min-height: 400px;
 }
 
@@ -271,7 +428,7 @@
 }
 
 .species-result {
-    border: 2px solid #dee2e6;
+    border: 2px solid #d9decc;
     border-radius: 8px;
     padding: 15px;
     margin: 10px 0;
@@ -280,14 +437,13 @@
 }
 
 .species-result:hover {
-    border-color: #667eea;
-    background: #f8f9fa;
-    transform: translateX(5px);
+    border-color: #2f6f3d;
+    background: #f7f7f0;
 }
 
 .species-result.selected {
-    border-color: #28a745;
-    background: #d4edda;
+    border-color: #172019;
+    background: #eef3df;
 }
 .species-result {
     border: 2px solid #dee2e6;
@@ -299,14 +455,13 @@
 }
 
 .species-result:hover {
-    border-color: #667eea;
-    background: #f8f9fa;
-    transform: translateX(5px);
+    border-color: #2f6f3d;
+    background: #f7f7f0;
 }
 
 .species-result.selected {
-    border-color: #28a745;
-    background: #d4edda;
+    border-color: #172019;
+    background: #eef3df;
 }
 
 .species-result-content {
@@ -343,11 +498,102 @@
     margin: 0 0 5px 0;
     font-weight: 600;
 }
+
+@media (max-width: 768px) {
+    .submission-hero,
+    .tutorial-body {
+        grid-template-columns: 1fr;
+        display: grid;
+    }
+
+    .submission-hero {
+        align-items: stretch;
+    }
+
+    .sample-bug-grid,
+    .submit-progress {
+        grid-template-columns: 1fr;
+    }
+
+    .submission-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0.5rem;
+    }
+
+    .input-group {
+        gap: 0.5rem;
+    }
+
+    .input-group > .form-control,
+    .input-group > .btn {
+        width: 100%;
+        border-radius: 8px !important;
+    }
+
+    .species-result-content {
+        align-items: flex-start;
+    }
+}
 </style>
 
 <script>
 let currentStep = 1;
 let selectedSpecies = null;
+let tutorialStep = 0;
+let selectedTutorialSample = 'beetle';
+
+const tutorialSamples = {
+    beetle: {
+        image: "{{ url_for('static', filename='img/tutorial-beetle.svg') }}",
+        nickname: "Ironclad Thorn",
+        description: "Found patrolling a cracked garden stone after rain.",
+        location: "Backyard stone path",
+        species: "beetle",
+        lore_background: "Raised beneath a moss-covered slab, this armored crawler learned to treat every pebble as a fortress wall.",
+        lore_motivation: "Fights to prove that patience and armor can outlast flashier warriors.",
+        lore_personality: "Slow to anger, relentless once challenged, and fond of grinding opponents down."
+    },
+    mantis: {
+        image: "{{ url_for('static', filename='img/tutorial-mantis.svg') }}",
+        nickname: "Verdant Hook",
+        description: "Spotted waiting motionless on a leaf with perfect ambush posture.",
+        location: "Vegetable garden",
+        species: "mantis",
+        lore_background: "A silent duelist from the upper leaves, trained by wind and hunger.",
+        lore_motivation: "Fights to keep the canopy under its watch.",
+        lore_personality: "Still, precise, and unnervingly patient until the decisive strike."
+    },
+    spider: {
+        image: "{{ url_for('static', filename='img/tutorial-spider.svg') }}",
+        nickname: "Eight-Eye Static",
+        description: "Found watching from a window frame, tiny but completely unbothered.",
+        location: "Window ledge",
+        species: "jumping spider",
+        lore_background: "A wall-runner from the bright edges of the house, famous for impossible leaps.",
+        lore_motivation: "Fights to turn every arena into a vertical battlefield.",
+        lore_personality: "Curious, explosive, and always calculating the next angle."
+    }
+};
+
+const tutorialSteps = [
+    {
+        title: "1. Upload a sharp photo",
+        copy: "Use a close, well-lit image where the bug is the main subject. Avoid heavy blur, tiny distant subjects, and screenshots."
+    },
+    {
+        title: "2. Name the warrior",
+        copy: "Pick a short fight name that is easy to recognize in battle recaps and leaderboards."
+    },
+    {
+        title: "3. Add useful lore",
+        copy: "A few concrete details about origin, motivation, and fighting style give the battle narrator better material."
+    },
+    {
+        title: "4. Guess the species if you can",
+        copy: "A rough ID helps the arena classify stats, but the system will still validate the photo independently."
+    }
+];
 
 // Image preview
 document.getElementById('image').addEventListener('change', function(e) {
@@ -386,6 +632,7 @@ function goToStep(step) {
     document.getElementById(`step${step}`).classList.remove('d-none');
     
     currentStep = step;
+    updateStepPills();
 
     // Update review
     if (step === 4) {
@@ -393,6 +640,44 @@ function goToStep(step) {
     }
 
     window.scrollTo(0, 0);
+}
+
+function updateStepPills() {
+    document.querySelectorAll('[data-step-pill]').forEach(pill => {
+        pill.classList.toggle('active', Number(pill.dataset.stepPill) === currentStep);
+    });
+}
+
+function setTutorialStep(delta) {
+    tutorialStep = Math.max(0, Math.min(tutorialSteps.length - 1, tutorialStep + delta));
+    document.getElementById('tutorialStepNumber').textContent = tutorialStep + 1;
+    document.getElementById('tutorialTitle').textContent = tutorialSteps[tutorialStep].title;
+    document.getElementById('tutorialCopy').textContent = tutorialSteps[tutorialStep].copy;
+}
+
+function selectTutorialSample(key) {
+    selectedTutorialSample = key;
+    const sample = tutorialSamples[key];
+    document.getElementById('tutorialSampleImage').src = sample.image;
+    document.querySelectorAll('.sample-bug').forEach(btn => btn.classList.remove('active'));
+    const index = Object.keys(tutorialSamples).indexOf(key);
+    const buttons = document.querySelectorAll('.sample-bug');
+    if (buttons[index]) buttons[index].classList.add('active');
+}
+
+function applyTutorialSample() {
+    const sample = tutorialSamples[selectedTutorialSample];
+    document.getElementById('nickname').value = sample.nickname;
+    document.getElementById('description').value = sample.description;
+    document.getElementById('location_found').value = sample.location;
+    document.getElementById('speciesSearch').value = sample.species;
+    document.getElementById('user_species_guess').value = sample.species;
+    document.getElementById('lore_background').value = sample.lore_background;
+    document.getElementById('lore_motivation').value = sample.lore_motivation;
+    document.getElementById('lore_personality').value = sample.lore_personality;
+    document.getElementById('imagePreview').innerHTML = `<img src="${sample.image}" alt="Sample reference preview">`;
+    document.getElementById('finalImagePreview').innerHTML = `<img src="${sample.image}" alt="Sample reference preview">`;
+    goToStep(1);
 }
 
 function validateStep1() {

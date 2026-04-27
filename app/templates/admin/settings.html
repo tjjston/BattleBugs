@@ -1,0 +1,98 @@
+{% extends 'base.html' %}
+{% block title %}System Settings{% endblock %}
+{% block content %}
+<h1>System Settings</h1>
+<p class="text-muted">These values override environment config at runtime. Leave a field blank to remove the override and fall back to config defaults.</p>
+
+<form method="post">
+
+  <div class="card mb-4">
+    <div class="card-header"><strong>LLM Provider</strong></div>
+    <div class="card-body">
+      <p class="text-muted small">Set to <code>ollama</code>, <code>anthropic</code>, or <code>openai</code> to override the provider for all tasks. Leave blank to use per-task settings below.</p>
+      <div class="mb-3">
+        <label class="form-label">Global Provider Override</label>
+        <select name="llm_provider" class="form-select" style="max-width:280px">
+          <option value="">— use task-level settings —</option>
+          <option value="ollama" {% if settings.get('llm_provider') == 'ollama' %}selected{% endif %}>Ollama (local)</option>
+          <option value="anthropic" {% if settings.get('llm_provider') == 'anthropic' %}selected{% endif %}>Anthropic Claude</option>
+          <option value="openai" {% if settings.get('llm_provider') == 'openai' %}selected{% endif %}>OpenAI GPT</option>
+        </select>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Ollama API URL</label>
+        <input type="text" name="ollama_url" class="form-control" style="max-width:400px"
+               value="{{ settings.get('ollama_url', '') }}" placeholder="e.g. http://192.168.0.99:11434">
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header"><strong>Per-Task Model Overrides</strong></div>
+    <div class="card-body">
+      <p class="text-muted small">Only takes effect when Global Provider Override is blank. Select a model enum name or leave blank for default (QWEN36_35B).</p>
+      {% set tasks = [
+        ('llm_model_battle_narrative', 'Battle Narrative'),
+        ('llm_model_stat_generation', 'Stat Generation'),
+        ('llm_model_vision_analysis', 'Vision Analysis'),
+        ('llm_model_species_identification', 'Species Identification'),
+        ('llm_model_quick_tasks', 'Quick Tasks'),
+      ] %}
+      <div class="row g-3">
+      {% for key, label in tasks %}
+        <div class="col-md-6">
+          <label class="form-label">{{ label }}</label>
+          <select name="{{ key }}" class="form-select form-select-sm">
+            <option value="">— default —</option>
+            {% for m in llm_models %}
+            <option value="{{ m }}" {% if settings.get(key) == m %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header"><strong>Bug Classifier</strong></div>
+    <div class="card-body">
+      <div class="mb-3">
+        <label class="form-label">Classifier API URL</label>
+        <input type="text" name="classifier_url" class="form-control" style="max-width:400px"
+               value="{{ settings.get('classifier_url', '') }}" placeholder="e.g. http://192.168.0.99:8082">
+      </div>
+      <div class="form-check form-switch mb-2">
+        <input class="form-check-input" type="checkbox" role="switch" id="classifierEnabled"
+               name="classifier_enabled" value="true"
+               {% if settings.get('classifier_enabled', 'true') != 'false' %}checked{% endif %}>
+        <label class="form-check-label" for="classifierEnabled">Classifier Enabled</label>
+      </div>
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" role="switch" id="classifierRequired"
+               name="classifier_required" value="true"
+               {% if settings.get('classifier_required') == 'true' %}checked{% endif %}>
+        <label class="form-check-label" for="classifierRequired">Require Classifier Approval (block unconfident submissions)</label>
+      </div>
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-primary">Save Settings</button>
+  <a href="{{ url_for('admin.dashboard') }}" class="btn btn-outline-secondary ms-2">Cancel</a>
+</form>
+
+<hr class="mt-5">
+<h5>Current Active Settings</h5>
+{% if settings %}
+<table class="table table-sm table-bordered" style="max-width:600px">
+  <thead><tr><th>Key</th><th>Value</th></tr></thead>
+  <tbody>
+    {% for k, v in settings.items() %}
+    <tr><td><code>{{ k }}</code></td><td>{{ v }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="text-muted">No DB overrides active — all settings come from environment config.</p>
+{% endif %}
+{% endblock %}

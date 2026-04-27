@@ -120,6 +120,10 @@ bug-arena/
 5. Add a description (optional)
 6. Submit!
 
+Approved submissions and performance accolades award **Accolade Points**. Players spend
+Accolade Points to apply stat regeneration, while moderator/admin maintenance edits do not
+spend player currency.
+
 ### Creating Battles
 
 1. Click "New Battle"
@@ -165,11 +169,37 @@ def determine_winner(bug1, bug2):
 
 ### Customizing AI Prompts
 
-Edit `app/services/llm_service.py`:
+Edit `app/services/llm_manager.py`:
 ```python
 def generate_battle_narrative(bug1, bug2, winner):
     # Modify the prompt here
 ```
+
+### Background Jobs
+
+BattleBugs uses APScheduler for lightweight background enrichment jobs. Visual lore,
+taxonomy enrichment, and retryable maintenance work are tracked in the `job` table.
+
+Useful settings:
+
+- `ENABLE_BACKGROUND_JOBS`: run the in-process worker (default: true)
+- `JOB_POLL_INTERVAL_SECONDS`: worker polling interval (default: 15)
+- `ENABLE_DB_EXPLORER`: enable the admin DB explorer (default: false)
+- `DB_EXPLORER_ALLOW_WRITES`: allow non-read SQL in the DB explorer (default: false)
+
+### Bug Classification
+
+Submissions use the local Hugging Face image classifier
+`ph0masta/bug_classifier` by default. It predicts insect/spider genera, so
+BattleBugs accepts confident predictions and rejects low-confidence images before
+falling back to the LLM classifier when configured.
+
+Useful settings:
+
+- `HF_BUG_CLASSIFIER_ENABLED`: enable the Hugging Face classifier (default: true)
+- `HF_BUG_CLASSIFIER_REQUIRED`: reject if the classifier cannot run (default: false)
+- `HF_BUG_CLASSIFIER_MODEL`: model id (default: `ph0masta/bug_classifier`)
+- `HF_BUG_CLASSIFIER_MIN_CONFIDENCE`: approval threshold (default: `0.45`)
 
 ### Adding New Features
 
@@ -256,6 +286,3 @@ This is a personal project for you and your friends! Feel free to:
 - Improve the battle algorithm
 - Create better UI/UX
 - Add more bug species data
-
-
-
