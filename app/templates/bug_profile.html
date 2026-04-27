@@ -9,8 +9,38 @@
                   <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}" 
                  class="card-img-top bug-image" alt="{{ bug.name }}">
             <div class="card-body">
-                <h3 class="card-title">{{ bug.name }}</h3>
+                <h3 class="card-title">
+                    {{ bug.name }}
+                    {% if bug.is_retired %}<span class="badge bg-warning text-dark ms-1" title="Retired champion">🏆 Retired</span>{% endif %}
+                </h3>
                 <p class="text-muted">{{ bug.species or 'Unknown Species' }}</p>
+                {# Species pioneer badge #}
+                {% for ach in bug.achievements.all() %}
+                    {% if ach.achievement_type == 'species_pioneer' %}
+                    <div class="alert alert-success py-1 px-2 mb-2 small">
+                        🌍 <strong>World First!</strong> First ever specimen of this species in the arena.
+                    </div>
+                    {% endif %}
+                {% endfor %}
+                {# Vision identification confidence — Feature 4 #}
+                {% if bug.vision_identified_species or bug.vision_confidence %}
+                <div class="mb-2">
+                    {% if bug.vision_confidence %}
+                    {% set pct = (bug.vision_confidence * 100)|int %}
+                    {% set conf_color = 'success' if pct >= 90 else 'warning' if pct >= 70 else 'danger' %}
+                    <small class="text-muted">AI Confidence: </small>
+                    <span class="badge bg-{{ conf_color }}">{{ pct }}%</span>
+                    {% endif %}
+                    {% if bug.vision_identified_species and bug.scientific_name and bug.vision_identified_species.lower() != bug.scientific_name.lower() %}
+                    <div class="small text-muted mt-1">
+                        AI saw: <em>{{ bug.vision_identified_species }}</em><br>
+                        Filed as: <em>{{ bug.scientific_name }}</em>
+                    </div>
+                    {% elif bug.vision_identified_species and bug.scientific_name %}
+                    <div class="small text-success mt-1">✓ AI identification matches species record</div>
+                    {% endif %}
+                </div>
+                {% endif %}
                 {% if current_user.is_authenticated and current_user.role in ['MODERATOR','ADMIN','OWNER'] %}
                 <div class="mt-2">
                     <button class="btn btn-sm btn-outline-secondary" type="button" onclick="toggleSpeciesEdit()">Edit Species</button>
@@ -63,9 +93,20 @@
                 <p class="mb-1"><strong>{{ bug.wins }}</strong> Wins - <strong>{{ bug.losses }}</strong> Losses</p>
                 <p class="text-muted">Win Rate: {{ "%.1f"|format(bug.win_rate) }}%</p>
 
+                <h5 class="mt-3">Enrichment</h5>
+                <p class="mb-1">
+                    <span class="badge bg-secondary">{{ bug.enrichment_status or 'pending' }}</span>
+                </p>
+                {% if bug.enrichment_error and current_user.is_authenticated and current_user.role in ['ADMIN','OWNER'] %}
+                <p class="small text-danger">{{ bug.enrichment_error }}</p>
+                {% endif %}
+
                 {% if current_user.is_authenticated and (current_user.id == bug.user_id or current_user.role in ['MODERATOR','ADMIN','OWNER']) %}
                 <div class="d-grid mt-3">
                     <a class="btn btn-sm btn-warning" href="{{ url_for('bugs.recalc_bug_stats', bug_id=bug.id) }}">Recalculate Stats</a>
+                    {% if current_user.id == bug.user_id %}
+                    <small class="text-muted mt-1">Costs 50 Accolade Points.</small>
+                    {% endif %}
                 </div>
                 {% endif %}
 
@@ -86,6 +127,42 @@
         </div>
         {% endif %}
 
+        {% if bug.achievements.count() %}
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5>Achievements</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex flex-wrap gap-2">
+                    {% for achievement in bug.achievements.all() %}
+                    <span class="badge bg-dark" title="{{ achievement.description }}">
+                        {{ achievement.achievement_icon }} {{ achievement.achievement_name }}
+                    </span>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {# Rivals section — Feature 5 #}
+        {% if rivals %}
+        <div class="card mb-3 border-danger">
+            <div class="card-header bg-danger bg-opacity-10">
+                <h5 class="mb-0">⚔️ Rivals</h5>
+            </div>
+            <div class="card-body py-2">
+                {% for rival in rivals %}
+                {% set foe = rival.other(bug.id) %}
+                <div class="d-flex align-items-center gap-3 mb-2">
+                    <a href="{{ url_for('bugs.view_bug', bug_id=foe.id) }}" class="fw-bold text-decoration-none">{{ foe.nickname }}</a>
+                    <span class="text-muted small">{{ foe.common_name or foe.scientific_name or '' }}</span>
+                    <span class="badge bg-secondary ms-auto">{{ rival.encounter_count }} encounters</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
         <div class="card mb-3">
             <div class="card-header">
                 <h5>Bug Lore</h5>
@@ -98,8 +175,11 @@
                         <small class="text-muted">
                             - {{ entry.author.username }} | 
                             {{ entry.created_at.strftime('%b %d, %Y') }} | 
-                            ⬆️ {{ entry.upvotes }}
+                            <span id="lore-{{ entry.id }}-upvotes">{{ entry.upvotes }}</span> upvotes
                         </small>
+                        {% if current_user.is_authenticated %}
+                        <button type="button" class="btn btn-sm btn-outline-primary ms-2" onclick="upvote('lore', {{ entry.id }})">Upvote</button>
+                        {% endif %}
                         <hr>
                     </div>
                     {% endfor %}
@@ -131,8 +211,11 @@
                         <small class="text-muted">
                             - {{ comment.author.username }} | 
                             {{ comment.created_at.strftime('%b %d, %Y') }} | 
-                            ⬆️ {{ comment.upvotes }}
+                            <span id="comment-{{ comment.id }}-upvotes">{{ comment.upvotes }}</span> upvotes
                         </small>
+                        {% if current_user.is_authenticated %}
+                        <button type="button" class="btn btn-sm btn-outline-primary ms-2" onclick="upvote('comment', {{ comment.id }})">Upvote</button>
+                        {% endif %}
                         <hr>
                     </div>
                     {% endfor %}

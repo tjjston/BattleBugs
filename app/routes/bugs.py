@@ -7,7 +7,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
-from app.models import Bug, Species, Comment, BugLore, CommentVote, BugLoreVote, Job
+from app.models import Bug, Species, Comment, BugLore, CommentVote, BugLoreVote, Job, BugRival
 from sqlalchemy import func
 from app.services.vision_service import comprehensive_bug_verification
 from app.services.tier_system import LLMStatGenerator, TierSystem, assign_tier_and_generate_stats
@@ -80,12 +80,17 @@ def view_bug(bug_id):
         .order_by(BugLore.upvotes.desc()).all()
     jobs = Job.query.filter(Job.payload_json.contains(f'"bug_id": {bug.id}'))\
         .order_by(Job.created_at.desc()).all()
-    
-    return render_template('bug_profile.html', 
-                         bug=bug, 
+    rivals = BugRival.query.filter(
+        ((BugRival.bug1_id == bug.id) | (BugRival.bug2_id == bug.id)) &
+        (BugRival.encounter_count >= 2)
+    ).order_by(BugRival.encounter_count.desc()).limit(5).all()
+
+    return render_template('bug_profile.html',
+                         bug=bug,
                          comments=comments,
                          lore=lore,
-                         jobs=jobs)
+                         jobs=jobs,
+                         rivals=rivals)
 
 def handle_submission():
     """Process bug submission with LLM-controlled classification"""

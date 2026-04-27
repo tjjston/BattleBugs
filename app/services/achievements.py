@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from app import db
 from app.models import Bug, BugAchievement
 from app.services.economy import (
@@ -51,6 +53,7 @@ def award_submission_achievements(bug) -> None:
         'Entered the BattleBugs arena.',
     )
     if bug.species_id:
+        # Per-user unique species bonus
         existing_species_count = Bug.query.filter(
             Bug.user_id == bug.user_id,
             Bug.species_id == bug.species_id,
@@ -72,6 +75,28 @@ def award_submission_achievements(bug) -> None:
                 'Contributed to the species collection.',
             )
 
+        # Global first-ever pioneer bonus (across all users)
+        global_species_count = Bug.query.filter(
+            Bug.species_id == bug.species_id,
+            Bug.id != bug.id,
+        ).count()
+        if global_species_count == 0:
+            award_currency(
+                bug.owner,
+                ACHIEVEMENT_REWARDS.get('species_pioneer', 50),
+                'achievement:species_pioneer',
+                'bug',
+                bug.id,
+            )
+            award_achievement(
+                bug,
+                'species_pioneer',
+                'World First!',
+                '🌍',
+                'First ever to bring this species into the arena.',
+                rarity='rare',
+            )
+
 
 def award_battle_achievements(winner, loser=None) -> None:
     if not winner:
@@ -80,27 +105,38 @@ def award_battle_achievements(winner, loser=None) -> None:
         winner,
         'first_win',
         'First Victory',
-        'I',
+        '🏅',
         'Won a first recorded battle.',
     )
-    if (winner.wins or 0) >= 3:
+    wins = winner.wins or 0
+    if wins >= 3:
         award_achievement(
             winner,
             'three_wins',
             'Arena Regular',
-            'III',
+            '🥉',
             'Reached three battle wins.',
             rarity='uncommon',
         )
-    if (winner.wins or 0) >= 5:
+    if wins >= 5:
         award_achievement(
             winner,
             'five_wins',
             'Proven Gladiator',
-            'V',
+            '🥈',
             'Reached five battle wins.',
             rarity='rare',
         )
+    if wins >= 10:
+        award_achievement(
+            winner,
+            'ten_wins',
+            'Decade of Dominance',
+            '🥇',
+            'Reached ten battle wins.',
+            rarity='rare',
+        )
+        _retire_bug(winner)
 
 
 def award_tournament_champion(bug) -> None:
@@ -119,7 +155,30 @@ def award_lore_participation(bug) -> None:
         bug,
         'lore_magnet',
         'Lore Magnet',
-        'L',
+        '📖',
         'Inspired community lore.',
         rarity='uncommon',
+    )
+
+
+def _retire_bug(bug) -> None:
+    if bug.is_retired:
+        return
+    bug.is_retired = True
+    bug.retired_at = datetime.utcnow()
+    db.session.add(bug)
+    award_achievement(
+        bug,
+        'arena_legend',
+        'Arena Legend',
+        '🏆',
+        'Retired with 10+ wins — a true champion.',
+        rarity='rare',
+    )
+    award_currency(
+        bug.owner,
+        ACHIEVEMENT_REWARDS.get('arena_legend', 200),
+        'achievement:arena_legend',
+        'bug',
+        bug.id,
     )

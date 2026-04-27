@@ -10,11 +10,14 @@ UNIQUE_SPECIES_REWARD = 40
 ACHIEVEMENT_REWARDS = {
     'first_submission': 10,
     'species_discovery': 25,
+    'species_pioneer': 50,
     'first_win': 15,
     'three_wins': 25,
     'five_wins': 50,
+    'ten_wins': 100,
     'tournament_champion': 100,
     'lore_magnet': 10,
+    'arena_legend': 200,
 }
 
 

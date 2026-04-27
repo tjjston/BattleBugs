@@ -3,10 +3,12 @@ Enhanced Battle Engine with XFactor Integration
 Uses visible stats + hidden xfactor for more interesting battles
 """
 
+from datetime import datetime
 from typing import Optional
 from app import db
-from app.models import Battle, Bug
+from app.models import Battle, Bug, BugRival
 from app.services.visual_lore_generator import generate_lore_enhanced_battle_narrative
+from app.services.achievements import award_battle_achievements
 import random
 
 # Combat type system (offensive -> defensive multipliers)
@@ -199,11 +201,25 @@ def simulate_battle(bug1: Bug, bug2: Bug, tournament_id: Optional[int] = None, r
         else:
             bug2.wins = (bug2.wins or 0) + 1
             bug1.losses = (bug1.losses or 0) + 1
+        award_battle_achievements(winner, bug2 if winner.id == bug1.id else bug1)
 
     db.session.add(battle)
+    _track_rival_encounter(bug1, bug2)
     db.session.commit()
 
     return battle
+
+
+def _track_rival_encounter(bug1: Bug, bug2: Bug) -> None:
+    """Record a rival encounter between two bugs (idempotent — increments count)."""
+    b1_id, b2_id = sorted([bug1.id, bug2.id])
+    rival = BugRival.query.filter_by(bug1_id=b1_id, bug2_id=b2_id).first()
+    if rival:
+        rival.encounter_count += 1
+        rival.last_encounter_at = datetime.utcnow()
+    else:
+        rival = BugRival(bug1_id=b1_id, bug2_id=b2_id)
+        db.session.add(rival)
 
 
 def determine_winner_with_xfactor(bug1: Bug, bug2: Bug) -> Optional[Bug]:
@@ -263,10 +279,7 @@ def determine_winner_with_xfactor(bug1: Bug, bug2: Bug) -> Optional[Bug]:
     bug1_power *= xfactor_multiplier_1
     bug2_power *= xfactor_multiplier_2
     
-    # Log the xfactor influence (for debugging/admin only)
-    print(f"🎲 XFACTOR INFLUENCE:")
-    print(f"   {bug1.nickname}: {bug1.xfactor:+.1f} → {xfactor_multiplier_1:.2%} power")
-    print(f"   {bug2.nickname}: {bug2.xfactor:+.1f} → {xfactor_multiplier_2:.2%} power")
+    # Xfactor remains hidden from users; admins can inspect persisted secrets.
     # ═══════════════════════════════════════════════════════
     bug1_power *= random.uniform(0.98, 1.02)  # Only ±2% random
     bug2_power *= random.uniform(0.98, 1.02)
@@ -343,6 +356,28 @@ def calculate_battle_stats(bug1: Bug, bug2: Bug) -> dict:
     stats['predicted_bug2_effective'] = round(bug2_power * bug2_modifier, 2)
     
     return stats
+
+
+def visible_win_summary(battle: Battle) -> str:
+    """Explain the visible battle outcome without exposing hidden xfactor."""
+    if not battle.winner:
+        return "The visible matchup was too close to call, ending in a draw."
+
+    stats = calculate_battle_stats(battle.bug1, battle.bug2)
+    winner = battle.winner
+    loser = battle.bug2 if winner.id == battle.bug1_id else battle.bug1
+    winner_effective = stats['predicted_bug1_effective'] if winner.id == battle.bug1_id else stats['predicted_bug2_effective']
+    loser_effective = stats['predicted_bug2_effective'] if winner.id == battle.bug1_id else stats['predicted_bug1_effective']
+
+    if winner_effective > loser_effective:
+        return f"{winner.nickname} had the stronger visible matchup profile, edging out {loser.nickname} on stats and type advantages."
+    if winner.speed > loser.speed:
+        return f"{winner.nickname} appears to have won through speed and initiative despite a close visible matchup."
+    if winner.attack > loser.attack:
+        return f"{winner.nickname} appears to have won by applying stronger offensive pressure."
+    if winner.defense > loser.defense:
+        return f"{winner.nickname} appears to have survived the exchange through better defenses."
+    return f"{winner.nickname} won a close fight where the visible stats were nearly even."
 
 
 def reveal_xfactor_secrets(battle: Battle) -> dict:

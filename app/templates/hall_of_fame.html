@@ -8,6 +8,51 @@
     <p class="lead text-muted">Legends of the Arena</p>
 </div>
 
+{% if retired %}
+<div class="card mb-5 border-warning">
+    <div class="card-header bg-warning text-dark">
+        <h2 class="mb-0">🏆 Retired Legends</h2>
+        <small class="text-dark opacity-75">These champions earned their glory and now rest in eternal fame</small>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Champion</th>
+                        <th>Species</th>
+                        <th>Owner</th>
+                        <th>Record</th>
+                        <th>Retired</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for bug in retired %}
+                    <tr>
+                        <td>
+                            <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="text-decoration-none fw-bold">
+                                {{ bug.nickname }}
+                            </a>
+                            {% if loop.index == 1 %}<span class="badge bg-warning text-dark ms-1">👑 Greatest</span>{% endif %}
+                        </td>
+                        <td class="text-muted small">{{ bug.common_name or bug.scientific_name or 'Unknown' }}</td>
+                        <td>{{ bug.owner.username }}</td>
+                        <td>
+                            <span class="badge bg-success">{{ bug.wins }}W</span>
+                            <span class="badge bg-danger">{{ bug.losses }}L</span>
+                        </td>
+                        <td class="text-muted small">
+                            {{ bug.retired_at.strftime('%b %Y') if bug.retired_at else '—' }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <div class="row">
     <!-- Top Gladiators Section -->
     <div class="col-lg-8">

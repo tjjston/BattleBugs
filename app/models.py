@@ -203,6 +203,10 @@ class Bug(db.Model):
     wins = db.Column(db.Integer, default=0)
     losses = db.Column(db.Integer, default=0)
     is_verified = db.Column(db.Boolean, default=False)
+
+    # Retirement
+    is_retired = db.Column(db.Boolean, default=False)
+    retired_at = db.Column(db.DateTime)
     
     # Relationships
     comments = db.relationship('Comment', backref='bug', lazy='dynamic', cascade='all, delete-orphan')
@@ -514,3 +518,26 @@ class BugLoreVote(db.Model):
     __table_args__ = (
         db.UniqueConstraint('lore_id', 'user_id', name='uq_lore_vote_user'),
     )
+
+
+class BugRival(db.Model):
+    """Tracks recurring opponents. Bug IDs are always stored with the lower ID first."""
+    id = db.Column(db.Integer, primary_key=True)
+    bug1_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
+    bug2_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
+    encounter_count = db.Column(db.Integer, default=1, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_encounter_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    bug1 = db.relationship('Bug', foreign_keys=[bug1_id])
+    bug2 = db.relationship('Bug', foreign_keys=[bug2_id])
+
+    __table_args__ = (
+        db.UniqueConstraint('bug1_id', 'bug2_id', name='uq_rival_pair'),
+    )
+
+    def other(self, bug_id: int):
+        return self.bug2 if self.bug1_id == bug_id else self.bug1
+
+    def __repr__(self):
+        return f'<BugRival {self.bug1_id} vs {self.bug2_id} x{self.encounter_count}>'

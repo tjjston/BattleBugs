@@ -1,105 +1,200 @@
 {% extends "base.html" %}
 
-{% block title %}Bug Arena - Home{% endblock %}
+{% block title %}Bug Arena — Home{% endblock %}
 
 {% block content %}
-<div class="jumbotron bg-light p-5 rounded-3 mb-4">
-    <h1 class="display-4">Welcome to Battle Bugs, The Gladiators Arena of Creepy Crawlers</h1>
-    <p class="lead">The ultimate gladiator arena for insects. Submit your bugs, watch them battle, and compete in monthly tournaments!</p>
-    <hr class="my-4">
-    <p>Capture bugs in the wild, give them names, and watch them fight for glory!</p>
-    {% if not current_user.is_authenticated %}
-    <a class="btn btn-primary btn-lg" href="{{ url_for('auth.register') }}" role="button">Join the Arena</a>
-    {% else %}
-    <a class="btn btn-primary btn-lg" href="{{ url_for('bugs.submit_bug') }}" role="button">Submit Your Bug</a>
-    <a class="btn btn-success btn-lg" href="{{ url_for('battles.new_battle') }}" role="button">Start a Battle</a>
-    {% endif %}
-</div>
 
-<div class="row">
-    <div class="col-md-6">
-        <h2>Top Gladiators</h2>
-        <div class="list-group">
-            {% for bug in top_bugs[:5] %}
-            <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="list-group-item list-group-item-action">
-                <div class="d-flex w-100 justify-content-between">
-                    <h5 class="mb-1">{{ bug.name }}</h5>
-                    <small>{{ bug.wins }}W - {{ bug.losses }}L</small>
-                </div>
-                <p class="mb-1">{{ bug.species or 'Unknown Species' }}</p>
-                <small>Win Rate: {{ "%.1f"|format(bug.win_rate) }}%</small>
-            </a>
-            {% else %}
-            <p class="text-muted">No bugs yet. Be the first to submit one!</p>
-            {% endfor %}
-        </div>
-        {% if top_bugs|length > 5 %}
-        <a href="{{ url_for('main.hall_of_fame') }}" class="btn btn-sm btn-outline-primary mt-2">View Hall of Fame →</a>
-        {% endif %}
+{# ── Season banner ─────────────────────────────────────────────── #}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <div>
+        <span class="badge bg-secondary fs-6 me-2">{{ season.label }}</span>
+        <span class="text-muted small">Season standings reset each quarter</span>
     </div>
-
-    <div class="col-md-6">
-        <h2>⚔️ Recent Battles</h2>
-        <div class="list-group">
-            {% for battle in recent_battles %}
-            <a href="{{ url_for('battles.view_battle', battle_id=battle.id) }}" class="list-group-item list-group-item-action">
-                <div class="d-flex w-100 justify-content-between">
-                    <h5 class="mb-1">{{ battle.bug1.name }} vs {{ battle.bug2.name }}</h5>
-                    <small>{{ battle.battle_date.strftime('%b %d') }}</small>
-                </div>
-                <p class="mb-1">
-                    Winner: <strong>{{ battle.winner.name if battle.winner else 'Draw' }}</strong>
-                </p>
-            </a>
-            {% else %}
-            <p class="text-muted">No battles yet. Start the first one!</p>
-            {% endfor %}
-        </div>
-        {% if recent_battles %}
-        <a href="{{ url_for('battles.list_battles') }}" class="btn btn-sm btn-outline-primary mt-2">View All Battles →</a>
+    <div class="d-flex gap-2">
+        {% if not current_user.is_authenticated %}
+        <a class="btn btn-primary" href="{{ url_for('auth.register') }}">Join the Arena</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('auth.login') }}">Login</a>
+        {% else %}
+        <a class="btn btn-success" href="{{ url_for('bugs.submit_bug') }}">Submit Your Bug</a>
+        <a class="btn btn-primary" href="{{ url_for('battles.new_battle') }}">Start a Battle</a>
         {% endif %}
     </div>
 </div>
 
-<div class="mt-5">
-    <h2>How It Works</h2>
-    <div class="row">
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body text-center">
-                    <h1>📸</h1>
-                    <h5>1. Capture</h5>
-                    <p>Find bugs in the wild and photograph them</p>
-                </div>
+{# ── News briefing ─────────────────────────────────────────────── #}
+<div class="card mb-4 border-0 shadow-sm">
+    <div class="card-header d-flex align-items-center gap-2" style="background: linear-gradient(135deg, #1a1a2e, #16213e); color: #fff;">
+        <span class="fs-5">📰</span>
+        <h5 class="mb-0">Arena News</h5>
+        <span class="badge bg-danger ms-auto blink">LIVE</span>
+    </div>
+    <div class="card-body bg-dark text-light" style="font-family: 'Georgia', serif; font-size: 1.05rem; line-height: 1.7;">
+        {% if news_briefing %}
+            {{ news_briefing }}
+        {% else %}
+            The arena scoreboard is being updated — check back soon!
+        {% endif %}
+    </div>
+</div>
+
+{# ── Main 3-column grid ────────────────────────────────────────── #}
+<div class="row g-4">
+
+    {# Left: Season standings #}
+    <div class="col-lg-5">
+        <div class="card h-100">
+            <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">{{ season.icon }} {{ season.name }} Standings</h5>
+                <a href="{{ url_for('main.hall_of_fame') }}" class="btn btn-sm btn-outline-dark">Full HoF</a>
             </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body text-center">
-                    <h1>✍️</h1>
-                    <h5>2. Submit</h5>
-                    <p>Upload your bug and give it a name</p>
+            <div class="card-body p-0">
+                {% if top_bugs %}
+                <ol class="list-group list-group-flush list-group-numbered">
+                    {% for bug in top_bugs[:8] %}
+                    <li class="list-group-item d-flex align-items-center gap-2 py-2">
+                        <div class="flex-grow-1 ms-2">
+                            <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="fw-bold text-decoration-none">
+                                {{ bug.nickname }}
+                            </a>
+                            <div class="text-muted small">{{ bug.common_name or bug.scientific_name or 'Unknown' }}</div>
+                        </div>
+                        <div class="text-end">
+                            <span class="badge bg-success">{{ bug.wins }}W</span>
+                            <span class="badge bg-danger">{{ bug.losses }}L</span>
+                            <div class="text-muted small">{{ "%.0f"|format(bug.win_rate) }}%</div>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ol>
+                {% else %}
+                <div class="text-center py-5 text-muted">
+                    <p>No bugs have competed yet.</p>
+                    <a href="{{ url_for('bugs.submit_bug') }}" class="btn btn-sm btn-primary">Submit the first one</a>
                 </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body text-center">
-                    <h1>⚔️</h1>
-                    <h5>3. Battle</h5>
-                    <p>Watch generated battles</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body text-center">
-                    <h1></h1>
-                    <h5>4. Win Glory</h5>
-                    <p>Compete in monthly tournaments</p>
-                </div>
+                {% endif %}
             </div>
         </div>
     </div>
+
+    {# Middle: Active events + recent battles #}
+    <div class="col-lg-4">
+
+        {# Active / upcoming tournaments #}
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">🏆 Current Events</h5>
+            </div>
+            <div class="card-body p-0">
+                {% if active_tournaments %}
+                <div class="list-group list-group-flush">
+                    {% for t in active_tournaments %}
+                    <a href="{{ url_for('tournaments.view_tournament', tournament_id=t.id) }}"
+                       class="list-group-item list-group-item-action">
+                        <div class="d-flex justify-content-between">
+                            <strong>{{ t.name }}</strong>
+                            <span class="badge bg-{{ 'success' if t.status == 'active' else 'warning text-dark' }}">
+                                {{ t.status }}
+                            </span>
+                        </div>
+                        <small class="text-muted">
+                            Starts {{ t.start_date.strftime('%b %d') }}
+                            {% if t.registration_deadline %}
+                            · Reg. closes {{ t.registration_deadline.strftime('%b %d') }}
+                            {% endif %}
+                        </small>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-3 text-muted">
+                    <small>No active events right now.</small>
+                    {% if current_user.is_authenticated and current_user.role in ['MODERATOR','ADMIN','OWNER'] %}
+                    <div><a href="{{ url_for('tournaments.create_tournament') }}" class="btn btn-sm btn-outline-primary mt-2">Create Event</a></div>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {# Recent battles #}
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">⚔️ Recent Battles</h5>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_battles %}
+                <div class="list-group list-group-flush">
+                    {% for battle in recent_battles %}
+                    <a href="{{ url_for('battles.view_battle', battle_id=battle.id) }}"
+                       class="list-group-item list-group-item-action py-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="fw-bold">{{ battle.bug1.nickname }}</span>
+                                <span class="text-muted mx-1">vs</span>
+                                <span class="fw-bold">{{ battle.bug2.nickname }}</span>
+                            </div>
+                            <small class="text-muted">{{ battle.battle_date.strftime('%b %d') }}</small>
+                        </div>
+                        <small class="text-muted">
+                            Winner: <strong>{{ battle.winner.nickname if battle.winner else 'Draw' }}</strong>
+                        </small>
+                    </a>
+                    {% endfor %}
+                </div>
+                <div class="p-2 text-end">
+                    <a href="{{ url_for('battles.list_battles') }}" class="btn btn-sm btn-outline-secondary">All battles →</a>
+                </div>
+                {% else %}
+                <div class="text-center py-3 text-muted"><small>No battles yet.</small></div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {# Right: Arena stats #}
+    <div class="col-lg-3">
+        <div class="card mb-4">
+            <div class="card-header bg-dark text-white">
+                <h5 class="mb-0">📊 Arena Stats</h5>
+            </div>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item d-flex justify-content-between">
+                    <span class="text-muted">Active bugs</span>
+                    <strong>{{ total_bugs - total_retired }}</strong>
+                </li>
+                <li class="list-group-item d-flex justify-content-between">
+                    <span class="text-muted">Retired legends</span>
+                    <strong>{{ total_retired }}</strong>
+                </li>
+                <li class="list-group-item d-flex justify-content-between">
+                    <span class="text-muted">Battles fought</span>
+                    <strong>{{ total_battles }}</strong>
+                </li>
+                <li class="list-group-item d-flex justify-content-between">
+                    <span class="text-muted">Season</span>
+                    <strong>{{ season.label }}</strong>
+                </li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">How it works</h6>
+            </div>
+            <div class="card-body small text-muted p-3">
+                <div class="mb-2">📸 <strong>Capture</strong> — Find bugs in the wild and photograph them.</div>
+                <div class="mb-2">✍️ <strong>Submit</strong> — Upload and give your bug a name and backstory.</div>
+                <div class="mb-2">⚔️ <strong>Battle</strong> — AI-narrated fights determine rank.</div>
+                <div>🏆 <strong>Retire</strong> — Ten wins earns immortal legend status.</div>
+            </div>
+        </div>
+    </div>
+
 </div>
+
+<style>
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.blink { animation: blink 1.5s infinite; }
+</style>
+
 {% endblock %}
