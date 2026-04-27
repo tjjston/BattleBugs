@@ -420,7 +420,8 @@ def deny_recalc_bug_stats(bug_id):
 
 @bp.route('/pokedex')
 def pokedex():
-    """Species index of community-found bugs (Pokedex)."""
+    """Species index with pioneer discovery data."""
+    from app.models import BugAchievement, User as _User
     search = request.args.get('search', type=str)
 
     species_query = db.session.query(
@@ -430,7 +431,8 @@ def pokedex():
         Species.order,
         Species.family,
         func.count(Bug.id).label('count'),
-        func.max(Bug.submission_date).label('last_seen')
+        func.max(Bug.submission_date).label('last_seen'),
+        func.min(Bug.submission_date).label('first_seen'),
     ).join(Bug, Bug.species_id == Species.id)
 
     if search:
@@ -442,13 +444,41 @@ def pokedex():
             (Species.order.ilike(likeq))
         )
 
-    species_rows = species_query.group_by(Species.id)
-    species_rows = species_rows.order_by(func.count(Bug.id).desc()).all()
+    species_rows = species_query.group_by(Species.id)\
+        .order_by(func.count(Bug.id).desc()).all()
 
-    # Fetch a representative image (most recent bug) per species
+    # Build pioneer map: species_id → {username, bug_id, bug_nickname, date}
+    pioneer_achievements = db.session.query(BugAchievement, Bug, _User)\
+        .join(Bug, BugAchievement.bug_id == Bug.id)\
+        .join(_User, Bug.user_id == _User.id)\
+        .filter(BugAchievement.achievement_type == 'species_pioneer')\
+        .all()
+    pioneer_map: dict[int, dict] = {}
+    for ach, bug, user in pioneer_achievements:
+        if bug.species_id and bug.species_id not in pioneer_map:
+            pioneer_map[bug.species_id] = {
+                'username': user.username,
+                'user_id': user.id,
+                'bug_id': bug.id,
+                'bug_nickname': bug.nickname,
+                'date': ach.earned_date,
+            }
+
+    # Discovery leaderboard: users with most species_pioneer achievements
+    from sqlalchemy import desc as _desc
+    leader_rows = db.session.query(
+        _User.id, _User.username, func.count(BugAchievement.id).label('discoveries')
+    ).join(Bug, Bug.user_id == _User.id)\
+     .join(BugAchievement, (BugAchievement.bug_id == Bug.id) & (BugAchievement.achievement_type == 'species_pioneer'))\
+     .group_by(_User.id, _User.username)\
+     .order_by(_desc('discoveries'))\
+     .limit(10).all()
+    discovery_leaders = [{'user_id': r.id, 'username': r.username, 'count': r.discoveries} for r in leader_rows]
+
     entries = []
     for row in species_rows:
-        representative = Bug.query.filter_by(species_id=row.id).order_by(Bug.submission_date.desc()).first()
+        representative = Bug.query.filter_by(species_id=row.id)\
+            .order_by(Bug.submission_date.desc()).first()
         entries.append({
             'id': row.id,
             'common_name': row.common_name,
@@ -457,10 +487,17 @@ def pokedex():
             'family': row.family,
             'count': row.count,
             'last_seen': row.last_seen,
-            'image_path': representative.image_path if representative else None
+            'first_seen': row.first_seen,
+            'image_path': representative.image_path if representative else None,
+            'pioneer': pioneer_map.get(row.id),
         })
 
-    return render_template('pokedex.html', species_entries=entries, search=search)
+    total_species = len(entries)
+    return render_template('pokedex.html',
+                           species_entries=entries,
+                           search=search,
+                           discovery_leaders=discovery_leaders,
+                           total_species=total_species)
 
 
 @bp.route('/pokedex/species/<int:species_id>')

@@ -25,6 +25,9 @@
                         <a class="nav-link" href="{{ url_for('bugs.pokedex') }}">Pokedex</a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('main.ecosystem') }}">Ecosystem</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('battles.list_battles') }}">Battles</a>
                     </li>
                     <li class="nav-item">
@@ -32,6 +35,9 @@
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('main.hall_of_fame') }}">Hall of Fame</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('main.leaderboards') }}">Leaderboards</a>
                     </li>
                 </ul>
                 <ul class="navbar-nav">
@@ -41,6 +47,9 @@
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('battles.new_battle') }}">New Battle</a>
+                    </li>
+                    <li class="nav-item">
+                        <span class="nav-link">{{ current_user.accolade_points or 0 }} AP</span>
                     </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
@@ -57,6 +66,7 @@
                                 <li><a class="dropdown-item" href="{{ url_for('admin.moderation_queue') }}">Moderation Queue</a></li>
                                 {% endif %}
                             <li><a class="dropdown-item" href="{{ url_for('main.my_profile') }}">My Profile</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('main.collection') }}">My Collection</a></li>
                         </ul>
                     </li>
                     {% else %}

@@ -1,57 +1,119 @@
 {% extends "base.html" %}
 
-{% block title %}Pokedex - Community Species Index{% endblock %}
+{% block title %}Species Discovery Index — Bug Arena{% endblock %}
 
 {% block content %}
-<h1 class="text-center mb-4">Community Pokedex</h1>
-
-<form method="get" class="row g-2 mb-3">
-  <div class="col-md-8">
-    <input type="search" name="search" class="form-control" placeholder="Search species, family, or order" value="{{ search or '' }}">
-  </div>
-  <div class="col-md-4">
-    <button type="submit" class="btn btn-primary">Search</button>
-    <a href="{{ url_for('bugs.pokedex') }}" class="btn btn-outline-secondary">Reset</a>
-  </div>
-</form>
-
-{% if species_entries %}
-<div class="row">
-  {% for s in species_entries %}
-  <div class="col-md-4 mb-4">
-    <div class="card h-100">
-      {% if s.image_path %}
-      <a href="{{ url_for('bugs.pokedex_species', species_id=s.id) }}">
-        <img src="{{ url_for('main.uploaded_file', filename=s.image_path) }}" class="card-img-top" alt="{{ s.common_name or s.scientific_name }}" style="height: 220px; object-fit: cover;">
-      </a>
-      {% endif %}
-      <div class="card-body">
-        <h5 class="card-title mb-1">
-          <a class="text-decoration-none" href="{{ url_for('bugs.pokedex_species', species_id=s.id) }}">
-            {{ s.common_name or 'Unknown Common Name' }}
-          </a>
-        </h5>
-        <p class="text-muted small mb-2"><em>{{ s.scientific_name }}</em></p>
-        <p class="small mb-2">
-          {% if s.order %}<strong>Order:</strong> {{ s.order }}{% endif %}
-          {% if s.family %}<span class="ms-2"><strong>Family:</strong> {{ s.family }}</span>{% endif %}
-        </p>
-        <p class="mb-0">
-          <span class="badge bg-info">{{ s.count }} sighting{{ 's' if s.count != 1 else '' }}</span>
-          {% if s.last_seen %}
-          <span class="badge bg-secondary">Last seen {{ s.last_seen.strftime('%b %d, %Y') }}</span>
-          {% endif %}
-        </p>
-      </div>
-      <div class="card-footer bg-transparent">
-        <a href="{{ url_for('bugs.list_bugs', species_id=s.id) }}" class="btn btn-sm btn-outline-primary w-100">View all bugs</a>
-      </div>
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <div>
+        <h1 class="mb-0">🔬 Species Discovery Index</h1>
+        <small class="text-muted">{{ total_species }} species catalogued by the community</small>
     </div>
-  </div>
-  {% endfor %}
+    <a href="{{ url_for('main.ecosystem') }}" class="btn btn-outline-success">🌿 Ecosystem Map</a>
 </div>
-{% else %}
-<div class="alert alert-info">No species found yet. Submit a bug to start the Pokedex!</div>
-{% endif %}
 
+<div class="row g-4">
+
+    {# Main species grid #}
+    <div class="col-lg-9">
+        <form method="get" class="row g-2 mb-3">
+            <div class="col">
+                <input type="search" name="search" class="form-control" placeholder="Search species, family, or order" value="{{ search or '' }}">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary">Search</button>
+                <a href="{{ url_for('bugs.pokedex') }}" class="btn btn-outline-secondary">Reset</a>
+            </div>
+        </form>
+
+        {% if species_entries %}
+        <div class="row row-cols-1 row-cols-md-3 g-3">
+            {% for s in species_entries %}
+            <div class="col">
+                <div class="card h-100 {% if s.pioneer %}border-success{% endif %}">
+                    {% if s.pioneer %}
+                    <div class="card-header bg-success text-white py-1 px-2 d-flex justify-content-between align-items-center small">
+                        <span>🌍 World First!</span>
+                        <a href="{{ url_for('main.user_profile', user_id=s.pioneer.user_id) }}" class="text-white fw-bold text-decoration-none">{{ s.pioneer.username }}</a>
+                    </div>
+                    {% endif %}
+                    {% if s.image_path %}
+                    <a href="{{ url_for('bugs.list_bugs', species_id=s.id) }}">
+                        <img src="{{ url_for('main.uploaded_file', filename=s.image_path) }}" class="card-img-top" alt="{{ s.common_name or s.scientific_name }}" style="height: 180px; object-fit: cover;">
+                    </a>
+                    {% else %}
+                    <div class="d-flex align-items-center justify-content-center bg-light" style="height:120px;font-size:3rem;">🐛</div>
+                    {% endif %}
+                    <div class="card-body py-2">
+                        <h6 class="card-title mb-0">
+                            <a class="text-decoration-none fw-bold" href="{{ url_for('bugs.list_bugs', species_id=s.id) }}">
+                                {{ s.common_name or '(Unnamed)' }}
+                            </a>
+                        </h6>
+                        <p class="text-muted small mb-1"><em>{{ s.scientific_name }}</em></p>
+                        <p class="small mb-1 text-muted">
+                            {% if s.order %}{{ s.order }}{% endif %}
+                            {% if s.family %} · {{ s.family }}{% endif %}
+                        </p>
+                        <div class="d-flex align-items-center gap-1 flex-wrap">
+                            <span class="badge bg-info">{{ s.count }} sighting{{ 's' if s.count != 1 else '' }}</span>
+                            {% if s.pioneer %}
+                            <span class="badge bg-success">Pioneer: <a href="{{ url_for('bugs.view_bug', bug_id=s.pioneer.bug_id) }}" class="text-white text-decoration-none">{{ s.pioneer.bug_nickname }}</a></span>
+                            {% endif %}
+                            {% if s.first_seen %}
+                            <span class="badge bg-secondary">Found {{ s.first_seen.strftime('%b %Y') }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="alert alert-info">No species found yet. Submit a bug to start the index!</div>
+        {% endif %}
+    </div>
+
+    {# Discovery leaders sidebar #}
+    <div class="col-lg-3">
+        <div class="card mb-4">
+            <div class="card-header bg-success text-white">
+                <h6 class="mb-0">🌍 Discovery Leaders</h6>
+            </div>
+            {% if discovery_leaders %}
+            <ol class="list-group list-group-flush list-group-numbered">
+                {% for leader in discovery_leaders %}
+                <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+                    <a href="{{ url_for('main.user_profile', user_id=leader.user_id) }}" class="text-decoration-none ms-1">
+                        {{ leader.username }}
+                    </a>
+                    <span class="badge bg-success">{{ leader.count }} 🌍</span>
+                </li>
+                {% endfor %}
+            </ol>
+            {% else %}
+            <div class="card-body text-muted small">No pioneers yet. Submit a unique species to claim a World First!</div>
+            {% endif %}
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">📊 Collection Stats</h6>
+            </div>
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item d-flex justify-content-between py-2">
+                    <span class="text-muted small">Total species</span>
+                    <strong>{{ total_species }}</strong>
+                </li>
+                <li class="list-group-item d-flex justify-content-between py-2">
+                    <span class="text-muted small">Pioneers recorded</span>
+                    <strong>{{ discovery_leaders | sum(attribute='count') }}</strong>
+                </li>
+                <li class="list-group-item py-2">
+                    <a href="{{ url_for('main.ecosystem') }}" class="btn btn-outline-success btn-sm w-100">View Ecosystem Map →</a>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+</div>
 {% endblock %}

@@ -89,39 +89,51 @@ def test_stat_growth_capped_at_100(app):
     assert refreshed.stat_growth == 1  # only 1 point actually applied
 
 
-def test_three_win_milestone_boosts_speed(app):
+def test_three_win_milestone_boosts_counter_to_loser_dominant_stat(app):
     user = create_user('milestone3', 'ms3@example.com')
-    winner = create_bug(user, speed=60, wins=3)
-    original_speed = winner.speed
-
-    award_battle_achievements(winner)
-    db.session.commit()
-
-    refreshed = db.session.get(Bug, winner.id)
-    assert refreshed.speed == original_speed + 2
-
-
-def test_five_win_milestone_boosts_defense(app):
-    user = create_user('milestone5', 'ms5@example.com')
-    winner = create_bug(user, defense=60, wins=5)
+    winner = create_bug(user, defense=50, wins=3)
+    # Loser is dominant in attack → winner should gain defense
+    loser = create_bug(user, nickname='Loser', attack=90, defense=30, speed=30)
     original_defense = winner.defense
 
-    award_battle_achievements(winner)
+    award_battle_achievements(winner, loser=loser)
     db.session.commit()
 
     refreshed = db.session.get(Bug, winner.id)
     assert refreshed.defense == original_defense + 2
+    assert refreshed.stat_growth == 2
+
+
+def test_five_win_milestone_boosts_attack_against_defensive_loser(app):
+    from app.models import BugAchievement
+    user = create_user('milestone5', 'ms5@example.com')
+    winner = create_bug(user, attack=50, wins=5)
+    # Pre-award the 3-win achievement so only the 5-win fires here
+    db.session.add(BugAchievement(bug_id=winner.id, achievement_type='three_wins',
+                                   achievement_name='Arena Regular', achievement_icon='🥉', rarity='uncommon'))
+    db.session.commit()
+    # Loser is dominant in defense → winner should gain attack
+    loser = create_bug(user, nickname='Tank', attack=30, defense=90, speed=30)
+    original_attack = winner.attack
+
+    award_battle_achievements(winner, loser=loser)
+    db.session.commit()
+
+    refreshed = db.session.get(Bug, winner.id)
+    assert refreshed.attack == original_attack + 2
 
 
 def test_stat_growth_not_applied_twice_for_same_milestone(app):
     user = create_user('nomulti', 'nomulti@example.com')
-    winner = create_bug(user, speed=60, wins=3)
-    original_speed = winner.speed
+    winner = create_bug(user, wins=3)
+    loser = create_bug(user, nickname='Loser', attack=90, defense=30, speed=30)
 
-    award_battle_achievements(winner)
-    award_battle_achievements(winner)
+    before = winner.attack + winner.defense + winner.speed
+    award_battle_achievements(winner, loser=loser)
+    award_battle_achievements(winner, loser=loser)
     db.session.commit()
 
     refreshed = db.session.get(Bug, winner.id)
-    # Achievement deduplication ensures growth only applied once
-    assert refreshed.speed == original_speed + 2
+    # Achievement deduplication ensures growth only applied once (+2 total)
+    after = refreshed.attack + refreshed.defense + refreshed.speed
+    assert after == before + 2

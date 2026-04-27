@@ -119,7 +119,7 @@ def award_battle_achievements(winner, loser=None) -> None:
             rarity='uncommon',
         )
         if newly:
-            _apply_stat_growth(winner, stat='speed', amount=2, reason='3-win milestone')
+            _context_stat_boost(winner, loser, amount=2)
     if wins >= 5:
         newly = award_achievement(
             winner,
@@ -130,7 +130,7 @@ def award_battle_achievements(winner, loser=None) -> None:
             rarity='rare',
         )
         if newly:
-            _apply_stat_growth(winner, stat='defense', amount=2, reason='5-win milestone')
+            _context_stat_boost(winner, loser, amount=2)
     if wins >= 10:
         newly = award_achievement(
             winner,
@@ -141,7 +141,7 @@ def award_battle_achievements(winner, loser=None) -> None:
             rarity='rare',
         )
         if newly:
-            _apply_stat_growth(winner, stat='attack', amount=3, reason='10-win milestone')
+            _context_stat_boost(winner, loser, amount=3)
         _retire_bug(winner)
 
 
@@ -165,6 +165,34 @@ def award_lore_participation(bug) -> None:
         'Inspired community lore.',
         rarity='uncommon',
     )
+
+
+def _context_stat_boost(winner, loser, amount: int) -> str:
+    """Choose which stat to boost based on what the loser was strongest in.
+
+    - Loser dominant attack  → winner gains defense (survived the onslaught)
+    - Loser dominant defense → winner gains attack  (learned to pierce armor)
+    - Loser dominant speed   → winner gains speed   (matched their pace)
+    - No loser info          → boost winner's weakest stat
+    """
+    if loser is not None:
+        loser_stats = {
+            'attack': loser.attack or 0,
+            'defense': loser.defense or 0,
+            'speed': loser.speed or 0,
+        }
+        dominant = max(loser_stats, key=loser_stats.get)
+        stat = {'attack': 'defense', 'defense': 'attack', 'speed': 'speed'}[dominant]
+    else:
+        winner_stats = {
+            'attack': winner.attack or 0,
+            'defense': winner.defense or 0,
+            'speed': winner.speed or 0,
+        }
+        stat = min(winner_stats, key=winner_stats.get)
+
+    _apply_stat_growth(winner, stat=stat, amount=amount)
+    return stat
 
 
 def _apply_stat_growth(bug, stat: str, amount: int, reason: str = '') -> None:

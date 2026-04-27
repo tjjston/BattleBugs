@@ -6,6 +6,7 @@ from sqlalchemy import desc, func
 from app.services.permission_system import AdminUserManager
 from app.services.news_service import get_current_season, get_recent_activity, get_cached_briefing
 from app.services.seasonal_tournament import get_active_seasonal_tournament
+from app.services.ecosystem_service import get_ecosystem_data
 from flask_login import current_user, login_required
 
 bp = Blueprint('main', __name__)
@@ -91,6 +92,15 @@ def collection():
     species_count = len({bug.species_id for bug in bugs if bug.species_id})
     sightings = [bug for bug in bugs if bug.location_found or bug.found_date or bug.latitude or bug.longitude]
     return render_template('collection.html', bugs=bugs, species_count=species_count, sightings=sightings)
+
+
+@bp.route('/ecosystem')
+def ecosystem():
+    """Combat type matchup matrix and species relationship graph."""
+    import json
+    data = get_ecosystem_data()
+    graph_json = json.dumps(data['species_graph'])
+    return render_template('ecosystem.html', data=data, graph_json=graph_json)
 
 
 @bp.route('/uploads/<path:filename>')
