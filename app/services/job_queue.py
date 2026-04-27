@@ -210,11 +210,29 @@ def start_scheduler(app) -> None:
         with app.app_context():
             process_next_job()
 
+    def daily_maintenance():
+        with app.app_context():
+            try:
+                from app.services.seasonal_tournament import ensure_seasonal_tournament
+                t = ensure_seasonal_tournament()
+                if t:
+                    current_app.logger.info("Seasonal tournament created: %s", t.name)
+            except Exception:
+                current_app.logger.exception("daily_maintenance: seasonal tournament check failed")
+
     scheduler.add_job(
         tick,
         'interval',
         seconds=app.config.get('JOB_POLL_INTERVAL_SECONDS', 15),
         id='battlebugs_job_worker',
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        daily_maintenance,
+        'interval',
+        hours=24,
+        id='battlebugs_daily_maintenance',
         replace_existing=True,
         max_instances=1,
     )

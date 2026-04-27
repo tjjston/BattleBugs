@@ -207,6 +207,9 @@ class Bug(db.Model):
     # Retirement
     is_retired = db.Column(db.Boolean, default=False)
     retired_at = db.Column(db.DateTime)
+
+    # Cumulative stat growth from battle milestones (display only)
+    stat_growth = db.Column(db.Integer, default=0)
     
     # Relationships
     comments = db.relationship('Comment', backref='bug', lazy='dynamic', cascade='all, delete-orphan')
@@ -401,6 +404,7 @@ class Tournament(db.Model):
     registration_deadline = db.Column(db.DateTime)
     created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     created_by = db.relationship('User', foreign_keys=[created_by_id])
+    season_key = db.Column(db.String(20))  # e.g. "spring_2026"; None for manual tournaments
     allow_tier_above = db.Column(db.Boolean, default=False)
     
     battles = db.relationship('Battle', backref='tournament', lazy='dynamic')

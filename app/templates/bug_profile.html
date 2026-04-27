@@ -63,29 +63,27 @@
                 </div>
                 {% endif %}
                 
-                <h5>Stats</h5>
+                <h5>Stats
+                    {% if bug.stat_growth and bug.stat_growth > 0 %}
+                    <span class="badge bg-success ms-1 small" title="Battle-hardened: +{{ bug.stat_growth }} total stat growth from milestones">⬆ +{{ bug.stat_growth }}</span>
+                    {% endif %}
+                </h5>
                 <div class="mb-2">
-                    <small>Attack</small>
+                    <div class="d-flex justify-content-between"><small>Attack</small><small class="text-muted">{{ bug.attack }}</small></div>
                     <div class="progress">
-                        <div class="progress-bar bg-danger" style="width: {{ bug.attack }}%">
-                            {{ bug.attack }}
-                        </div>
+                        <div class="progress-bar bg-danger" style="width: {{ bug.attack }}%"></div>
                     </div>
                 </div>
                 <div class="mb-2">
-                    <small>Defense</small>
+                    <div class="d-flex justify-content-between"><small>Defense</small><small class="text-muted">{{ bug.defense }}</small></div>
                     <div class="progress">
-                        <div class="progress-bar bg-primary" style="width: {{ bug.defense }}%">
-                            {{ bug.defense }}
-                        </div>
+                        <div class="progress-bar bg-primary" style="width: {{ bug.defense }}%"></div>
                     </div>
                 </div>
                 <div class="mb-2">
-                    <small>Speed</small>
+                    <div class="d-flex justify-content-between"><small>Speed</small><small class="text-muted">{{ bug.speed }}</small></div>
                     <div class="progress">
-                        <div class="progress-bar bg-success" style="width: {{ bug.speed }}%">
-                            {{ bug.speed }}
-                        </div>
+                        <div class="progress-bar bg-success" style="width: {{ bug.speed }}%"></div>
                     </div>
                 </div>
 

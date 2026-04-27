@@ -110,7 +110,7 @@ def award_battle_achievements(winner, loser=None) -> None:
     )
     wins = winner.wins or 0
     if wins >= 3:
-        award_achievement(
+        newly = award_achievement(
             winner,
             'three_wins',
             'Arena Regular',
@@ -118,8 +118,10 @@ def award_battle_achievements(winner, loser=None) -> None:
             'Reached three battle wins.',
             rarity='uncommon',
         )
+        if newly:
+            _apply_stat_growth(winner, stat='speed', amount=2, reason='3-win milestone')
     if wins >= 5:
-        award_achievement(
+        newly = award_achievement(
             winner,
             'five_wins',
             'Proven Gladiator',
@@ -127,8 +129,10 @@ def award_battle_achievements(winner, loser=None) -> None:
             'Reached five battle wins.',
             rarity='rare',
         )
+        if newly:
+            _apply_stat_growth(winner, stat='defense', amount=2, reason='5-win milestone')
     if wins >= 10:
-        award_achievement(
+        newly = award_achievement(
             winner,
             'ten_wins',
             'Decade of Dominance',
@@ -136,6 +140,8 @@ def award_battle_achievements(winner, loser=None) -> None:
             'Reached ten battle wins.',
             rarity='rare',
         )
+        if newly:
+            _apply_stat_growth(winner, stat='attack', amount=3, reason='10-win milestone')
         _retire_bug(winner)
 
 
@@ -159,6 +165,15 @@ def award_lore_participation(bug) -> None:
         'Inspired community lore.',
         rarity='uncommon',
     )
+
+
+def _apply_stat_growth(bug, stat: str, amount: int, reason: str = '') -> None:
+    """Permanently boost one stat by `amount`, capped at 100. Tracks total growth on bug."""
+    current = getattr(bug, stat, 0) or 0
+    new_val = min(current + amount, 100)
+    setattr(bug, stat, new_val)
+    bug.stat_growth = (bug.stat_growth or 0) + (new_val - current)
+    db.session.add(bug)
 
 
 def _retire_bug(bug) -> None:

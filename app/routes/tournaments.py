@@ -1,17 +1,22 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request
+from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify
 from flask_login import login_required, current_user
 from app import db
 from app.models import Tournament, Bug, Battle, TournamentApplication, TournamentMatch
 from app.services.permission_system import require_role, UserRole
 from datetime import datetime
 from app.services.tournament_system import TournamentManager, TournamentEligibilityChecker
+from app.services.seasonal_tournament import ensure_seasonal_tournament
 import random
-from flask import jsonify
 
 bp = Blueprint('tournaments', __name__)
 
 @bp.route('/tournaments')
 def list_tournaments():
+    # Create this season's championship if it doesn't exist yet
+    try:
+        ensure_seasonal_tournament()
+    except Exception:
+        pass
 
     upcoming = Tournament.query.filter(
         Tournament.status.in_(['upcoming', 'registration'])
@@ -19,11 +24,11 @@ def list_tournaments():
     active = Tournament.query.filter_by(status='active').all()
     completed = Tournament.query.filter_by(status='completed')\
         .order_by(Tournament.end_date.desc()).all()
-    
+
     return render_template('tournament_list.html',
-                         upcoming=upcoming,
-                         active=active,
-                         completed=completed)
+                           upcoming=upcoming,
+                           active=active,
+                           completed=completed)
 
 @bp.route('/tournament/<int:tournament_id>')
 def view_tournament(tournament_id):

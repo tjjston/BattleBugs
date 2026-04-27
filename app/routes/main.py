@@ -5,6 +5,7 @@ from app.models import Bug, Battle, Tournament, User
 from sqlalchemy import desc, func
 from app.services.permission_system import AdminUserManager
 from app.services.news_service import get_current_season, get_recent_activity, get_cached_briefing
+from app.services.seasonal_tournament import get_active_seasonal_tournament
 from flask_login import current_user, login_required
 
 bp = Blueprint('main', __name__)
@@ -33,6 +34,9 @@ def index():
     # LLM news briefing (cached 1 h)
     news_briefing = get_cached_briefing()
 
+    # Seasonal flagship tournament
+    seasonal_tournament = get_active_seasonal_tournament()
+
     # Quick arena stats
     total_bugs = Bug.query.count()
     total_battles = Battle.query.count()
@@ -48,6 +52,7 @@ def index():
                            recent_battles=recent_battles,
                            battles=recent_battles,                 # backwards compat
                            news_briefing=news_briefing,
+                           seasonal_tournament=seasonal_tournament,
                            total_bugs=total_bugs,
                            total_battles=total_battles,
                            total_retired=total_retired)
