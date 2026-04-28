@@ -50,6 +50,14 @@ SAMPLE_PASSWORD = "battlebugs"
 
 SAMPLE_USERS = [
     {
+        "username": "testowner",
+        "email": "testowner@example.com",
+        "role": "OWNER",
+        "elo": 1800,
+        "accolade_points": 9999,
+        "tournaments_won": 3,
+    },
+    {
         "username": "owner_ivy",
         "email": "owner_ivy@example.com",
         "role": "OWNER",
@@ -254,6 +262,8 @@ def get_or_create_user(spec: dict) -> User:
     user.role = spec["role"]
     user.elo = spec["elo"]
     user.accolade_points = spec["accolade_points"]
+    if "tournaments_won" in spec:
+        user.tournaments_won = spec["tournaments_won"]
     return user
 
 

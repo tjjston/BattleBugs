@@ -27,8 +27,8 @@ import imagehash as _imagehash
 from app import create_app, db
 from app.models import (
     Battle, BlockedImageHash, Bug, BugAchievement, BugLore, BugRival,
-    ClassificationFlag, Comment, Notification, Species, Tournament,
-    TournamentApplication, User,
+    ClassificationFlag, Comment, Notification, Species, SystemSetting,
+    Tournament, TournamentApplication, User,
 )
 from app.services.achievements import award_battle_achievements, award_submission_achievements
 
@@ -119,8 +119,20 @@ def _apply_schema_patches():
     _add_if_missing("bug_rival", "bug1_wins", "INTEGER DEFAULT 0")
     _add_if_missing("bug_rival", "bug2_wins", "INTEGER DEFAULT 0")
 
-    # Tournament — season key
+    # Tournament — season key + format
     _add_if_missing("tournament", "season_key", "VARCHAR(20)")
+    _add_if_missing("tournament", "format", "VARCHAR(30) DEFAULT 'single_elimination'")
+    _add_if_missing("tournament", "submissions_per_user", "INTEGER DEFAULT 2")
+
+    # SystemSetting — create table if not present (simple CREATE IF NOT EXISTS)
+    db.session.execute(text("""
+        CREATE TABLE IF NOT EXISTS system_setting (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at DATETIME,
+            updated_by_id INTEGER REFERENCES user(id)
+        )
+    """))
 
     db.session.commit()
     print("Schema patches applied.")
@@ -136,7 +148,7 @@ def seed(reset=False):
     if reset:
         print("Resetting test data...")
         # Remove test users and cascade
-        for uname in ["testuser1", "testuser2", "testuser3", "testmod", "testadmin"]:
+        for uname in ["testowner", "testuser1", "testuser2", "testuser3", "testmod", "testadmin"]:
             u = User.query.filter_by(username=uname).first()
             if u:
                 for bug in u.bugs.all():
@@ -156,6 +168,10 @@ def seed(reset=False):
     # ── Users ──────────────────────────────────────────────────────────────────
     print("Creating test users...")
 
+    testowner, _ = _get_or_create_user(
+        "testowner", "testowner@test.local", role="OWNER",
+        accolade_points=9999, elo=1800, tournaments_won=3, bugs_submitted=0,
+    )
     testadmin, _ = _get_or_create_user(
         "testadmin", "testadmin@test.local", role="ADMIN",
         accolade_points=1000, elo=1500,

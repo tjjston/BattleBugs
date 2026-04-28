@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_required
 from app import db
-from app.models import Bug, Battle, TournamentMatch
+from app.models import Bug, Battle, TournamentMatch, Tournament, Season, BugAchievement
 from app.services.battle_engine import simulate_battle, calculate_battle_stats, visible_win_summary
 
 bp = Blueprint('battles', __name__)
@@ -47,7 +47,7 @@ def new_battle():
         # If this POST was started from a TournamentMatch, update the match row
         if match_id:
             try:
-                tm = TournamentMatch.query.get(match_id)
+                tm = db.session.get(TournamentMatch, match_id)
                 if tm:
                     tm.battle_id = battle.id
                     tm.winner_id = battle.winner_id
@@ -56,7 +56,7 @@ def new_battle():
 
                     # Propagate winner into next match slot if available
                     if tm.next_match_id and battle.winner_id:
-                        next_m = TournamentMatch.query.get(tm.next_match_id)
+                        next_m = db.session.get(TournamentMatch, tm.next_match_id)
                         if next_m:
                             # prefer filling bug1, then bug2
                             if not next_m.bug1_id:
@@ -66,6 +66,10 @@ def new_battle():
                             db.session.add(next_m)
 
                     db.session.commit()
+
+                    # Auto-complete tournament when all matches have a winner
+                    if tm.tournament_id:
+                        _maybe_complete_tournament(tm.tournament_id)
             except Exception:
                 db.session.rollback()
 
@@ -73,7 +77,7 @@ def new_battle():
         # If this was a tournament match, redirect back to the tournament page so the bracket refreshes
         if match_id:
             try:
-                tm2 = TournamentMatch.query.get(match_id)
+                tm2 = db.session.get(TournamentMatch, match_id)
                 if tm2 and tm2.tournament_id:
                     return redirect(url_for('tournaments.view_tournament', tournament_id=tm2.tournament_id))
             except Exception:
@@ -99,3 +103,53 @@ def random_battle():
     
     flash(f'Random battle! {battle.winner.name if battle.winner else "Draw"} wins!', 'success')
     return redirect(url_for('battles.view_battle', battle_id=battle.id))
+
+
+def _maybe_complete_tournament(tournament_id: int) -> None:
+    """Auto-complete a tournament when all its TournamentMatch rows have a winner."""
+    try:
+        tournament = db.session.get(Tournament, tournament_id)
+        if not tournament or tournament.status == 'completed':
+            return
+
+        matches = TournamentMatch.query.filter_by(tournament_id=tournament_id).all()
+        if not matches:
+            return
+        if any(m.winner_id is None for m in matches):
+            return  # still unresolved matches
+
+        # Final match: highest round number, lowest match number
+        final = max(matches, key=lambda m: (m.round_number, -m.match_number))
+        if not final.winner_id:
+            return
+
+        tournament.winner_id = final.winner_id
+        tournament.status = 'completed'
+
+        # Award season champion achievement and retire all participants if this is a season playoff
+        season = Season.query.filter_by(tournament_id=tournament_id).first()
+        if season:
+            season.phase = 'completed'
+            winner_bug = db.session.get(Bug, final.winner_id)
+            if winner_bug:
+                existing = BugAchievement.query.filter_by(
+                    bug_id=winner_bug.id, achievement_type='season_champion'
+                ).first()
+                if not existing:
+                    from app.services.achievements import award_achievement
+                    award_achievement(
+                        winner_bug,
+                        'season_champion',
+                        'Season Champion',
+                        '🏆',
+                        f'Won the season-ending playoff tournament.',
+                        rarity='legendary',
+                    )
+                    if winner_bug.owner:
+                        winner_bug.owner.tournaments_won = (winner_bug.owner.tournaments_won or 0) + 1
+            from app.services.job_queue import _retire_season_participants
+            _retire_season_participants(season)
+
+        db.session.commit()
+    except Exception:
+        db.session.rollback()

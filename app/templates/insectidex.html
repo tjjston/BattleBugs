@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+
+{% block title %}Insectidex — Bug Arena{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div>
+    <h1 class="mb-0">📌 Insectidex</h1>
+    <small class="text-muted">{{ total_species }} species pinned by the community</small>
+  </div>
+  <a href="{{ url_for('main.ecosystem') }}" class="btn btn-outline-success">🌿 Ecosystem Map</a>
+</div>
+
+{# ── Sighting map ─────────────────────────────────────────────── #}
+{% if location_markers %}
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>📍 Sighting Map</strong>
+    <span class="badge bg-info text-dark">{{ location_markers|length }} locations</span>
+  </div>
+  <div class="card-body p-0">
+    <div id="sighting-map" style="height:320px;width:100%;border-radius:0 0 4px 4px;"></div>
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-4">
+  <div class="col-lg-9">
+    <form method="get" class="row g-2 mb-3">
+      <div class="col">
+        <input type="search" name="search" class="form-control" placeholder="Search species, family, or order" value="{{ search or '' }}">
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary">Search</button>
+        <a href="{{ url_for('bugs.insectidex') }}" class="btn btn-outline-secondary">Reset</a>
+      </div>
+    </form>
+
+    {% if species_entries %}
+    {# Cork board container #}
+    <div style="
+      background: #c8a97a url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2220%22 height=%2220%22><rect fill=%22%23c49a6c%22 width=%2220%22 height=%2220%22/><circle fill=%22%23b8895a%22 cx=%2210%22 cy=%2210%22 r=%228%22 opacity=%220.15%22/></svg>');
+      border: 8px solid #8b6239;
+      border-radius: 6px;
+      padding: 24px 20px 28px;
+      box-shadow: inset 0 0 30px rgba(0,0,0,0.3), 0 4px 16px rgba(0,0,0,0.4);
+    ">
+      <div class="row row-cols-2 row-cols-md-3 row-cols-xl-4 g-4">
+        {% for s in species_entries %}
+        <div class="col">
+          <div style="
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 2px;
+            padding: 10px 10px 14px;
+            box-shadow: 2px 3px 8px rgba(0,0,0,0.35), 1px 1px 2px rgba(0,0,0,0.2);
+            position: relative;
+            transform: rotate({{ loop.index % 3 - 1 }}deg);
+            transition: transform 0.2s;
+          " onmouseenter="this.style.transform='rotate(0deg) scale(1.05) translateY(-4px)';this.style.zIndex=10" onmouseleave="this.style.transform='rotate({{ loop.index % 3 - 1 }}deg)';this.style.zIndex=1">
+            {# Pin head #}
+            <div style="
+              position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+              width: 16px; height: 16px; border-radius: 50%;
+              background: radial-gradient(circle at 40% 40%, {{ ['#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6'][loop.index0 % 5] }}, #333);
+              box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+              z-index: 5;
+            "></div>
+            {# Pin shaft #}
+            <div style="position:absolute;top:2px;left:50%;transform:translateX(-50%);width:2px;height:14px;background:#999;z-index:4;"></div>
+
+            {% if s.pioneer %}
+            <div style="background:#28a745;color:white;font-size:0.65rem;text-align:center;margin:-10px -10px 8px;padding:2px 4px;font-weight:bold;">🌍 WORLD FIRST</div>
+            {% endif %}
+
+            {% if s.image_path %}
+            <a href="{{ url_for('bugs.list_bugs', species_id=s.id) }}">
+              <img src="{{ url_for('main.uploaded_file', filename=s.image_path) }}"
+                   style="width:100%;height:120px;object-fit:contain;background:#fafafa;"
+                   alt="{{ s.common_name or s.scientific_name }}">
+            </a>
+            {% else %}
+            <div style="width:100%;height:120px;display:flex;align-items:center;justify-content:center;font-size:3rem;background:#f8f8f0;">🐛</div>
+            {% endif %}
+
+            {# Specimen label #}
+            <div style="border-top:1px solid #e0d8c8;margin-top:8px;padding-top:6px;">
+              <div style="font-style:italic;font-size:0.78rem;color:#444;text-align:center;font-family:Georgia,serif;">
+                <em>{{ s.scientific_name or '(unknown)' }}</em>
+              </div>
+              <div style="font-size:0.82rem;font-weight:bold;color:#222;text-align:center;margin-top:2px;">
+                <a href="{{ url_for('bugs.list_bugs', species_id=s.id) }}" style="color:inherit;text-decoration:none;">
+                  {{ s.common_name or '(Unnamed)' }}
+                </a>
+              </div>
+              {% if s.order or s.family %}
+              <div style="font-size:0.68rem;color:#888;text-align:center;">
+                {{ s.order or '' }}{% if s.order and s.family %} · {% endif %}{{ s.family or '' }}
+              </div>
+              {% endif %}
+              <div style="text-align:center;margin-top:4px;">
+                <span style="background:#17a2b8;color:white;font-size:0.65rem;padding:1px 6px;border-radius:3px;">{{ s.count }} sighting{{ 's' if s.count != 1 else '' }}</span>
+                {% if s.pioneer %}
+                <span style="background:#28a745;color:white;font-size:0.65rem;padding:1px 6px;border-radius:3px;margin-left:2px;">Pioneer</span>
+                {% endif %}
+                {% if s.first_seen %}
+                <div style="font-size:0.65rem;color:#aaa;margin-top:2px;">{{ s.first_seen.strftime('%b %Y') }}</div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info">No species found yet — submit a bug to start the Insectidex!</div>
+    {% endif %}
+  </div>
+
+  <div class="col-lg-3">
+    <div class="card mb-4">
+      <div class="card-header bg-success text-white">
+        <h6 class="mb-0">🌍 Discovery Leaders</h6>
+      </div>
+      {% if discovery_leaders %}
+      <ol class="list-group list-group-flush list-group-numbered">
+        {% for leader in discovery_leaders %}
+        <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+          <a href="{{ url_for('main.user_profile', user_id=leader.user_id) }}" class="text-decoration-none ms-1">{{ leader.username }}</a>
+          <span class="badge bg-success">{{ leader.count }} 🌍</span>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <div class="card-body text-muted small">No pioneers yet.</div>
+      {% endif %}
+    </div>
+    <div class="card">
+      <div class="card-header"><h6 class="mb-0">📊 Collection Stats</h6></div>
+      <ul class="list-group list-group-flush">
+        <li class="list-group-item d-flex justify-content-between py-2">
+          <span class="text-muted small">Total species</span><strong>{{ total_species }}</strong>
+        </li>
+        <li class="list-group-item d-flex justify-content-between py-2">
+          <span class="text-muted small">Pioneers recorded</span>
+          <strong>{{ discovery_leaders | sum(attribute='count') if discovery_leaders else 0 }}</strong>
+        </li>
+        <li class="list-group-item py-2">
+          <a href="{{ url_for('main.ecosystem') }}" class="btn btn-outline-success btn-sm w-100">View Ecosystem Map →</a>
+        </li>
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if location_markers %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var markers = {{ location_markers | tojson }};
+  if (!markers.length) return;
+  var map = L.map('sighting-map');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 18,
+  }).addTo(map);
+  var group = L.featureGroup();
+  markers.forEach(function (m) {
+    var pin = L.marker([m.lat, m.lng])
+      .bindPopup('<strong>' + m.nickname + '</strong><br><em>' + m.species + '</em>' +
+                 '<br><a href="/bug/' + m.bug_id + '">View profile →</a>');
+    group.addLayer(pin);
+  });
+  group.addTo(map);
+  map.fitBounds(group.getBounds().pad(0.15));
+});
+</script>
+{% endif %}
+{% endblock %}

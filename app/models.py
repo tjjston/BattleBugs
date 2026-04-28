@@ -89,6 +89,44 @@ class User(UserMixin, db.Model):
         return {'icon': '🤡', 'name': 'Spectacularly Wrong', 'color': 'danger',
                 'desc': 'Confidently incorrect, every single time'}
 
+    @property
+    def earned_badges(self):
+        """Compute accolade badges from existing stats — no DB queries."""
+        badges = []
+        won = self.tournaments_won or 0
+        if won >= 5:
+            badges.append({'icon': '👑', 'name': 'Grand Marshal', 'color': 'warning text-dark', 'desc': '5+ tournament wins'})
+        elif won >= 3:
+            badges.append({'icon': '🏆', 'name': 'Champion Dynasty', 'color': 'warning text-dark', 'desc': '3+ tournament wins'})
+        elif won >= 1:
+            badges.append({'icon': '🥇', 'name': 'Tournament Champion', 'color': 'warning text-dark', 'desc': 'Won a tournament'})
+
+        sub = self.bugs_submitted or 0
+        if sub >= 30:
+            badges.append({'icon': '🏛️', 'name': 'Field Marshal', 'color': 'primary', 'desc': '30+ bugs submitted'})
+        elif sub >= 15:
+            badges.append({'icon': '🔬', 'name': 'Entomologist', 'color': 'primary', 'desc': '15+ bugs submitted'})
+        elif sub >= 5:
+            badges.append({'icon': '🕵️', 'name': 'Bug Wrangler', 'color': 'info text-dark', 'desc': '5+ bugs submitted'})
+        elif sub >= 1:
+            badges.append({'icon': '🐛', 'name': 'Bug Catcher', 'color': 'success', 'desc': 'First bug submitted'})
+
+        elo = self.elo or 1000
+        if elo >= 1500:
+            badges.append({'icon': '⚡', 'name': 'Apex Predator', 'color': 'danger', 'desc': 'ELO 1500+'})
+        elif elo >= 1300:
+            badges.append({'icon': '🌟', 'name': 'Arena Legend', 'color': 'warning text-dark', 'desc': 'ELO 1300+'})
+        elif elo >= 1100:
+            badges.append({'icon': '🎯', 'name': 'Arena Veteran', 'color': 'secondary', 'desc': 'ELO 1100+'})
+
+        ap = self.accolade_points or 0
+        if ap >= 500:
+            badges.append({'icon': '💎', 'name': 'Patron', 'color': 'info text-dark', 'desc': '500+ AP'})
+        elif ap >= 100:
+            badges.append({'icon': '💰', 'name': 'Contributor', 'color': 'secondary', 'desc': '100+ AP'})
+
+        return badges
+
     def __repr__(self):
         return f'<User {self.username}>'
 
@@ -276,7 +314,70 @@ class Bug(db.Model):
     
     def __repr__(self):
         return f'<Bug {self.nickname}>'
-    
+
+    @property
+    def combat_badges(self):
+        """Computed display badges — no DB queries."""
+        badges = []
+        tier_colors = {'uber': 'danger', 'ou': 'warning text-dark', 'uu': 'primary',
+                       'ru': 'info text-dark', 'nu': 'secondary', 'zu': 'dark'}
+        if self.tier:
+            badges.append({'icon': '🏅', 'name': self.tier.upper(),
+                           'color': tier_colors.get(self.tier, 'secondary'), 'type': 'tier'})
+
+        atk_map = {
+            'piercing':  ('⚔️',  'Piercer',   'danger'),
+            'crushing':  ('💥',  'Crusher',   'warning text-dark'),
+            'slashing':  ('🔪',  'Slasher',   'danger'),
+            'venom':     ('☠️',  'Venomous',  'success'),
+            'chemical':  ('⚗️',  'Chemical',  'info text-dark'),
+            'grappling': ('🤼',  'Grappler',  'primary'),
+            'sonic':     ('🔊',  'Sonar',     'primary'),
+            'electric':  ('⚡',  'Electric',  'warning text-dark'),
+            'neutral':   ('⚪',  'Balanced',  'secondary'),
+        }
+        def_map = {
+            'hard_shell':      ('🛡️',  'Armored',      'secondary'),
+            'segmented_armor': ('🔗',  'Segmented',    'secondary'),
+            'evasive':         ('💨',  'Elusive',      'info text-dark'),
+            'hairy_spiny':     ('🦔',  'Spiny',        'warning text-dark'),
+            'toxic_skin':      ('☢️',  'Toxic',        'success'),
+            'thick_hide':      ('🦏',  'Thick Hide',   'dark'),
+            'unarmored':       ('🫀',  'Resilient',    'danger'),
+            'regenerative':    ('💚',  'Regenerative', 'success'),
+            'bioluminescent':  ('✨',  'Bioluminescent','info text-dark'),
+        }
+        if self.attack_type in atk_map:
+            icon, name, color = atk_map[self.attack_type]
+            badges.append({'icon': icon, 'name': name, 'color': color, 'type': 'attack'})
+        if self.defense_type in def_map:
+            icon, name, color = def_map[self.defense_type]
+            badges.append({'icon': icon, 'name': name, 'color': color, 'type': 'defense'})
+
+        if (self.attack or 0) >= 8:
+            badges.append({'icon': '🗡️', 'name': 'Berserker',  'color': 'danger',          'type': 'stat'})
+        if (self.defense or 0) >= 8:
+            badges.append({'icon': '🏰', 'name': 'Fortress',   'color': 'primary',         'type': 'stat'})
+        if (self.speed or 0) >= 8:
+            badges.append({'icon': '⚡', 'name': 'Lightning',  'color': 'warning text-dark','type': 'stat'})
+        if (self.lethality or 0) >= 75:
+            badges.append({'icon': '💀', 'name': 'Lethal',     'color': 'dark',            'type': 'stat'})
+        if (self.grip or 0) >= 75:
+            badges.append({'icon': '🦀', 'name': 'Vice Grip',  'color': 'secondary',       'type': 'stat'})
+        if (self.cunning or 0) >= 75:
+            badges.append({'icon': '🧠', 'name': 'Mastermind', 'color': 'info text-dark',  'type': 'stat'})
+
+        wins = self.wins or 0
+        if wins >= 50:
+            badges.append({'icon': '🏆', 'name': '50W Legend',   'color': 'warning text-dark', 'type': 'milestone'})
+        elif wins >= 20:
+            badges.append({'icon': '🥇', 'name': '20W Champion', 'color': 'warning text-dark', 'type': 'milestone'})
+        elif wins >= 10:
+            badges.append({'icon': '🥈', 'name': '10W Veteran',  'color': 'secondary',         'type': 'milestone'})
+        elif wins >= 5:
+            badges.append({'icon': '🥉', 'name': '5W Fighter',   'color': 'secondary',         'type': 'milestone'})
+        return badges
+
     @property
     def win_rate(self):
         total = self.wins + self.losses
@@ -462,6 +563,9 @@ class Tournament(db.Model):
     created_by = db.relationship('User', foreign_keys=[created_by_id])
     season_key = db.Column(db.String(20))  # e.g. "spring_2026"; None for manual tournaments
     allow_tier_above = db.Column(db.Boolean, default=False)
+    format = db.Column(db.String(30), default='single_elimination')  # single_elimination|double_elimination|swiss|round_robin
+    submissions_per_user = db.Column(db.Integer, default=2)
+    retirement_event = db.Column(db.Boolean, default=False)  # True = only retired bugs may enter
     
     battles = db.relationship('Battle', backref='tournament', lazy='dynamic')
     winner = db.relationship('Bug', foreign_keys=[winner_id])
@@ -642,12 +746,101 @@ class Notification(db.Model):
     message = db.Column(db.Text, nullable=False)
     link_url = db.Column(db.String(500))
     is_read = db.Column(db.Boolean, default=False, nullable=False)
+    notification_type = db.Column(db.String(30), default='info')  # info|tournament_victory|season_result
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     user = db.relationship('User', backref=db.backref('notifications', lazy='dynamic'))
 
     def __repr__(self):
-        return f'<Notification user={self.user_id} read={self.is_read}>'
+        return f'<Notification user={self.user_id} type={self.notification_type} read={self.is_read}>'
+
+
+class Season(db.Model):
+    """A competitive season: registration → regular season (daily matches) → playoff tournament."""
+    __tablename__ = 'season'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    tier = db.Column(db.String(10), nullable=False)
+    season_key = db.Column(db.String(40), unique=True, nullable=False)  # e.g. spring_2026_ou
+    phase = db.Column(db.String(20), default='registration', nullable=False)
+    # phases: registration → regular_season → tournament → completed
+
+    registration_opens = db.Column(db.DateTime, nullable=False)
+    registration_closes = db.Column(db.DateTime, nullable=False)
+    regular_season_start = db.Column(db.DateTime, nullable=False)
+    regular_season_end = db.Column(db.DateTime, nullable=False)
+    tournament_start = db.Column(db.DateTime)
+    tournament_end = db.Column(db.DateTime)
+    tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=True)
+    max_registrations = db.Column(db.Integer, default=64)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    registrations = db.relationship('SeasonRegistration', backref='season', lazy='dynamic',
+                                    cascade='all, delete-orphan')
+    matches = db.relationship('SeasonMatch', backref='season', lazy='dynamic',
+                              cascade='all, delete-orphan')
+    playoff = db.relationship('Tournament', foreign_keys=[tournament_id])
+
+    def __repr__(self):
+        return f'<Season {self.season_key} phase={self.phase}>'
+
+
+class SeasonRegistration(db.Model):
+    """A bug registered for a season, tracking boost points and auto-assign preference."""
+    __tablename__ = 'season_registration'
+
+    id = db.Column(db.Integer, primary_key=True)
+    season_id = db.Column(db.Integer, db.ForeignKey('season.id'), nullable=False)
+    bug_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    registered_at = db.Column(db.DateTime, default=datetime.utcnow)
+    status = db.Column(db.String(20), default='registered')  # registered|active|eliminated
+    pending_boost_points = db.Column(db.Integer, default=0)
+    # null = manual; one of: attack|defense|speed|lethality|grip|cunning
+    boost_auto_stat = db.Column(db.String(20))
+    season_wins = db.Column(db.Integer, default=0)
+    season_losses = db.Column(db.Integer, default=0)
+
+    __table_args__ = (db.UniqueConstraint('season_id', 'bug_id', name='uq_season_bug'),)
+
+    bug = db.relationship('Bug', backref=db.backref('season_registrations', lazy='dynamic'))
+    user = db.relationship('User')
+
+    def apply_pending_boost(self, stat: str) -> int:
+        """Apply pending boost points to a stat on the bug. Returns points applied."""
+        pts = self.pending_boost_points
+        if pts <= 0 or stat not in ('attack', 'defense', 'speed', 'lethality', 'grip', 'cunning'):
+            return 0
+        current = getattr(self.bug, stat) or 0
+        setattr(self.bug, stat, min(100, current + pts))
+        self.pending_boost_points = 0
+        return pts
+
+    def __repr__(self):
+        return f'<SeasonRegistration season={self.season_id} bug={self.bug_id}>'
+
+
+class SeasonMatch(db.Model):
+    """A scheduled regular-season match between two registered bugs."""
+    __tablename__ = 'season_match'
+
+    id = db.Column(db.Integer, primary_key=True)
+    season_id = db.Column(db.Integer, db.ForeignKey('season.id'), nullable=False)
+    bug1_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
+    bug2_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
+    battle_id = db.Column(db.Integer, db.ForeignKey('battle.id'), nullable=True)
+    scheduled_at = db.Column(db.DateTime, nullable=False)
+    completed_at = db.Column(db.DateTime)
+    day_number = db.Column(db.Integer, nullable=False)  # 1-N
+    match_type = db.Column(db.String(20), default='regular')  # 'regular' or 'tournament'
+
+    bug1 = db.relationship('Bug', foreign_keys=[bug1_id])
+    bug2 = db.relationship('Bug', foreign_keys=[bug2_id])
+    battle = db.relationship('Battle')
+
+    def __repr__(self):
+        return f'<SeasonMatch season={self.season_id} day={self.day_number} bugs={self.bug1_id}v{self.bug2_id}>'
 
 
 class BlockedImageHash(db.Model):
@@ -695,3 +888,32 @@ class SystemSetting(db.Model):
 
     def __repr__(self):
         return f'<SystemSetting {self.key}={self.value!r}>'
+
+
+class RejectedSubmission(db.Model):
+    """Stores failed bug submissions that the user sent for admin review."""
+    __tablename__ = 'rejected_submission'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    image_path = db.Column(db.String(255))          # saved review-folder filename
+    nickname = db.Column(db.String(100))
+    description = db.Column(db.Text)
+    location_found = db.Column(db.String(200))
+    user_species_guess = db.Column(db.String(200))
+    rejection_reasons = db.Column(db.Text)          # JSON list
+    submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    status = db.Column(db.String(20), default='pending')  # pending / approved / dismissed
+    admin_notes = db.Column(db.Text)
+    reviewed_at = db.Column(db.DateTime)
+    reviewed_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+
+    submitter = db.relationship('User', foreign_keys=[user_id], backref='rejected_submissions')
+    reviewer = db.relationship('User', foreign_keys=[reviewed_by_id])
+
+    @property
+    def reasons_list(self):
+        try:
+            return json.loads(self.rejection_reasons or '[]')
+        except Exception:
+            return []

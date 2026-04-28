@@ -36,6 +36,19 @@ class TournamentEligibilityChecker:
             'warnings': []
         }
         
+        # Check 0: Retirement event eligibility
+        is_retirement_event = getattr(tournament, 'retirement_event', False)
+        if is_retirement_event:
+            if not bug.is_retired:
+                result['eligible'] = False
+                result['reasons'].append("Retirement events are only open to retired bugs.")
+            else:
+                result['reasons'].append("Retired bug — eligible for this retirement event.")
+        else:
+            if bug.is_retired:
+                result['eligible'] = False
+                result['reasons'].append("Retired bugs may only enter retirement events.")
+
         # Check 1: Bug must be submitted before tournament creation
         if tournament.created_at:
             if bug.submission_date > tournament.created_at:

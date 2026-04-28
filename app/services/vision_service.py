@@ -20,18 +20,8 @@ class VisionService:
     """Computer vision service for bug identification and verification"""
     
     def __init__(self):
-        self.client = None
         self.confidence_threshold = 0.8
         self.taxonomy = TaxonomyService()
-    
-    def _get_client(self):
-        """Lazy load Anthropic client"""
-        if not self.client:
-            api_key = current_app.config.get('ANTHROPIC_API_KEY')
-            if not api_key:
-                raise ValueError("ANTHROPIC_API_KEY not configured")
-            self.client = Anthropic(api_key=api_key)
-        return self.client
     
     def verify_bug_image(self, image_path):
         """
@@ -86,39 +76,14 @@ IMPORTANT:
 """
         
         try:
-            client = self._get_client()
-            
-            message = client.messages.create(
-                model=llm_manager.LLMModel.CLAUDE_SONNET_4,
-                max_tokens=1024,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": media_type,
-                                    "data": image_data,
-                                },
-                            },
-                            {
-                                "type": "text",
-                                "text": prompt
-                            }
-                        ],
-                    }
-                ],
-            )
-            
-            # Parse response
-            response_text = message.content[0].text
-            
-            # Strip markdown if present
-            response_text = response_text.replace('```json', '').replace('```', '').strip()
-            
+            from app.services.llm_manager import LLMService
             import json
+            llm = LLMService()
+            raw = llm.generate(
+                prompt, task='species_identification', max_tokens=1024, json_mode=True,
+                image_data={'base64': image_data, 'media_type': media_type},
+            )
+            response_text = raw.replace('```json', '').replace('```', '').strip()
             result = json.loads(response_text)
             
             # Validate result
@@ -318,12 +283,12 @@ class ImageQualityChecker:
             img = Image.open(image_path)
             format = img.format
             
-            supported_formats = ['JPEG', 'PNG', 'GIF', 'WEBP']
-            
+            supported_formats = ['JPEG', 'PNG', 'GIF', 'WEBP', 'TIFF', 'BMP', 'HEIF', 'HEIC']
+
             return {
                 'passes': format in supported_formats,
                 'format': format,
-                'issue': None if format in supported_formats 
+                'issue': None if format in supported_formats
                         else f"Unsupported format: {format}"
             }
         except Exception as e:

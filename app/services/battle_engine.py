@@ -5,6 +5,7 @@ Uses visible stats + hidden xfactor for more interesting battles
 
 from datetime import datetime
 from typing import Optional
+from flask import current_app
 from app import db
 from app.models import Battle, Bug, BugRival
 from app.services.visual_lore_generator import generate_lore_enhanced_battle_narrative
@@ -12,33 +13,112 @@ from app.services.achievements import award_battle_achievements
 import random
 
 # Combat type system (offensive -> defensive multipliers)
-# Offensive types: piercing, crushing, slashing, venom, chemical, grappling
-# Defensive types: hard_shell, segmented_armor, evasive, hairy_spiny, toxic_skin, thick_hide
+# Attack types:  piercing, crushing, slashing, venom, chemical, grappling, sonic, electric, neutral
+# Defense types: hard_shell, segmented_armor, evasive, hairy_spiny, toxic_skin,
+#                thick_hide, unarmored, regenerative, bioluminescent
 MATCHUP_MATRIX = {
+    # Piercing — mandibles/stingers as spears; finds gaps in plating
     'piercing': {
-        'hard_shell': 1.5, 'segmented_armor': 1.0, 'evasive': 0.7,
-        'hairy_spiny': 1.0, 'toxic_skin': 1.5, 'thick_hide': 0.7
+        'hard_shell':      1.5,   # drives through shell joints
+        'segmented_armor': 0.8,   # tricky to angle through segments
+        'evasive':         0.7,   # hard to land on a moving target
+        'hairy_spiny':     1.0,   # hairs slow but don't stop the point
+        'toxic_skin':      1.2,   # pierces through the toxic coat
+        'thick_hide':      0.8,   # struggles to penetrate dense tissue
+        'unarmored':       1.5,   # absolutely no protection
+        'regenerative':    0.8,   # wounds seal before they accumulate
+        'bioluminescent':  1.2,   # fragile glow organs are easy targets
     },
+    # Crushing — mandible vice / body-slam force; shatters rigid structures
     'crushing': {
-        'hard_shell': 1.5, 'segmented_armor': 0.7, 'evasive': 1.0,
-        'hairy_spiny': 1.0, 'toxic_skin': 0.7, 'thick_hide': 1.5
+        'hard_shell':      1.5,   # shatters rigid plating
+        'segmented_armor': 0.7,   # segments flex and distribute force
+        'evasive':         1.0,   # hard to dodge a body-press
+        'hairy_spiny':     1.0,   # spines compress but don't stop mass
+        'toxic_skin':      0.8,   # sustained contact with toxic skin
+        'thick_hide':      1.5,   # brute force penetrates dense bulk
+        'unarmored':       1.4,   # devastating against soft tissue
+        'regenerative':    1.5,   # rate of damage exceeds healing
+        'bioluminescent':  1.1,   # light offers no structural defense
     },
+    # Slashing — foreleg blades / razor wings; cuts between gaps
     'slashing': {
-        'hard_shell': 0.7, 'segmented_armor': 1.5, 'evasive': 1.5,
-        'hairy_spiny': 0.7, 'toxic_skin': 1.0, 'thick_hide': 1.0
+        'hard_shell':      0.7,   # shell deflects glancing cuts
+        'segmented_armor': 1.5,   # blades slice between segment joins
+        'evasive':         1.2,   # fast swipes catch even agile bugs
+        'hairy_spiny':     0.7,   # dense hairs catch and slow blades
+        'toxic_skin':      0.9,   # contact risk slows the slasher
+        'thick_hide':      1.0,   # cuts, but slowly
+        'unarmored':       1.5,   # tears right through soft tissue
+        'regenerative':    0.9,   # wounds partially seal between rounds
+        'bioluminescent':  1.0,   # glow provides no slashing protection
     },
+    # Venom — toxin injection via stinger/fangs; bypasses armor at contact points
     'venom': {
-        'hard_shell': 1.0, 'segmented_armor': 1.5, 'evasive': 1.0,
-        'hairy_spiny': 0.7, 'toxic_skin': 0.7, 'thick_hide': 1.5
+        'hard_shell':      1.2,   # injects through joint membrane
+        'segmented_armor': 1.5,   # plenty of injection points between segments
+        'evasive':         0.8,   # hard to land a sting on a moving bug
+        'hairy_spiny':     0.7,   # spines deflect the stinger
+        'toxic_skin':      0.5,   # already chemically adapted; near immunity
+        'thick_hide':      1.2,   # venom still penetrates dense tissue
+        'unarmored':       1.3,   # no protective barrier, full absorption
+        'regenerative':    0.6,   # cellular regeneration neutralizes toxins
+        'bioluminescent':  0.9,   # luciferin chemistry provides partial immunity
     },
+    # Chemical — sprayed acids / contact pheromones; area denial
     'chemical': {
-        'hard_shell': 1.0, 'segmented_armor': 1.0, 'evasive': 1.5,
-        'hairy_spiny': 1.5, 'toxic_skin': 0.7, 'thick_hide': 0.7
+        'hard_shell':      1.0,   # shell limits surface exposure
+        'segmented_armor': 1.0,   # seeps through segment joints
+        'evasive':         1.5,   # can't dodge a spray cloud
+        'hairy_spiny':     1.5,   # hairs trap chemicals against skin
+        'toxic_skin':      0.7,   # already adapted to harsh chemistry
+        'thick_hide':      0.8,   # slower absorption through dense tissue
+        'unarmored':       1.3,   # full skin exposure, no barrier
+        'regenerative':    0.6,   # rapidly metabolizes chemical agents
+        'bioluminescent':  0.8,   # luciferin system partially neutralizes
     },
+    # Grappling — wrestle / pin / constrict; sustained physical domination
     'grappling': {
-        'hard_shell': 0.7, 'segmented_armor': 0.7, 'evasive': 1.5,
-        'hairy_spiny': 1.5, 'toxic_skin': 1.0, 'thick_hide': 1.0
-    }
+        'hard_shell':      0.7,   # shell provides grip resistance
+        'segmented_armor': 0.8,   # hard to maintain grip on segmented body
+        'evasive':         1.5,   # cornered, they can't keep evading
+        'hairy_spiny':     1.2,   # painful grip but still effective
+        'toxic_skin':      0.7,   # prolonged contact = poison exposure
+        'thick_hide':      1.0,   # can grapple, just slower submission
+        'unarmored':       1.2,   # easy to grab and pin
+        'regenerative':    1.3,   # sustained hold overwhelms regeneration
+        'bioluminescent':  0.7,   # dazzling light disorients the grappler
+    },
+    # Sonic — stridulation / resonance pulses; disrupts internal systems
+    'sonic': {
+        'hard_shell':      1.5,   # rigid shell resonates, amplifying internal damage
+        'segmented_armor': 1.3,   # vibration rattles each segment
+        'evasive':         0.7,   # erratic movement breaks resonance lock
+        'hairy_spiny':     1.0,   # hairs dampen some surface vibration
+        'toxic_skin':      1.0,   # vibration unaffected by surface chemistry
+        'thick_hide':      1.3,   # dense tissue conducts vibration deeply
+        'unarmored':       1.2,   # vibration travels freely through soft body
+        'regenerative':    0.9,   # internal micro-damage is repaired
+        'bioluminescent':  1.4,   # vibration shatters delicate glow organs
+    },
+    # Electric — bioelectric discharge; arcs through conductive material
+    'electric': {
+        'hard_shell':      1.4,   # conductive minerals in chitin
+        'segmented_armor': 1.2,   # current arcs between segments
+        'evasive':         0.7,   # fast movement avoids arc contact
+        'hairy_spiny':     0.7,   # setae provide electrical insulation
+        'toxic_skin':      1.0,   # discharge unaffected by surface toxins
+        'thick_hide':      1.3,   # current travels through dense bulk
+        'unarmored':       1.1,   # nervous system fully exposed
+        'regenerative':    0.9,   # rapid cell repair limits damage
+        'bioluminescent':  0.7,   # bioluminescent chemistry resists discharge
+    },
+    # Neutral — no specialization; consistent across all matchups
+    'neutral': {
+        'hard_shell':      1.0, 'segmented_armor': 1.0, 'evasive':        1.0,
+        'hairy_spiny':     1.0, 'toxic_skin':      1.0, 'thick_hide':     1.0,
+        'unarmored':       1.0, 'regenerative':    1.0, 'bioluminescent': 1.0,
+    },
 }
 
 # Size classes (ordered)
@@ -70,7 +150,7 @@ SIZE_BASE_MODIFIER = {
 # Size-dependent attacks gain/lose from size differences (e.g., crushing, grappling)
 # Size-agnostic attacks ignore size in their effect (e.g., venom, chemical)
 SIZE_DEPENDENT_ATTACKS = {'crushing', 'grappling', 'piercing', 'slashing'}
-SIZE_AGNOSTIC_ATTACKS = {'venom', 'chemical'}
+SIZE_AGNOSTIC_ATTACKS = {'venom', 'chemical', 'sonic', 'electric', 'neutral'}
 def get_matchup_multiplier(attack_type: str, defense_type: str) -> float:
     """Return multiplier for attack_type vs defense_type using MATCHUP_MATRIX.
     Falls back to 1.0 for unknown types."""
@@ -205,9 +285,32 @@ def simulate_battle(bug1: Bug, bug2: Bug, tournament_id: Optional[int] = None, r
 
     db.session.add(battle)
     _track_rival_encounter(bug1, bug2, winner)
+
+    # Tournament victory notification for the winning owner
+    if tournament_id and winner:
+        loser = bug2 if winner.id == bug1.id else bug1
+        _notify_tournament_victory(winner, loser, tournament_id)
+
     db.session.commit()
 
     return battle
+
+
+def _notify_tournament_victory(winner: Bug, loser: Bug, tournament_id: int) -> None:
+    """Create an in-app notification for a tournament match win."""
+    from app.models import Notification, Tournament
+    try:
+        t = db.session.get(Tournament, tournament_id)
+        t_name = t.name if t else f'Tournament #{tournament_id}'
+        notif = Notification(
+            user_id=winner.user_id,
+            message=f'\U0001f3c6 {winner.nickname} defeated {loser.nickname} in {t_name}!',
+            link_url=f'/battle/{winner.id}',
+            notification_type='tournament_victory',
+        )
+        db.session.add(notif)
+    except Exception as e:
+        current_app.logger.warning("Failed to create tournament victory notification: %s", e)
 
 
 def _track_rival_encounter(bug1: Bug, bug2: Bug, winner: Optional[Bug] = None) -> None:

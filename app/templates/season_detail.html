@@ -1,0 +1,403 @@
+{% extends 'base.html' %}
+{% block title %}{{ season.name }}{% endblock %}
+{% block content %}
+
+{# ── Phase banner ───────────────────────────────────────────────── #}
+{% set phase_color = 'success' if season.phase == 'regular_season' else 'warning text-dark' if season.phase == 'registration' else 'primary' if season.phase == 'tournament' else 'secondary' %}
+<div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+  <h1 class="mb-0">{{ season.name }}</h1>
+  <span class="badge bg-{{ phase_color }} fs-6">{{ season.phase|replace('_',' ')|title }}</span>
+  {% if season.tier %}<span class="badge bg-info text-dark">{{ season.tier|upper }}</span>{% endif %}
+</div>
+
+{# Timeline with countdown #}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="row text-center g-3">
+      <div class="col-6 col-md-3">
+        <div class="small text-muted">Registration opens</div>
+        <div>{{ season.registration_opens.strftime('%b %d') }}</div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="small text-muted">Registration closes</div>
+        <div>{{ season.registration_closes.strftime('%b %d') }}</div>
+        {% if season.phase == 'registration' %}
+        <div class="mt-1">
+          <span class="badge bg-warning text-dark"
+                data-countdown-to="{{ season.registration_closes.strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+                data-countdown-label="Closes"></span>
+        </div>
+        {% endif %}
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="small text-muted">Regular season</div>
+        <div>{{ season.regular_season_start.strftime('%b %d') }} – {{ season.regular_season_end.strftime('%b %d') }}</div>
+        {% if season.phase == 'regular_season' %}
+        <div class="mt-1">
+          <span class="badge bg-success"
+                data-countdown-to="{{ season.regular_season_end.strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+                data-countdown-label="Ends"></span>
+        </div>
+        {% elif season.phase == 'registration' %}
+        <div class="mt-1">
+          <span class="badge bg-secondary"
+                data-countdown-to="{{ season.regular_season_start.strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+                data-countdown-label="Starts"></span>
+        </div>
+        {% endif %}
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="small text-muted">Playoffs</div>
+        <div>{% if season.tournament_start %}{{ season.tournament_start.strftime('%b %d') }}{% else %}TBD{% endif %}</div>
+        {% if season.tournament_start and season.phase in ('registration','regular_season') %}
+        <div class="mt-1">
+          <span class="badge bg-primary"
+                data-countdown-to="{{ season.tournament_start.strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+                data-countdown-label="Playoffs"></span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Today's match countdown (next scheduled unplayed match for logged-in user) #}
+{% if my_reg and season.phase == 'regular_season' %}
+{% set next_match = season.matches.filter_by(completed_at=None).order_by('scheduled_at').first() %}
+{% if next_match and (next_match.bug1_id == my_reg.bug_id or next_match.bug2_id == my_reg.bug_id) %}
+<div class="alert alert-info d-flex align-items-center gap-3 mb-3">
+  <strong>Next match for {{ my_reg.bug.nickname }}:</strong>
+  <span data-countdown-to="{{ next_match.scheduled_at.strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+        data-countdown-label=""></span>
+  {% if my_reg.pending_boost_points > 0 %}
+  <span class="badge bg-warning text-dark ms-auto">⚡ +{{ my_reg.pending_boost_points }} boost points to assign!</span>
+  {% endif %}
+</div>
+{% endif %}
+{% endif %}
+
+<div class="row g-4">
+
+  {# ── Left: standings + schedule tabs ──────────────────── #}
+  <div class="col-md-7">
+
+    {# Tab nav #}
+    <ul class="nav nav-tabs mb-0" id="seasonTabs" role="tablist" style="border-bottom:0;">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="standings-tab" data-bs-toggle="tab"
+                data-bs-target="#standings-pane" type="button">Standings</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="schedule-tab" data-bs-toggle="tab"
+                data-bs-target="#schedule-pane" type="button">Schedule</button>
+      </li>
+    </ul>
+
+    <div class="tab-content border border-top-0 rounded-bottom bg-dark">
+
+    {# ── Standings pane ── #}
+    <div class="tab-pane fade show active p-0" id="standings-pane" role="tabpanel">
+    <div class="d-flex justify-content-between align-items-center px-3 pt-2 pb-1">
+      <strong>Standings</strong>
+      <span class="text-muted small">{{ registrations|length }} / {{ season.max_registrations }} registered</span>
+    </div>
+    <div class="p-0">
+        {% if registrations %}
+        <table class="table table-sm mb-0">
+          <thead><tr><th>#</th><th>Bug</th><th>Owner</th><th>W</th><th>L</th><th>Boost</th><th></th></tr></thead>
+          <tbody>
+          {% for reg in registrations %}
+          <tr {% if my_reg and reg.id == my_reg.id %}class="table-active"{% endif %}>
+            <td class="text-muted">{{ loop.index }}</td>
+            <td><a href="{{ url_for('bugs.view_bug', bug_id=reg.bug_id) }}">{{ reg.bug.nickname }}</a>
+              {% if reg.bug.tier %}<span class="badge bg-secondary small">{{ reg.bug.tier|upper }}</span>{% endif %}
+            </td>
+            <td class="text-muted small">{{ reg.user.username }}</td>
+            <td>{{ reg.season_wins }}</td>
+            <td>{{ reg.season_losses }}</td>
+            <td>
+              {% if my_reg and reg.id == my_reg.id and reg.pending_boost_points > 0 %}
+              <span class="badge bg-warning text-dark">+{{ reg.pending_boost_points }} pending</span>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if my_reg and reg.id == my_reg.id %}
+              <button class="btn btn-xs btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#boost-{{ reg.id }}">
+                Boost
+              </button>
+              {% endif %}
+            </td>
+          </tr>
+          {% if my_reg and reg.id == my_reg.id %}
+          <tr class="collapse" id="boost-{{ reg.id }}">
+            <td colspan="7" class="bg-dark">
+              <div class="p-2">
+                <strong>Boost Points: {{ reg.pending_boost_points }}</strong>
+                {% if reg.boost_auto_stat %}
+                <span class="badge bg-info ms-2">Auto → {{ reg.boost_auto_stat }}</span>
+                {% endif %}
+                <div class="d-flex gap-2 mt-2 flex-wrap">
+                  {# Manual assign #}
+                  {% if reg.pending_boost_points > 0 %}
+                  <form method="post" action="{{ url_for('tournaments.assign_boost_points', reg_id=reg.id) }}" class="d-flex gap-1">
+                    <select name="stat" class="form-select form-select-sm" style="max-width:140px">
+                      {% for s in ['attack','defense','speed','lethality','grip','cunning'] %}
+                      <option value="{{ s }}">{{ s|title }}</option>
+                      {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-sm btn-warning">Apply +{{ reg.pending_boost_points }}</button>
+                  </form>
+                  {% endif %}
+                  {# Auto-assign toggle #}
+                  <form method="post" action="{{ url_for('tournaments.set_boost_auto', reg_id=reg.id) }}" class="d-flex gap-1">
+                    <select name="stat" class="form-select form-select-sm" style="max-width:140px">
+                      <option value="">— manual —</option>
+                      {% for s in ['attack','defense','speed','lethality','grip','cunning'] %}
+                      <option value="{{ s }}" {% if reg.boost_auto_stat == s %}selected{% endif %}>Auto: {{ s|title }}</option>
+                      {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-sm btn-outline-info">Set Auto</button>
+                  </form>
+                </div>
+                <p class="small text-muted mt-1 mb-0">Unassigned points will be randomly distributed before your next match.</p>
+              </div>
+            </td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted p-3 mb-0">No registrations yet.</p>
+        {% endif %}
+    </div>
+    </div>{# /standings-pane #}
+
+    {# ── Schedule pane ── #}
+    <div class="tab-pane fade p-0" id="schedule-pane" role="tabpanel">
+      {% if schedule_by_day %}
+      <div class="p-2">
+      {% for day_num in schedule_by_day | sort %}
+      {% set day_matches = schedule_by_day[day_num] %}
+      <div class="mb-3">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="badge bg-primary">Day {{ day_num }}</span>
+          <small class="text-muted">{{ day_matches[0].scheduled_at.strftime('%b %d') }}</small>
+          {% set played = day_matches | selectattr('completed_at') | list | length %}
+          <small class="text-muted ms-auto">{{ played }}/{{ day_matches|length }} played</small>
+        </div>
+        <table class="table table-sm table-borderless mb-0">
+          <tbody>
+          {% for m in day_matches %}
+          <tr>
+            <td class="py-1">
+              {% if m.battle and m.battle.winner_id == m.bug1_id %}
+              <strong>{{ m.bug1.nickname if m.bug1 else '?' }}</strong>
+              {% else %}
+              {{ m.bug1.nickname if m.bug1 else '?' }}
+              {% endif %}
+            </td>
+            <td class="py-1 text-center text-muted px-1">vs</td>
+            <td class="py-1">
+              {% if m.battle and m.battle.winner_id == m.bug2_id %}
+              <strong>{{ m.bug2.nickname if m.bug2 else '?' }}</strong>
+              {% else %}
+              {{ m.bug2.nickname if m.bug2 else '?' }}
+              {% endif %}
+            </td>
+            <td class="py-1 text-end">
+              {% if m.battle %}
+              <a href="{{ url_for('battles.view_battle', battle_id=m.battle_id) }}" class="badge bg-success text-decoration-none">
+                W: {{ m.battle.winner.nickname if m.battle.winner else 'Draw' }}
+              </a>
+              {% elif m.completed_at %}
+              <span class="badge bg-secondary">Done</span>
+              {% else %}
+              <span class="text-muted small">{{ m.scheduled_at.strftime('%b %d %H:%M UTC') }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-muted p-3 mb-0">No schedule generated yet — starts when the regular season begins.</p>
+      {% endif %}
+    </div>{# /schedule-pane #}
+
+    {# Today's schedule (below tabs, outside tab system) #}
+    {% if today_matches %}
+    <div class="mt-3 card">
+      <div class="card-header"><strong>Today's Matches</strong></div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Bug 1</th><th></th><th>Bug 2</th><th>Result</th></tr></thead>
+          <tbody>
+          {% for m in today_matches %}
+          <tr>
+            <td>{{ m.bug1.nickname if m.bug1 else '?' }}</td>
+            <td class="text-muted text-center">vs</td>
+            <td>{{ m.bug2.nickname if m.bug2 else '?' }}</td>
+            <td>
+              {% if m.battle %}
+              <a href="{{ url_for('battles.view_battle', battle_id=m.battle_id) }}" class="badge bg-success">
+                {{ m.battle.winner.nickname if m.battle.winner else 'Draw' }}
+              </a>
+              {% elif m.scheduled_at %}
+              <small class="text-muted">{{ m.scheduled_at.strftime('%H:%M UTC') }}</small>
+              {% else %}
+              <small class="text-muted">Scheduled</small>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    </div>{# /tab-content #}
+  </div>
+
+  {# ── Right: register + info ─────────────────────────────── #}
+  <div class="col-md-5">
+
+    {% if season.phase == 'registration' and current_user.is_authenticated and not my_reg %}
+    <div class="card mb-3 border-success">
+      <div class="card-header text-success"><strong>Register Your Bug</strong></div>
+      <div class="card-body">
+        {% set my_bugs = current_user.bugs.filter_by(is_retired=False).all() if current_user.is_authenticated else [] %}
+        {% set eligible = my_bugs|selectattr('tier', 'equalto', season.tier)|list if season.tier else my_bugs %}
+        {% if eligible %}
+        <form method="post" action="{{ url_for('tournaments.register_for_season', season_id=season.id) }}">
+          <div class="mb-3">
+            <label class="form-label">Select Bug</label>
+            <select name="bug_id" class="form-select" required>
+              <option value="">— choose —</option>
+              {% for b in eligible %}
+              <option value="{{ b.id }}">{{ b.nickname }} ({{ b.tier|upper if b.tier else '?' }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="alert alert-warning py-2 px-3 small mb-2">
+            <strong>⚠️ Retirement notice:</strong> Once this season concludes, all competing bugs are
+            <strong>permanently retired</strong> from standard play. Retired bugs may enter
+            <em>Retirement Events</em> only.
+          </div>
+          <button type="submit" class="btn btn-success w-100">Register &amp; Accept Retirement</button>
+        </form>
+        {% else %}
+        <p class="text-muted">You have no eligible {{ season.tier|upper if season.tier else '' }} bugs to register.</p>
+        {% endif %}
+      </div>
+    </div>
+    {% elif my_reg %}
+    <div class="card mb-3">
+      <div class="card-header"><strong>Your Registration</strong></div>
+      <div class="card-body">
+        <p class="mb-1"><strong>{{ my_reg.bug.nickname }}</strong></p>
+        <p class="mb-1">Record: {{ my_reg.season_wins }}W – {{ my_reg.season_losses }}L</p>
+        {% if my_reg.pending_boost_points > 0 %}
+        <div class="alert alert-warning py-2 px-3 mt-2">
+          <strong>+{{ my_reg.pending_boost_points }} boost points pending!</strong>
+          <div class="small">Assign them via the standings table before your next match, or they'll be distributed randomly.</div>
+        </div>
+        {% endif %}
+        {% if my_reg.boost_auto_stat %}
+        <p class="small text-muted mt-1">Auto-boosting: {{ my_reg.boost_auto_stat|title }}</p>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>How Seasons Work</strong>
+        <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#boostTutorial">
+          ⚡ Boost Points Guide
+        </button>
+      </div>
+      <div class="card-body small text-muted">
+        <ol class="ps-3">
+          <li class="mb-1">Register your bug during the registration window.</li>
+          <li class="mb-1">The regular season runs for 7 days — your bug plays one auto-match per day at noon UTC.</li>
+          <li class="mb-1">After each match you earn boost points: <strong>+3 for a win</strong>, <strong>+1 for a loss</strong>.</li>
+          <li class="mb-1">Assign boost points to raise a stat permanently before your next match, or set an <em>auto-assign stat</em> to handle it automatically. Unassigned points are <strong>randomly distributed</strong> right before the next match starts.</li>
+          <li class="mb-1">Top performers by win record advance to the <strong>season-ending playoff tournament</strong>.</li>
+        </ol>
+      </div>
+      <div class="collapse border-top" id="boostTutorial">
+        <div class="card-body small">
+          <h6 class="text-warning">⚡ Boost Points — Full Tutorial</h6>
+          <p>Boost points let you permanently improve one of your bug's six stats after each regular-season match. Here's how to use them:</p>
+
+          <div class="mb-2">
+            <strong>1. Earning points</strong><br>
+            Every match awards boost points regardless of outcome:
+            <ul>
+              <li>Win → <span class="badge bg-success">+3 boost points</span></li>
+              <li>Loss → <span class="badge bg-secondary">+1 boost point</span></li>
+            </ul>
+            Points accumulate as <em>pending</em> — they don't do anything until assigned.
+          </div>
+
+          <div class="mb-2">
+            <strong>2. Assigning manually</strong><br>
+            Find your bug in the Standings table and click <em>Boost</em>. Select a stat (Attack, Defense, Speed, Lethality, Grip, or Cunning) and click Apply. All pending points go to that stat in one shot — there's no splitting.
+          </div>
+
+          <div class="mb-2">
+            <strong>3. Auto-assign</strong><br>
+            Set an <em>Auto: [stat]</em> preference and points are applied automatically right after each match ends. Change it anytime — even mid-season. Clear it (set to <em>manual</em>) to go back to deciding yourself.
+          </div>
+
+          <div class="mb-2">
+            <strong>4. The deadline</strong><br>
+            If you haven't assigned or set auto-assign before your next match begins, the system <strong>randomly distributes</strong> all pending points across your stats. You won't lose the points — they just go wherever the arena decides.
+          </div>
+
+          <div class="mb-2">
+            <strong>5. Strategy tips</strong>
+            <ul>
+              <li>Dumping points into your <em>dominant</em> stat (the one your type relies on) compounds type advantages.</li>
+              <li>Patching a <em>weakness</em> (e.g. raising Cunning if your matchups are bad) can flip results.</li>
+              <li>Lethality amplifies type-advantage damage — boosting it makes favorable matchups dominant.</li>
+              <li>Grip helps control evasive opponents; Cunning reduces damage when you're at a type disadvantage.</li>
+            </ul>
+          </div>
+
+          <div class="alert alert-warning py-2 px-3 small mb-0">
+            Stat changes from boost points are <strong>permanent</strong> — they carry forward to tournaments and all future battles.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if season.phase == 'tournament' and season.playoff %}
+    <div class="card mt-3 border-primary">
+      <div class="card-body text-center">
+        <h5>Playoffs Underway</h5>
+        <a href="{{ url_for('tournaments.view_tournament', tournament_id=season.tournament_id) }}" class="btn btn-primary">View Bracket</a>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if season.phase == 'completed' and season.playoff and season.playoff.winner %}
+    <div class="card mt-3 border-warning">
+      <div class="card-body text-center">
+        <div style="font-size:2rem;">🏆</div>
+        <h5 style="color:var(--sun-warm);">{{ season.playoff.winner.nickname }}</h5>
+        <p class="text-muted small">Season Champion</p>
+        <a href="{{ url_for('bugs.view_bug', bug_id=season.playoff.winner_id) }}" class="btn btn-warning btn-sm">View Champion</a>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -18,19 +18,44 @@ from app.services.taxonomy import TaxonomyService, StatsGenerator
 bp = Blueprint('api', __name__, url_prefix='/api')
 
 
+_GLADIATOR_ADJECTIVES = [
+    'Iron', 'Crimson', 'Obsidian', 'Venom', 'Shadow', 'Savage', 'Gilded',
+    'Stone', 'Raging', 'Blazing', 'Frost', 'Thunder', 'Ashen', 'Scarred',
+    'Dire', 'Hollow', 'Silent', 'Feral', 'Ancient', 'Grim', 'Armored',
+    'Wretched', 'Cursed', 'Molten', 'Twisted', 'Phantom', 'Bone', 'War',
+    'Rusted', 'Spiked', 'Noxious', 'Leaden', 'Barbed', 'Jagged', 'Blighted',
+]
+
+_GLADIATOR_NOUNS = [
+    'Fang', 'Reaper', 'Wraith', 'Crusher', 'Stalker', 'Mauler', 'Titan',
+    'Rend', 'Spike', 'Bane', 'Vex', 'Dagger', 'Thorn', 'Slayer', 'Hex',
+    'Razor', 'Haunt', 'Ruin', 'Scourge', 'Talon', 'Grappler', 'Warden',
+    'Sting', 'Drake', 'Marauder', 'Savage', 'Doom', 'Predator', 'Brute',
+    'Nightmare', 'Ripper', 'Colossus', 'Ravager', 'Skewer', 'Mandible',
+]
+
+
 def _fallback_nicknames(context):
+    import random
     common = (context.get('common_name') or '').strip()
     scientific = (context.get('scientific_name') or '').strip()
-    seed = common or scientific or 'Bug'
-    base = seed.split()[0].capitalize() if seed else 'Bug'
-    return [
-        f'{base} Prime',
-        f'Iron {base}',
-        f'{base} Vex',
-        f'Thorn {base}',
-        f'{base} Static',
-        f'Verdant {base}',
-    ]
+    base = (common or scientific or '').split()[0].capitalize() if (common or scientific) else None
+
+    names = set()
+    adjs = random.sample(_GLADIATOR_ADJECTIVES, min(12, len(_GLADIATOR_ADJECTIVES)))
+    nouns = random.sample(_GLADIATOR_NOUNS, min(12, len(_GLADIATOR_NOUNS)))
+
+    for adj, noun in zip(adjs, nouns):
+        if base:
+            names.add(f'{adj} {base}')
+            names.add(f'{base} {noun}')
+        names.add(f'{adj} {noun}')
+        if len(names) >= 8:
+            break
+
+    result = list(names)
+    random.shuffle(result)
+    return result[:6]
 
 
 def _fallback_lore(context):
@@ -257,9 +282,13 @@ def generate_bug_suggestion():
     if field == 'nickname':
         common = context.get('common_name', '')
         scientific = context.get('scientific_name', '')
-        prompt = f"""Suggest 6 short, punchy warrior-style nicknames for a bug gladiator.\n
-Context:\n- Common Name: {common}\n- Scientific Name: {scientific}\n
-Return a JSON array of nicknames only."""
+        prompt = (
+            f"You are naming a gladiator bug for an insect battle arena. "
+            f"Generate exactly 6 badass gladiator names for a {common or scientific or 'mystery bug'}. "
+            f"Rules: 2-3 words max, mix of dark adjectives + creature/weapon nouns, "
+            f"evoke fear or power (e.g. 'Iron Fang', 'Crimson Reaper', 'Bone Stalker', 'Venom Wraith'). "
+            f"Return ONLY a JSON array of 6 name strings, nothing else."
+        )
         try:
             resp = llm.generate(prompt, task='quick_tasks', max_tokens=200)
             suggestions = _parse_json_list_or_lines(resp)

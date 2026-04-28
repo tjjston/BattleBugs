@@ -1,55 +1,119 @@
 {% extends "base.html" %}
-
-{% block title %}Leaderboards - BattleBugs{% endblock %}
-
+{% block title %}Leaderboards — Bug Arena{% endblock %}
 {% block content %}
 <h1>Leaderboards</h1>
 
-<div class="row g-4">
-  <div class="col-lg-4">
-    <div class="card">
-      <div class="card-header"><strong>Most Wins</strong></div>
-      <div class="card-body">
-        {% for bug in top_wins %}
-        <div class="d-flex justify-content-between border-bottom py-2">
-          <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">{{ bug.nickname }}</a>
-          <span>{{ bug.wins }}W</span>
-        </div>
-        {% else %}
-        <p class="text-muted">No battles yet.</p>
-        {% endfor %}
+<ul class="nav nav-tabs mb-4" id="lbTabs" role="tablist">
+  <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-wins">Bug Wins</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-rate">Win Rate</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-collectors">Collectors</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-champions">Tournament</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-elo">ELO</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-pioneers">Pioneers</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-ap">Accolade Points</button></li>
+</ul>
+
+<div class="tab-content">
+
+  <div class="tab-pane fade show active" id="tab-wins">
+    <h5 class="text-muted mb-3">Most Wins — Active Bugs</h5>
+    {% for bug in top_wins %}
+    {% set rank = loop.index %}
+    <div class="d-flex align-items-center border-bottom py-2 gap-3">
+      <span class="text-muted fw-bold" style="min-width:2rem">{{ rank }}.</span>
+      <div class="flex-grow-1">
+        <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="fw-bold text-decoration-none">{{ bug.nickname }}</a>
+        <div class="text-muted small">{{ bug.common_name or bug.scientific_name or 'Unknown' }}</div>
+      </div>
+      {% if bug.tier %}<span class="badge bg-secondary">{{ bug.tier|upper }}</span>{% endif %}
+      <div class="text-end">
+        <span class="badge bg-success">{{ bug.wins }}W</span>
+        <span class="badge bg-danger">{{ bug.losses }}L</span>
       </div>
     </div>
+    {% else %}<p class="text-muted">No battles yet.</p>{% endfor %}
   </div>
-  <div class="col-lg-4">
-    <div class="card">
-      <div class="card-header"><strong>Best Win Rate</strong></div>
-      <div class="card-body">
-        {% for bug in top_win_rate %}
-        <div class="d-flex justify-content-between border-bottom py-2">
-          <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">{{ bug.nickname }}</a>
-          <span>{{ "%.1f"|format(bug.win_rate) }}%</span>
-        </div>
-        {% else %}
-        <p class="text-muted">Need at least three battles to qualify.</p>
-        {% endfor %}
+
+  <div class="tab-pane fade" id="tab-rate">
+    <h5 class="text-muted mb-3">Best Win Rate <span class="small">(min. 3 battles)</span></h5>
+    {% for bug in top_win_rate %}
+    <div class="d-flex align-items-center border-bottom py-2 gap-3">
+      <span class="text-muted fw-bold" style="min-width:2rem">{{ loop.index }}.</span>
+      <div class="flex-grow-1">
+        <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="fw-bold text-decoration-none">{{ bug.nickname }}</a>
+        <div class="text-muted small">{{ bug.wins }}W / {{ bug.losses }}L</div>
       </div>
+      {% if bug.tier %}<span class="badge bg-secondary">{{ bug.tier|upper }}</span>{% endif %}
+      <strong class="text-success">{{ "%.1f"|format(bug.win_rate) }}%</strong>
     </div>
+    {% else %}<p class="text-muted">Need at least 3 battles to qualify.</p>{% endfor %}
   </div>
-  <div class="col-lg-4">
-    <div class="card">
-      <div class="card-header"><strong>Top Collectors</strong></div>
-      <div class="card-body">
-        {% for user in top_users %}
-        <div class="d-flex justify-content-between border-bottom py-2">
-          <a href="{{ url_for('main.user_profile', user_id=user.id) }}">{{ user.username }}</a>
-          <span>{{ user.bugs.count() }} bugs</span>
-        </div>
-        {% else %}
-        <p class="text-muted">No collectors yet.</p>
-        {% endfor %}
+
+  <div class="tab-pane fade" id="tab-collectors">
+    <h5 class="text-muted mb-3">Top Collectors</h5>
+    {% for user in top_collectors %}
+    <div class="d-flex align-items-center border-bottom py-2 gap-3">
+      <span class="text-muted fw-bold" style="min-width:2rem">{{ loop.index }}.</span>
+      <div class="flex-grow-1">
+        <a href="{{ url_for('main.user_profile', user_id=user.id) }}" class="fw-bold text-decoration-none">{{ user.username }}</a>
+        {% set badge = user.guess_badge %}{% if badge %}<span class="badge bg-{{ badge.color }} ms-1 small">{{ badge.icon }}</span>{% endif %}
       </div>
+      <span class="badge bg-primary">{{ user.bugs_submitted or 0 }} bugs</span>
     </div>
+    {% else %}<p class="text-muted">No collectors yet.</p>{% endfor %}
   </div>
+
+  <div class="tab-pane fade" id="tab-champions">
+    <h5 class="text-muted mb-3">Tournament Champions</h5>
+    {% for user in top_tournament %}
+    <div class="d-flex align-items-center border-bottom py-2 gap-3">
+      <span class="text-muted fw-bold" style="min-width:2rem">{{ loop.index }}.</span>
+      <div class="flex-grow-1">
+        <a href="{{ url_for('main.user_profile', user_id=user.id) }}" class="fw-bold text-decoration-none">{{ user.username }}</a>
+      </div>
+      <span class="badge bg-warning text-dark">🏆 {{ user.tournaments_won }} win{{ 's' if user.tournaments_won != 1 else '' }}</span>
+    </div>
+    {% else %}<p class="text-muted">No tournament winners yet.</p>{% endfor %}
+  </div>
+
+  <div class="tab-pane fade" id="tab-elo">
+    <h5 class="text-muted mb-3">Highest ELO</h5>
+    {% for user in top_elo %}
+    <div class="d-flex align-items-center border-bottom py-2 gap-3">
+      <span class="text-muted fw-bold" style="min-width:2rem">{{ loop.index }}.</span>
+      <div class="flex-grow-1">
+        <a href="{{ url_for('main.user_profile', user_id=user.id) }}" class="fw-bold text-decoration-none">{{ user.username }}</a>
+      </div>
+      <span class="badge bg-{{ 'danger' if user.elo >= 1500 else 'warning text-dark' if user.elo >= 1300 else 'secondary' }}">{{ user.elo }} ELO</span>
+    </div>
+    {% else %}<p class="text-muted">No users yet.</p>{% endfor %}
+  </div>
+
+  <div class="tab-pane fade" id="tab-pioneers">
+    <h5 class="text-muted mb-3">Species Pioneers <span class="small">(🌍 World Firsts)</span></h5>
+    {% for entry in pioneer_users %}
+    <div class="d-flex align-items-center border-bottom py-2 gap-3">
+      <span class="text-muted fw-bold" style="min-width:2rem">{{ loop.index }}.</span>
+      <div class="flex-grow-1">
+        <a href="{{ url_for('main.user_profile', user_id=entry.user.id) }}" class="fw-bold text-decoration-none">{{ entry.user.username }}</a>
+      </div>
+      <span class="badge bg-success">🌍 {{ entry.count }}</span>
+    </div>
+    {% else %}<p class="text-muted">No pioneers yet.</p>{% endfor %}
+  </div>
+
+  <div class="tab-pane fade" id="tab-ap">
+    <h5 class="text-muted mb-3">Accolade Points</h5>
+    {% for user in top_ap %}
+    <div class="d-flex align-items-center border-bottom py-2 gap-3">
+      <span class="text-muted fw-bold" style="min-width:2rem">{{ loop.index }}.</span>
+      <div class="flex-grow-1">
+        <a href="{{ url_for('main.user_profile', user_id=user.id) }}" class="fw-bold text-decoration-none">{{ user.username }}</a>
+      </div>
+      <span class="badge bg-info text-dark">{{ user.accolade_points }} AP</span>
+    </div>
+    {% else %}<p class="text-muted">No AP earned yet.</p>{% endfor %}
+  </div>
+
 </div>
 {% endblock %}

@@ -9,7 +9,7 @@
 
 <div class="row g-4">
   <div class="col-md-3">
-    <img src="{{ url_for('static', filename=bug.image_path.replace('app/static/', '')) if 'app/static/' in bug.image_path else url_for('static', filename='img/' + bug.image_path.split('/')[-1]) }}"
+    <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}"
          class="img-fluid rounded shadow" alt="{{ bug.nickname }}"
          onerror="this.src='/static/img/placeholder.png'">
     <div class="mt-2 text-muted small">
@@ -97,17 +97,30 @@
         <div class="card-header"><strong>Combat Stats</strong></div>
         <div class="card-body">
           <div class="row g-3">
-            {% for stat, label, color in [
-              ('attack','Attack','danger'), ('defense','Defense','primary'), ('speed','Speed','success'),
-              ('lethality','Lethality','warning'), ('grip','Grip','purple'), ('cunning','Cunning','info')
-            ] %}
             <div class="col-6 col-md-2">
-              <label class="form-label text-{{ color if color != 'purple' else 'secondary' }}"><strong>{{ label }}</strong></label>
-              <input type="number" name="{{ stat }}" class="form-control"
-                     value="{{ bug[stat] if bug[stat] is not none else (50 if stat in ['lethality','grip','cunning'] else 5) }}"
-                     min="1" max="{% if stat in ['lethality','grip','cunning'] %}100{% else %}10{% endif %}">
+              <label class="form-label text-danger"><strong>Attack</strong></label>
+              <input type="number" name="attack" class="form-control" value="{{ bug.attack or 5 }}" min="1" max="10">
             </div>
-            {% endfor %}
+            <div class="col-6 col-md-2">
+              <label class="form-label text-primary"><strong>Defense</strong></label>
+              <input type="number" name="defense" class="form-control" value="{{ bug.defense or 5 }}" min="1" max="10">
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label text-success"><strong>Speed</strong></label>
+              <input type="number" name="speed" class="form-control" value="{{ bug.speed or 5 }}" min="1" max="10">
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label text-warning"><strong>Lethality</strong></label>
+              <input type="number" name="lethality" class="form-control" value="{{ bug.lethality or 50 }}" min="1" max="100">
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label text-secondary"><strong>Grip</strong></label>
+              <input type="number" name="grip" class="form-control" value="{{ bug.grip or 50 }}" min="1" max="100">
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label text-info"><strong>Cunning</strong></label>
+              <input type="number" name="cunning" class="form-control" value="{{ bug.cunning or 50 }}" min="1" max="100">
+            </div>
           </div>
           <div class="row g-3 mt-1">
             <div class="col-md-3">

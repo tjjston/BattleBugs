@@ -170,18 +170,9 @@ class TierSystem:
 
 class LLMStatGenerator:
     """Generate bug stats using LLM with contextual understanding"""
-    
+
     def __init__(self):
-        self.client = None
         self.reference_dataset = self._load_reference_data()
-    
-    def _get_client(self):
-        if not self.client:
-            api_key = current_app.config.get('ANTHROPIC_API_KEY')
-            if not api_key:
-                raise ValueError("ANTHROPIC_API_KEY not configured")
-            self.client = Anthropic(api_key=api_key)
-        return self.client
     
     def _load_reference_data(self):
         """
@@ -328,8 +319,6 @@ class LLMStatGenerator:
         Returns:
             dict with attack, defense, speed, reasoning, special_ability, tier
         """
-        client = self._get_client()
-        
         context = self._build_reference_context()
         
         prompt = f"""You are an expert entomologist and game balance designer. Generate combat stats for this bug.
@@ -361,8 +350,14 @@ class LLMStatGenerator:
    - Weak (NU): 240-319 total
    - Very Weak (ZU): 0-239 total
 
-4. Offensive Type: piercing | crushing | slashing | venom | chemical | grappling
-5. Defensive Type: hard_shell | segmented_armor | evasive | hairy_spiny | toxic_skin | thick_hide
+4. Offensive Type: piercing | crushing | slashing | venom | chemical | grappling | sonic | electric | neutral
+   - sonic: vibrational/stridulation attacks; bypasses rigid armor (crickets, some beetles)
+   - electric: bioelectric discharge; conducts through shell and hide (very rare, exotic)
+   - neutral: no dominant attack style; balanced fighter with no type advantage or weakness
+5. Defensive Type: hard_shell | segmented_armor | evasive | hairy_spiny | toxic_skin | thick_hide | unarmored | regenerative | bioluminescent
+   - unarmored: soft body with high metabolic resilience; weak to physical but somewhat resists chemical/venom
+   - regenerative: rapid wound closure; resists sustained/gradual attacks but vulnerable to crushing
+   - bioluminescent: light-flash confusion; disrupts aimed attacks (piercing, grappling) but useless vs chemical/sonic
 6. Size Category: tiny (0-5mm) | small (6-20mm) | medium (21-50mm) | large (51-150mm) | massive (151mm+)
 7. Assign a special ability based on the bug's real biological traits
 8. Provide reasoning for the stat allocation
@@ -375,8 +370,8 @@ Respond in this EXACT JSON format (no markdown):
   "lethality": 1-100,
   "grip": 1-100,
   "cunning": 1-100,
-  "attack_type": "piercing|crushing|slashing|venom|chemical|grappling",
-  "defense_type": "hard_shell|segmented_armor|evasive|hairy_spiny|toxic_skin|thick_hide",
+  "attack_type": "piercing|crushing|slashing|venom|chemical|grappling|sonic|electric|neutral",
+  "defense_type": "hard_shell|segmented_armor|evasive|hairy_spiny|toxic_skin|thick_hide|unarmored|regenerative|bioluminescent",
   "size_category": "tiny|small|medium|large|massive",
   "special_ability": "Ability name based on real traits",
   "reasoning": "Brief explanation of stat allocation",
@@ -388,22 +383,10 @@ BE REALISTIC: Most bugs should sit in the 360-440 total range (all six stats). O
 """
         
         try:
-            message = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=1024,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-            )
-            
-            response_text = message.content[0].text
-            
-            # Strip markdown if present
-            response_text = response_text.replace('```json', '').replace('```', '').strip()
-            
+            from app.services.llm_manager import LLMService
+            llm = LLMService()
+            raw = llm.generate(prompt, task='stat_generation', max_tokens=1024, json_mode=True)
+            response_text = raw.replace('```json', '').replace('```', '').strip()
             result = json.loads(response_text)
             
             # Validate

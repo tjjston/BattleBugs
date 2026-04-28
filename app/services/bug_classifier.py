@@ -87,7 +87,7 @@ class LLMBugClassifier:
         #self.validation_strictness = 'phylum'
         
         # Minimum requirements
-        self.min_confidence = 0.75
+        self.min_confidence = 0.60
         self.min_image_width = 400
         self.min_image_height = 400
         self.max_file_size_mb = 16
@@ -171,14 +171,39 @@ class LLMBugClassifier:
         image_path: str,
         user_species_guess: Optional[str],
     ) -> Optional[BugClassificationResult]:
-        if not current_app.config.get('HF_BUG_CLASSIFIER_ENABLED', True):
+        # Check admin DB override first, then fall back to app config
+        try:
+            from app.models import SystemSetting
+            db_enabled = SystemSetting.get('classifier_enabled')
+            if db_enabled is not None:
+                enabled = db_enabled.lower() != 'false'
+            else:
+                enabled = current_app.config.get('HF_BUG_CLASSIFIER_ENABLED', True)
+        except Exception:
+            enabled = current_app.config.get('HF_BUG_CLASSIFIER_ENABLED', True)
+        if not enabled:
             return None
+
+        # Also apply classifier URL override from DB settings
+        try:
+            from app.models import SystemSetting
+            db_url = SystemSetting.get('classifier_url')
+            if db_url:
+                current_app.config['BUG_CLASSIFIER_URL'] = db_url
+        except Exception:
+            pass
 
         from app.services.huggingface_bug_classifier import HuggingFaceBugClassifier
 
         prediction = HuggingFaceBugClassifier().classify(image_path)
         if not prediction.available:
-            if current_app.config.get('HF_BUG_CLASSIFIER_REQUIRED', False):
+            try:
+                from app.models import SystemSetting
+                db_required = SystemSetting.get('classifier_required')
+                required = (db_required == 'true') if db_required is not None else current_app.config.get('HF_BUG_CLASSIFIER_REQUIRED', False)
+            except Exception:
+                required = current_app.config.get('HF_BUG_CLASSIFIER_REQUIRED', False)
+            if required:
                 return BugClassificationResult({
                     'approved': False,
                     'confidence': 0.0,
@@ -206,24 +231,14 @@ class LLMBugClassifier:
                 user_guess_feedback = f"The local classifier predicted {label}; your guess was kept as a hint only."
 
         if not prediction.approved:
-            return BugClassificationResult({
-                'approved': False,
-                'confidence': prediction.confidence,
-                'is_arthropod': False,
-                'identified_species': label,
-                'common_name': label,
-                'scientific_name': label,
-                'user_guess_matches': user_guess_matches,
-                'user_guess_feedback': user_guess_feedback,
-                'reasoning': f"The local Hugging Face classifier did not confidently identify this as a known bug genus.",
-                'quality_assessment': 'Classifier confidence below the configured threshold.',
-                'rejection_reasons': [
-                    f"Bug classifier confidence too low: {prediction.confidence:.0%}"
-                ],
-                'warnings': warnings,
-                'llm_provider': 'huggingface',
-                'llm_model': current_app.config.get('HF_BUG_CLASSIFIER_MODEL', 'ph0masta/bug_classifier'),
-            })
+            # Low confidence: let the LLM make the call instead of hard-rejecting.
+            # The HF model is narrow (specific genera) and poorly calibrated for
+            # real-world photos — 20-40% on a genuine bug is common. Pass through.
+            current_app.logger.info(
+                "HF classifier confidence %.0f%% below threshold — deferring to LLM.",
+                prediction.confidence * 100,
+            )
+            return None
 
         return BugClassificationResult({
             'approved': True,
@@ -270,7 +285,29 @@ class LLMBugClassifier:
         if not size_check['passes']:
             result['passed'] = False
             result['issues'].append(size_check['issue'])
-        
+
+        # AI-generation heuristic: check EXIF for camera metadata.
+        # Real photos from phones/cameras always contain Make/Model or DateTimeOriginal.
+        # Synthetic AI images typically have no EXIF at all.
+        try:
+            from PIL import Image as _PILImage
+            from PIL.ExifTags import TAGS as _EXIF_TAGS
+            _img = _PILImage.open(image_path)
+            raw_exif = _img._getexif() if hasattr(_img, '_getexif') else None
+            if raw_exif:
+                exif = {_EXIF_TAGS.get(k, k): v for k, v in raw_exif.items()}
+                has_camera = bool(exif.get('Make') or exif.get('Model') or exif.get('DateTimeOriginal'))
+            else:
+                has_camera = False
+
+            if not has_camera:
+                result['warnings'].append(
+                    'No camera EXIF metadata found. If this is an AI-generated image it will be '
+                    'rejected during LLM review. Real phone/camera photos normally include this data.'
+                )
+        except Exception:
+            pass  # non-JPEG formats may not have EXIF; don't fail preflight
+
         return result
     
     def _llm_comprehensive_analysis(
@@ -387,19 +424,30 @@ Your job: Analyze this image and determine if it should be APPROVED or REJECTED.
 - Image clearly shows an arthropod (insect, arachnid, myriapod, crustacean)
 - Bug is the main subject of the photo
 - Image quality sufficient to identify distinguishing features
-- Photo appears to be of real specimen (not drawing/toy/CGI)
-- Confidence >= 75%
+- Photo appears to be a real specimen photograph (phone camera, DSLR, macro shot)
+- Confidence >= 60%
 - If user provided species guess: it's reasonably accurate (same order/family)
 - Dead, squashed, or damaged specimens are ALL accepted — condition is recorded and affects stats
+- Imperfect photos (slight blur, harsh flash, busy background) are fine as long as the bug is identifiable
 
 ❌ **REJECT if:**
 - Not an arthropod (vertebrates, mollusks, worms, etc.)
 - Image is drawing, illustration, toy, or CGI
+- Image appears AI-generated (overly perfect lighting, surreal details, texture artifacts, impossible anatomy, missing EXIF noted in warnings)
 - Bug too small/blurry/dark to identify
 - Multiple bugs (must be single specimen)
 - Poor image quality
 - Confidence < 75%
 - **User's species guess is wildly inaccurate** (suggests manipulation attempt)
+
+🤖 **AI IMAGE DETECTION:**
+Look for these signs of AI generation and REJECT if present:
+- Unnaturally perfect, uniform lighting with no shadows or harsh flash
+- Background is suspiciously clean, blurred, or AI-bokeh
+- Anatomically impossible features (extra legs, merged body parts, impossible symmetry)
+- Texture looks "painted" or lacks the grain/noise of real photos
+- The pre-flight warnings mention missing EXIF camera metadata
+Real insect photos taken by phones/cameras have slight blur, natural backgrounds, visible grain, and imperfect lighting.
 
 🐛 **PHYSICAL CONDITION ASSESSMENT (required for all submissions):**
 Assess the bug's physical state and set `condition` to one of:
@@ -457,7 +505,7 @@ Manipulation attempt scenarios:
 - You have FINAL AUTHORITY - if you reject, it's rejected
 - User's guess is a HINT, not truth
 - Base decision on WHAT YOU SEE in the image
-- Confidence must be >= 0.75 to approve
+- Confidence must be >= 0.60 to approve
 - Prevent stat manipulation through misidentification
 
 Analyze the image now and respond with your classification decision."""

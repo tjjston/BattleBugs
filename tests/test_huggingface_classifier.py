@@ -37,7 +37,8 @@ def test_huggingface_classifier_approves_confident_bug(app, user, tmp_path, monk
     assert result.confidence == 0.88
 
 
-def test_huggingface_classifier_rejects_low_confidence(app, user, tmp_path, monkeypatch):
+def test_huggingface_classifier_defers_low_confidence_to_llm(app, user, tmp_path, monkeypatch):
+    """Low HF confidence should pass through to the LLM, not hard-reject."""
     image_path = tmp_path / "not_bug.jpg"
     make_image(image_path)
 
@@ -52,12 +53,21 @@ def test_huggingface_classifier_rejects_low_confidence(app, user, tmp_path, monk
             raw_predictions=[],
         ),
     )
+    # Stub the LLM so it rejects cleanly (no network needed)
+    monkeypatch.setattr(
+        "app.services.bug_classifier.LLMBugClassifier._llm_comprehensive_analysis",
+        lambda _self, **_kwargs: type("R", (), {
+            "approved": False,
+            "rejection_reasons": ["not a bug"],
+            "llm_provider": "ollama",
+            "llm_model": "stub",
+        })(),
+    )
 
     result = classify_bug_submission(str(image_path), user.id)
 
-    assert result.approved is False
-    assert result.llm_provider == "huggingface"
-    assert "confidence too low" in result.rejection_reasons[0]
+    # The HF low-confidence result is discarded; LLM made the call
+    assert result.llm_provider != "huggingface"
 
 
 def test_huggingface_unavailable_falls_back_to_llm_when_not_required(app, user, tmp_path, monkeypatch):

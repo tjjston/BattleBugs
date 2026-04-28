@@ -1,87 +1,167 @@
 {% extends 'base.html' %}
-
-{% block title %}{{ user.username }} - Profile{% endblock %}
+{% block title %}{{ user.username }} — Profile{% endblock %}
 
 {% block content %}
-<h1>{{ user.username }}</h1>
-<p class="text-muted">Joined {{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '—' }}</p>
+<div class="d-flex align-items-start gap-3 mb-4 flex-wrap">
+  <div>
+    <h1 class="mb-0">{{ user.username }}</h1>
+    <span class="text-muted">Joined {{ user.created_at.strftime('%B %Y') if user.created_at else '—' }}</span>
+    {% if user.is_banned %}<span class="badge bg-danger ms-2">Banned</span>{% endif %}
+    {% if user.role != 'USER' %}<span class="badge bg-secondary ms-1">{{ user.role }}</span>{% endif %}
+  </div>
+</div>
 
 <div class="row g-4">
-  <div class="col-md-4">
-    <div class="card">
-      <div class="card-header"><strong>Account</strong></div>
-      <div class="card-body">
-        <p><strong>Role:</strong> {{ user.role or 'USER' }}</p>
-        <p><strong>ELO:</strong> {{ user.elo }}</p>
-        <p><strong>Accolade Points:</strong> {{ user.accolade_points or 0 }}</p>
-        <p><strong>Status:</strong>
-          {% if user.is_banned %}
-            <span class="badge bg-danger">BANNED</span>
-          {% else %}
-            <span class="badge bg-success">Active</span>
-          {% endif %}
-        </p>
 
-        {# Species-guess accuracy badge #}
-        {% set badge = user.guess_badge %}
-        {% if badge %}
-        <hr>
+  {# ── Left panel ─────────────────────────────────────────────────── #}
+  <div class="col-md-4">
+
+    {# Accolade badges #}
+    <div class="card mb-3">
+      <div class="card-header"><strong>Accolades</strong></div>
+      <div class="card-body">
+        {% set all_badges = user.earned_badges %}
+        {% if all_badges %}
+        <div class="d-flex flex-wrap gap-2">
+          {% for b in all_badges %}
+          <span class="badge bg-{{ b.color }} fs-6 px-2 py-1" title="{{ b.desc }}">{{ b.icon }} {{ b.name }}</span>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted small mb-0">No accolades yet — keep competing!</p>
+        {% endif %}
+
+        {# Species guess accuracy badge #}
+        {% set gb = user.guess_badge %}
+        {% if gb %}
+        <hr class="my-2">
         <div class="text-center">
-          <span class="badge bg-{{ badge.color }} fs-5 px-3 py-2">
-            {{ badge.icon }} {{ badge.name }}
-          </span>
-          <p class="text-muted small mt-1">{{ badge.desc }}</p>
-          {% set total = user.total_guesses or 0 %}
-          {% set correct = user.correct_guesses or 0 %}
-          {% if total > 0 %}
-          <p class="text-muted small mb-0">
-            {{ correct }}/{{ total }} correct
-            ({{ '%.0f' % (correct / total * 100) }}%)
-          </p>
+          <span class="badge bg-{{ gb.color }} fs-6 px-2 py-1">{{ gb.icon }} {{ gb.name }}</span>
+          <p class="text-muted small mt-1 mb-0">{{ gb.desc }}</p>
+          {% set tot = user.total_guesses or 0 %}{% set cor = user.correct_guesses or 0 %}
+          {% if tot > 0 %}
+          <p class="text-muted small mb-0">{{ cor }}/{{ tot }} correct ({{ '%.0f'%(cor/tot*100) }}%)</p>
           {% endif %}
         </div>
         {% elif (user.total_guesses or 0) > 0 %}
-        <hr>
-        <p class="text-muted small text-center">
-          {{ user.correct_guesses or 0 }}/{{ user.total_guesses }} correct guesses
-          — keep going to earn a badge!
-        </p>
+        <hr class="my-2">
+        <p class="text-muted small text-center mb-0">{{ user.correct_guesses or 0 }}/{{ user.total_guesses }} correct guesses — keep going!</p>
         {% endif %}
       </div>
     </div>
+
+    {# Account stats #}
+    <div class="card mb-3">
+      <div class="card-header"><strong>Account</strong></div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          <li class="list-group-item d-flex justify-content-between py-2"><span class="text-muted">ELO</span><strong>{{ user.elo }}</strong></li>
+          <li class="list-group-item d-flex justify-content-between py-2"><span class="text-muted">Accolade Points</span><strong>{{ user.accolade_points or 0 }}</strong></li>
+          <li class="list-group-item d-flex justify-content-between py-2"><span class="text-muted">Bugs Submitted</span><strong>{{ stats.bugs_submitted }}</strong></li>
+          <li class="list-group-item d-flex justify-content-between py-2"><span class="text-muted">Tournament Wins</span><strong>{{ user.tournaments_won or 0 }}</strong></li>
+          <li class="list-group-item d-flex justify-content-between py-2"><span class="text-muted">Species Pioneered</span><strong>{{ pioneer_count }}</strong></li>
+          <li class="list-group-item d-flex justify-content-between py-2"><span class="text-muted">Win Rate</span><strong>{{ stats.win_rate }}%</strong></li>
+          <li class="list-group-item d-flex justify-content-between py-2"><span class="text-muted">Account Age</span><strong>{{ stats.account_age_days or '—' }} days</strong></li>
+        </ul>
+      </div>
+    </div>
   </div>
+
+  {# ── Right panel: charts + bugs ──────────────────────────────────── #}
   <div class="col-md-8">
-    <div class="card">
-      <div class="card-header"><strong>Stats</strong></div>
-      <div class="card-body">
-        <div class="row">
-          <div class="col-6 col-md-4 mb-3"><strong>Bugs Submitted:</strong><br>{{ stats.bugs_submitted }}</div>
-          <div class="col-6 col-md-4 mb-3"><strong>Total Wins:</strong><br>{{ stats.total_wins }}</div>
-          <div class="col-6 col-md-4 mb-3"><strong>Total Losses:</strong><br>{{ stats.total_losses }}</div>
-          <div class="col-6 col-md-4 mb-3"><strong>Win Rate:</strong><br>{{ stats.win_rate }}%</div>
-          <div class="col-6 col-md-4 mb-3"><strong>Comments:</strong><br>{{ stats.comments_made }}</div>
-          <div class="col-6 col-md-4 mb-3"><strong>Lore Entries:</strong><br>{{ stats.lore_entries }}</div>
-          <div class="col-6 col-md-4 mb-3"><strong>Account Age:</strong><br>{{ stats.account_age_days if stats.account_age_days is not none else '—' }} days</div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-header"><strong>Tier Distribution</strong></div>
+          <div class="card-body d-flex align-items-center justify-content-center" style="min-height:180px">
+            <canvas id="tierChart" style="max-height:160px"></canvas>
+          </div>
         </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-header"><strong>Avg. Stats Radar</strong></div>
+          <div class="card-body d-flex align-items-center justify-content-center" style="min-height:180px">
+            <canvas id="radarChart" style="max-height:160px"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header"><strong>Attack Types</strong></div>
+      <div class="card-body" style="max-height:160px;overflow:hidden">
+        <canvas id="typeChart" style="max-height:130px"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><strong>Recent Field Journal</strong></div>
+      <div class="card-body p-0">
+        {% for bug in recent_bugs %}
+        <div class="d-flex align-items-center gap-2 border-bottom py-2 px-3">
+          <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="fw-bold text-decoration-none">{{ bug.nickname }}</a>
+          {% if bug.tier %}<span class="badge bg-secondary small">{{ bug.tier|upper }}</span>{% endif %}
+          {% if bug.is_zombug %}<span class="badge bg-dark small">🧟</span>{% endif %}
+          <span class="text-muted small ms-auto">{{ bug.common_name or bug.scientific_name or 'Unknown' }}</span>
+          {% if bug.location_found %}<span class="text-muted small">· {{ bug.location_found }}</span>{% endif %}
+        </div>
+        {% else %}
+        <p class="text-muted p-3 mb-0">No bugs submitted yet.</p>
+        {% endfor %}
       </div>
     </div>
   </div>
 </div>
+{% endblock %}
 
-<div class="card mt-4">
-  <div class="card-header"><strong>Recent Field Journal</strong></div>
-  <div class="card-body">
-    {% for bug in recent_bugs %}
-    <div class="border-bottom py-2">
-      <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">{{ bug.nickname }}</a>
-      <span class="text-muted small">
-        {{ bug.common_name or bug.scientific_name or 'Unknown species' }}
-        {% if bug.location_found %} · {{ bug.location_found }}{% endif %}
-      </span>
-    </div>
-    {% else %}
-    <p class="text-muted">No bugs submitted yet.</p>
-    {% endfor %}
-  </div>
-</div>
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+const tierData   = {{ tier_counts  | safe }};
+const typeData   = {{ type_counts  | safe }};
+const avgStats   = {{ avg_stats    | safe }};
+
+// Tier doughnut
+const tierLabels = Object.keys(tierData);
+const tierVals   = Object.values(tierData);
+const tierColors = {'uber':'#dc3545','ou':'#fd7e14','uu':'#0d6efd','ru':'#0dcaf0','nu':'#6c757d','unranked':'#adb5bd','zu':'#212529'};
+new Chart(document.getElementById('tierChart'), {
+  type: 'doughnut',
+  data: {
+    labels: tierLabels.map(t => t.toUpperCase()),
+    datasets: [{ data: tierVals, backgroundColor: tierLabels.map(t => tierColors[t]||'#999'), borderWidth:1 }]
+  },
+  options: { plugins: { legend: { position:'right', labels:{font:{size:11}} } }, responsive:true, maintainAspectRatio:true }
+});
+
+// Radar
+new Chart(document.getElementById('radarChart'), {
+  type: 'radar',
+  data: {
+    labels: ['Attack','Defense','Speed','Lethality','Grip','Cunning'],
+    datasets: [{
+      label: 'Avg Stats',
+      data: [avgStats.attack, avgStats.defense, avgStats.speed, avgStats.lethality/10, avgStats.grip/10, avgStats.cunning/10],
+      backgroundColor: 'rgba(13,110,253,0.2)', borderColor: '#0d6efd', pointBackgroundColor: '#0d6efd'
+    }]
+  },
+  options: { scales: { r: { min:0, max:10, ticks:{display:false} } }, plugins:{legend:{display:false}}, responsive:true, maintainAspectRatio:true }
+});
+
+// Attack type bar
+if (Object.keys(typeData).length) {
+  new Chart(document.getElementById('typeChart'), {
+    type: 'bar',
+    data: {
+      labels: Object.keys(typeData),
+      datasets: [{ data: Object.values(typeData), backgroundColor: '#6c757d' }]
+    },
+    options: { indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{ticks:{stepSize:1}}}, responsive:true, maintainAspectRatio:false }
+  });
+} else {
+  document.getElementById('typeChart').closest('.card-body').innerHTML = '<p class="text-muted small mb-0">No attack type data yet.</p>';
+}
+</script>
 {% endblock %}

@@ -18,6 +18,9 @@ ACHIEVEMENT_REWARDS = {
     'tournament_champion': 100,
     'lore_magnet': 10,
     'arena_legend': 200,
+    'season_veteran': 75,
+    'regular_season_champion': 150,
+    'season_champion': 300,
 }
 
 

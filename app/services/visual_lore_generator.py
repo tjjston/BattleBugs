@@ -234,95 +234,50 @@ BE CREATIVE! Find interesting details. If the bug is near a twig, maybe it's a L
 
 def generate_lore_enhanced_battle_narrative(bug1, bug2, winner):
     """
-    Enhanced battle narrative that SECRETLY incorporates visual lore
-    
-    The narrative subtly mentions items/advantages without being obvious
+    Enhanced battle narrative routed through LLMService (defaults to Ollama/Qwen).
+    Secretly incorporates visual lore without revealing it to users.
     """
-    from anthropic import Anthropic
-    from flask import current_app
-    
-    # Get secret lore (never shown to users directly)
+    from app.services.llm_manager import LLMService
+
     secret1 = bug1.get_secret_lore()
     secret2 = bug2.get_secret_lore()
-    
-    # Get public lore (user-provided)
     public1 = bug1.get_public_lore()
     public2 = bug2.get_public_lore()
-    
-    # Build narrative prompt
+
     prompt = f"""Generate an epic 3-paragraph battle narrative between two bug gladiators.
 
 **{bug1.nickname}**
-Stats: ATK:{bug1.attack} DEF:{bug1.defense} SPD:{bug1.speed}
 Background: {public1.get('background') or 'Unknown origin'}
 Motivation: {public1.get('motivation') or 'Fights for glory'}
 Personality: {public1.get('personality') or 'Unknown'}
-
-SECRET ADVANTAGES (weave these SUBTLY into narrative):
-{secret1['visual_analysis']}
-Items: {secret1['items_weapons']}
-Environment: {secret1['environment']}
-XFactor: {secret1['xfactor']:+.1f} - {secret1['xfactor_reason']}
+Secret edge: {secret1['items_weapons']} | {secret1['environment']} | xfactor {secret1['xfactor']:+.1f}
 
 **{bug2.nickname}**
-Stats: ATK:{bug2.attack} DEF:{bug2.defense} SPD:{bug2.speed}
 Background: {public2.get('background') or 'Unknown origin'}
 Motivation: {public2.get('motivation') or 'Fights for glory'}
 Personality: {public2.get('personality') or 'Unknown'}
-
-SECRET ADVANTAGES (weave these SUBTLY into narrative):
-{secret2['visual_analysis']}
-Items: {secret2['items_weapons']}
-Environment: {secret2['environment']}
-XFactor: {secret2['xfactor']:+.1f} - {secret2['xfactor_reason']}
+Secret edge: {secret2['items_weapons']} | {secret2['environment']} | xfactor {secret2['xfactor']:+.1f}
 
 **WINNER: {winner.nickname}**
 
-INSTRUCTIONS:
-1. Write a dramatic 3-paragraph battle (Opening, Mid-battle, Climax)
-2. SUBTLY incorporate the secret visual advantages WITHOUT being obvious
-   - If bug has grass blade: mention "swift movements" or "precise strikes"
-   - If bug has environmental advantage: describe tactical positioning
-   - If bug has posture advantage: describe combat readiness
-3. Use the user-provided lore (background, motivation) naturally
-4. The winner's xfactor advantage should influence how they win
-5. Keep under 300 words
-6. DO NOT explicitly say "using the grass blade as a sword" - be subtle!
+Write a dramatic 3-paragraph battle (Opening / Mid-battle / Climax). Weave the secret edges in
+SUBTLY — never name them literally. Use the lore and personality naturally. Keep under 300 words.
+End with a one-line declaration of the winner."""
 
-Write an exciting narrative that makes the battle memorable!
-"""
-    
     try:
-        api_key = current_app.config.get('ANTHROPIC_API_KEY')
-        if api_key:
-            client = Anthropic(api_key=api_key)
-            
-            message = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=800,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            return message.content[0].text
+        llm = LLMService()
+        return llm.generate(prompt, task='battle_narrative', max_tokens=800, temperature=0.85)
     except Exception as e:
-        current_app.logger.warning("Lore-enhanced narrative failed: %s", e)
-    
-    # Fallback
-    return f"""
-THE ARENA TREMBLES
+        current_app.logger.warning("Battle narrative failed: %s", e)
 
-{bug1.nickname} and {bug2.nickname} enter the arena, the crowd roaring with anticipation.
-{bug1.nickname} {public1.get('motivation', 'prepares for battle')}, while {bug2.nickname} 
-{public2.get('motivation', 'stands ready')}.
-
-The battle begins with incredible ferocity! Both warriors employ their unique fighting styles,
-drawing on their backgrounds and training. The arena floor shakes with each clash.
-
-In a stunning finale, {winner.nickname} emerges victorious! Through skill, determination, and 
-perhaps a touch of fate, victory is claimed. The crowd erupts in celebration!
-
-Winner: {winner.nickname} 🏆
-"""
+    return (
+        f"THE ARENA TREMBLES\n\n"
+        f"{bug1.nickname} and {bug2.nickname} face off before a roaring crowd. "
+        f"Both fighters draw on everything that brought them here.\n\n"
+        f"The clash is fierce — momentum shifts, the ground shakes, and neither side yields easily.\n\n"
+        f"In the end, {winner.nickname} seizes the moment and claims victory. The crowd erupts. "
+        f"{winner.nickname} wins! \U0001f3c6"
+    )
 
 
 # Example xfactor scenarios that could appear:

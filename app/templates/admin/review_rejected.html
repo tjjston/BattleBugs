@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% block title %}Admin Review Queue{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2>Rejected Submission Review Queue</h2>
+  <span class="badge bg-warning text-dark fs-6">{{ submissions|length }} pending</span>
+</div>
+
+{% if not submissions %}
+<div class="alert alert-success">No submissions awaiting review.</div>
+{% endif %}
+
+{% for sub in submissions %}
+<div class="card mb-4 border-warning">
+  <div class="card-header bg-warning bg-opacity-10 d-flex justify-content-between align-items-center">
+    <div>
+      <strong>{{ sub.nickname or '(no nickname)' }}</strong>
+      <span class="text-muted small ms-2">by {{ sub.submitter.username }} on {{ sub.submitted_at.strftime('%Y-%m-%d %H:%M') }}</span>
+    </div>
+    <span class="badge bg-warning text-dark">{{ sub.status }}</span>
+  </div>
+  <div class="card-body">
+    <div class="row">
+      {% if sub.image_path %}
+      <div class="col-md-4">
+        <img src="{{ url_for('main.uploaded_file', filename=sub.image_path) }}"
+             class="img-fluid rounded mb-2" alt="Rejected submission image"
+             style="max-height:250px;object-fit:contain;">
+      </div>
+      {% endif %}
+      <div class="col">
+        {% if sub.description %}
+        <p><strong>Description:</strong> {{ sub.description }}</p>
+        {% endif %}
+        {% if sub.location_found %}
+        <p><strong>Location:</strong> {{ sub.location_found }}</p>
+        {% endif %}
+        {% if sub.user_species_guess %}
+        <p><strong>User's species guess:</strong> {{ sub.user_species_guess }}</p>
+        {% endif %}
+        <p class="mb-1"><strong>Rejection reasons:</strong></p>
+        <ul class="small text-danger">
+          {% for reason in sub.reasons_list %}
+          <li>{{ reason }}</li>
+          {% else %}
+          <li class="text-muted">No reasons recorded.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    <div class="row g-2 mt-2">
+      <div class="col-md-6">
+        <form method="POST" action="{{ url_for('bugs.approve_rejected_submission', submission_id=sub.id) }}">
+          <div class="mb-2">
+            <textarea class="form-control form-control-sm" name="admin_notes" rows="2"
+                      placeholder="Admin notes (optional)"></textarea>
+          </div>
+          <button type="submit" class="btn btn-success btn-sm w-100"
+                  onclick="return confirm('Approve this submission and create a bug entry?')">
+            ✅ Approve &amp; Create Bug
+          </button>
+        </form>
+      </div>
+      <div class="col-md-6">
+        <form method="POST" action="{{ url_for('bugs.dismiss_rejected_submission', submission_id=sub.id) }}">
+          <div class="mb-2">
+            <textarea class="form-control form-control-sm" name="admin_notes" rows="2"
+                      placeholder="Reason for dismissal (optional)"></textarea>
+          </div>
+          <button type="submit" class="btn btn-outline-danger btn-sm w-100">
+            ❌ Dismiss
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

@@ -1,13 +1,14 @@
 from flask import Blueprint, render_template, redirect, url_for
 from flask import send_from_directory, current_app
 from app import db
-from app.models import Bug, Battle, Tournament, User, Notification
+from app.models import Bug, Battle, Tournament, User, Notification, BugAchievement, Species
 from sqlalchemy import desc, func
 from app.services.permission_system import AdminUserManager
 from app.services.news_service import get_current_season, get_recent_activity, get_cached_briefing
 from app.services.seasonal_tournament import get_active_seasonal_tournament
 from app.services.ecosystem_service import get_ecosystem_data
 from flask_login import current_user, login_required
+import json
 
 bp = Blueprint('main', __name__)
 
@@ -76,12 +77,36 @@ def hall_of_fame():
 
 @bp.route('/leaderboards')
 def leaderboards():
-    """Season-style leaderboard views using current all-time data."""
-    top_wins = Bug.query.order_by(desc(Bug.wins)).limit(20).all()
+    """Multi-category leaderboard."""
+    top_wins = Bug.query.filter(Bug.is_retired == False)\
+        .order_by(desc(Bug.wins)).limit(20).all()
     top_win_rate = Bug.query.filter((Bug.wins + Bug.losses) >= 3)\
         .order_by(desc((Bug.wins * 100.0) / (Bug.wins + Bug.losses))).limit(20).all()
-    top_users = User.query.order_by(desc(User.tournaments_won), desc(User.bugs_submitted)).limit(20).all()
-    return render_template('leaderboards.html', top_wins=top_wins, top_win_rate=top_win_rate, top_users=top_users)
+    top_collectors = User.query.order_by(desc(User.bugs_submitted)).limit(20).all()
+    top_tournament = User.query.filter(User.tournaments_won > 0)\
+        .order_by(desc(User.tournaments_won)).limit(20).all()
+    top_elo = User.query.order_by(desc(User.elo)).limit(20).all()
+    top_ap = User.query.filter(User.accolade_points > 0)\
+        .order_by(desc(User.accolade_points)).limit(20).all()
+
+    # Species pioneers: count per user via Bug join (BugAchievement has bug_id, not user_id)
+    pioneer_rows = db.session.query(
+        Bug.user_id,
+        func.count(BugAchievement.id).label('count')
+    ).join(Bug, BugAchievement.bug_id == Bug.id)\
+     .filter(BugAchievement.achievement_type == 'species_pioneer')\
+     .group_by(Bug.user_id)\
+     .order_by(desc('count')).limit(20).all()
+    pioneer_users = []
+    for row in pioneer_rows:
+        u = db.session.get(User, row.user_id)
+        if u:
+            pioneer_users.append({'user': u, 'count': row.count})
+
+    return render_template('leaderboards.html',
+                           top_wins=top_wins, top_win_rate=top_win_rate,
+                           top_collectors=top_collectors, top_tournament=top_tournament,
+                           top_elo=top_elo, top_ap=top_ap, pioneer_users=pioneer_users)
 
 
 @bp.route('/collection')
@@ -111,11 +136,50 @@ def uploaded_file(filename):
 
 @bp.route('/user/<int:user_id>')
 def user_profile(user_id):
-    """Public user profile page (viewable by everyone)."""
-    user = User.query.get_or_404(user_id)
+    """Public user profile with charts, badges and accolades."""
+    user = db.get_or_404(User, user_id)
     stats = AdminUserManager.get_user_stats(user)
-    recent_bugs = Bug.query.filter_by(user_id=user.id).order_by(Bug.submission_date.desc()).limit(10).all()
-    return render_template('user_profile.html', user=user, stats=stats, recent_bugs=recent_bugs)
+    recent_bugs = Bug.query.filter_by(user_id=user.id)\
+        .order_by(Bug.submission_date.desc()).limit(10).all()
+    all_bugs = Bug.query.filter_by(user_id=user.id).all()
+
+    # Tier distribution
+    tier_counts = {}
+    for b in all_bugs:
+        t = b.tier or 'unranked'
+        tier_counts[t] = tier_counts.get(t, 0) + 1
+
+    # Attack-type distribution
+    type_counts = {}
+    for b in all_bugs:
+        t = b.attack_type or 'unknown'
+        type_counts[t] = type_counts.get(t, 0) + 1
+
+    # Avg stats
+    if all_bugs:
+        avg_stats = {
+            'attack':   round(sum(b.attack or 0 for b in all_bugs) / len(all_bugs), 1),
+            'defense':  round(sum(b.defense or 0 for b in all_bugs) / len(all_bugs), 1),
+            'speed':    round(sum(b.speed or 0 for b in all_bugs) / len(all_bugs), 1),
+            'lethality':round(sum(b.lethality or 50 for b in all_bugs) / len(all_bugs), 1),
+            'grip':     round(sum(b.grip or 50 for b in all_bugs) / len(all_bugs), 1),
+            'cunning':  round(sum(b.cunning or 50 for b in all_bugs) / len(all_bugs), 1),
+        }
+    else:
+        avg_stats = {k: 0 for k in ('attack','defense','speed','lethality','grip','cunning')}
+
+    # Species pioneer count (BugAchievement has no user_id; join through Bug)
+    from app.models import Bug as _Bug
+    pioneer_count = BugAchievement.query\
+        .join(_Bug, BugAchievement.bug_id == _Bug.id)\
+        .filter(_Bug.user_id == user.id, BugAchievement.achievement_type == 'species_pioneer').count()
+
+    return render_template('user_profile.html', user=user, stats=stats,
+                           recent_bugs=recent_bugs,
+                           tier_counts=json.dumps(tier_counts),
+                           type_counts=json.dumps(type_counts),
+                           avg_stats=json.dumps(avg_stats),
+                           pioneer_count=pioneer_count)
 
 
 @bp.route('/me')
@@ -139,10 +203,30 @@ def notifications():
     return render_template('notifications.html', notifications=notifs)
 
 
+@bp.route('/notifications/<int:notif_id>/dismiss', methods=['POST'])
+@login_required
+def dismiss_notification(notif_id):
+    """Mark a single notification as read (called from victory toast dismiss)."""
+    from flask import jsonify
+    notif = db.session.get(Notification, notif_id)
+    if notif and notif.user_id == current_user.id:
+        notif.is_read = True
+        db.session.commit()
+    return jsonify({'ok': True})
+
+
 @bp.app_context_processor
 def inject_unread_notifications():
-    """Make unread notification count available to all templates."""
+    """Make unread notification count and unread victory banners available to all templates."""
     count = 0
+    victory_banners = []
     if current_user.is_authenticated:
         count = current_user.notifications.filter_by(is_read=False).count()
-    return {'unread_notification_count': count}
+        victory_banners = (
+            current_user.notifications
+            .filter_by(is_read=False, notification_type='tournament_victory')
+            .order_by(Notification.created_at.desc())
+            .limit(5)
+            .all()
+        )
+    return {'unread_notification_count': count, 'victory_banners': victory_banners}

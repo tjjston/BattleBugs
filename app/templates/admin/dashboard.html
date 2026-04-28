@@ -6,54 +6,179 @@
 <h1>Admin Dashboard</h1>
 <p class="text-muted">Overview and quick links.</p>
 
-<div class="row g-4">
-  <div class="col-md-3">
-    <div class="card text-bg-light">
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card text-bg-light h-100">
       <div class="card-body">
-        <div class="h4">{{ total_bugs }}</div>
-        <div class="text-muted">Bugs</div>
+        <div class="h4 mb-0">{{ total_bugs }}</div>
+        <div class="text-muted small">Bugs</div>
       </div>
     </div>
   </div>
-  <div class="col-md-3">
-    <div class="card text-bg-light">
+  <div class="col-6 col-md-3">
+    <div class="card text-bg-light h-100">
       <div class="card-body">
-        <div class="h4">{{ total_users }}</div>
-        <div class="text-muted">Users</div>
+        <div class="h4 mb-0">{{ total_users }}</div>
+        <div class="text-muted small">Users</div>
       </div>
     </div>
   </div>
-  <div class="col-md-3">
-    <div class="card text-bg-light">
+  <div class="col-6 col-md-3">
+    <div class="card text-bg-light h-100">
       <div class="card-body">
-        <div class="h4">{{ total_battles }}</div>
-        <div class="text-muted">Battles</div>
+        <div class="h4 mb-0">{{ total_battles }}</div>
+        <div class="text-muted small">Battles</div>
       </div>
     </div>
   </div>
-  <div class="col-md-3">
-    <div class="card text-bg-light">
+  <div class="col-6 col-md-3">
+    <div class="card text-bg-light h-100">
       <div class="card-body">
-        <div class="h4">{{ total_tournaments }}</div>
-        <div class="text-muted">Tournaments</div>
+        <div class="h4 mb-0">{{ total_tournaments }}</div>
+        <div class="text-muted small">Tournaments</div>
       </div>
     </div>
   </div>
 </div>
 
-<div class="mt-4">
-  <a class="btn btn-primary me-2" href="{{ url_for('admin.manage_users') }}">Manage Users</a>
-  <a class="btn btn-outline-secondary me-2" href="{{ url_for('admin.moderation_queue') }}">Moderation Queue</a>
-  <a class="btn btn-outline-secondary me-2 position-relative" href="{{ url_for('admin.classification_flags') }}">
-    Classification Disputes
-    {% if pending_classification_flags %}
-    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
-      {{ pending_classification_flags }}
-    </span>
-    {% endif %}
-  </a>
-  <a class="btn btn-outline-secondary me-2" href="{{ url_for('admin.db_explorer') }}">DB Explorer</a>
-  <a class="btn btn-outline-secondary me-2" href="{{ url_for('admin.xfactor_insights') }}">X-Factor Insights</a>
-  <a class="btn btn-outline-secondary" href="{{ url_for('admin.jobs') }}">Background Jobs</a>
+<div class="row g-4">
+
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-header"><strong>Users &amp; Moderation</strong></div>
+      <div class="card-body d-grid gap-2">
+        <a class="btn btn-outline-primary" href="{{ url_for('admin.manage_users') }}">Manage Users</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('admin.moderation_queue') }}">Moderation Queue</a>
+        <a class="btn btn-outline-secondary position-relative" href="{{ url_for('admin.classification_flags') }}">
+          Classification Disputes
+          {% if pending_classification_flags %}
+          <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+            {{ pending_classification_flags }}
+          </span>
+          {% endif %}
+        </a>
+        <a class="btn btn-outline-warning position-relative" href="{{ url_for('bugs.review_rejected_submissions') }}">
+          Rejected Submissions Review
+          {% set _rej = pending_rejected_count | default(0) %}
+          {% if _rej %}
+          <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark">
+            {{ _rej }}
+          </span>
+          {% endif %}
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-header"><strong>Bugs &amp; Tournaments</strong></div>
+      <div class="card-body d-grid gap-2">
+        <a class="btn btn-outline-primary" href="{{ url_for('admin.bug_list') }}">Edit Bugs</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('admin.tournament_list') }}">Manage Tournaments</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('admin.xfactor_insights') }}">X-Factor Insights</a>
+        {% if flagged_bugs %}
+        <a class="btn btn-outline-warning position-relative" href="{{ url_for('admin.flagged_bugs') }}">
+          Flagged Bugs
+          <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark">
+            {{ flagged_bugs }}
+          </span>
+        </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-header"><strong>System</strong></div>
+      <div class="card-body d-grid gap-2">
+        <a class="btn btn-outline-primary" href="{{ url_for('admin.system_settings') }}">System Settings / LLM Toggle</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('admin.jobs') }}">Background Jobs</a>
+        <form method="post" action="{{ url_for('admin.trigger_seasonal_tournaments') }}" class="d-grid">
+          <button type="submit" class="btn btn-outline-warning">Create Seasonal Tournaments</button>
+        </form>
+        <a class="btn btn-outline-secondary" href="{{ url_for('admin.db_explorer') }}">DB Explorer</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('admin.matchup_predictor') }}">Matchup Predictor</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('tournaments.list_seasons') }}">Seasons</a>
+        {# Mass season cohort creation #}
+        <button class="btn btn-outline-success" type="button" data-bs-toggle="collapse" data-bs-target="#cohortForm">🗓 Create Season Cohort</button>
+        <div class="collapse" id="cohortForm">
+          <form method="post" action="{{ url_for('admin.create_season_cohort') }}" class="mt-2 border rounded p-3">
+            <p class="small text-muted mb-2">Creates one season per tier (NU/RU/UU/OU) — 2 wk reg · 10 wk regular · 1 wk round-robin.</p>
+            <div class="d-flex gap-2 align-items-center">
+              <select name="target_season" class="form-select form-select-sm" style="max-width:160px">
+                <option value="current">Current season</option>
+                <option value="next">Next season</option>
+              </select>
+              <button type="submit" class="btn btn-sm btn-success">Create All Tiers</button>
+            </div>
+          </form>
+        </div>
+        {# Single season creation #}
+        <button class="btn btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#createSeasonForm">+ Create Single Season</button>
+        <div class="collapse" id="createSeasonForm">
+          <form method="post" action="{{ url_for('admin.create_season') }}" class="mt-2 border rounded p-3">
+            <div class="row g-2">
+              <div class="col-md-4">
+                <input type="text" name="name" class="form-control form-control-sm" placeholder="Season name (optional)">
+              </div>
+              <div class="col-md-3">
+                <select name="tier" class="form-select form-select-sm">
+                  <option value="">— all tiers —</option>
+                  {% for t in ['uber','ou','uu','ru','nu','zu'] %}
+                  <option value="{{ t }}">{{ t|upper }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-2">
+                <input type="number" name="reg_weeks" class="form-control form-control-sm" value="2" min="1" max="4" title="Registration period (weeks)">
+              </div>
+              <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-primary">Create</button>
+              </div>
+            </div>
+            <small class="text-muted">Name · Tier · Registration weeks (default 2)</small>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="row g-4 mt-2">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><strong>Recent Bugs</strong></div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          {% for bug in recent_bugs %}
+          <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+            <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">{{ bug.nickname }}</a>
+            <span class="text-muted small">{{ bug.submission_date.strftime('%Y-%m-%d') if bug.submission_date else '—' }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><strong>Recent Battles</strong></div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          {% for battle in recent_battles %}
+          <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+            <a href="{{ url_for('battles.view_battle', battle_id=battle.id) }}">
+              {{ battle.bug1.nickname if battle.bug1 else '?' }} vs {{ battle.bug2.nickname if battle.bug2 else '?' }}
+            </a>
+            <span class="text-muted small">{{ battle.battle_date.strftime('%Y-%m-%d') if battle.battle_date else '—' }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}

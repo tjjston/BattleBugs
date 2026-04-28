@@ -28,8 +28,9 @@ class LLMModel(Enum):
     GPT_35_TURBO = ("openai", "gpt-3.5-turbo")
     
     # Ollama (local)
-    QWEN36_35B = ("ollama", "qwen 3.6:35b")
-    QWEN35_35B = ("ollama", "qwen 3.6:35b")  # Backward-compatible config alias
+    QWEN36_35B = ("ollama", "qwen3.6:35b")
+    QWEN35_35B = ("ollama", "qwen3.6:35b")  # Backward-compatible config alias
+    GEMMA4_31B = ("ollama", "gemma4:31b")   # Multimodal vision model
     LLAMA3 = ("ollama", "gpt-oss:120b")
     MISTRAL = ("ollama", "kimi-k2-thinking:cloud")
     CODELLAMA = ("ollama", "qwen3vl")
@@ -49,8 +50,8 @@ class LLMConfig:
     TASK_MODELS = {
         'battle_narrative': LLMModel.QWEN36_35B,
         'stat_generation': LLMModel.QWEN36_35B,
-        'vision_analysis': LLMModel.QWEN36_35B,
-        'species_identification': LLMModel.QWEN36_35B,
+        'vision_analysis': LLMModel.GEMMA4_31B,
+        'species_identification': LLMModel.GEMMA4_31B,
         'quick_tasks': LLMModel.QWEN36_35B,
     }
     
@@ -171,7 +172,7 @@ class LLMService:
         elif model.provider == "openai":
             return self._generate_openai(prompt, model, max_tokens, temperature, system_prompt, json_mode)
         elif model.provider == "ollama":
-            return self._generate_ollama(prompt, model, max_tokens, temperature, system_prompt)
+            return self._generate_ollama(prompt, model, max_tokens, temperature, system_prompt, image_data)
         else:
             raise ValueError(f"Unsupported provider: {model.provider}")
     
@@ -265,53 +266,62 @@ class LLMService:
         model: LLMModel,
         max_tokens: int,
         temperature: float,
-        system_prompt: Optional[str]
+        system_prompt: Optional[str],
+        image_data: Optional[Dict[str, str]] = None,
     ) -> str:
-        """Generate using local Ollama"""
-        import requests
-        
-        url = f"{self._get_ollama_url()}/api/generate"
-        
-        full_prompt = prompt
+        """Generate using local Ollama via its OpenAI-compatible /v1 endpoint."""
+        from openai import OpenAI
+
+        base_url = self._get_ollama_url().rstrip('/')
+        if not base_url.endswith('/v1'):
+            base_url = f"{base_url}/v1"
+
+        client = OpenAI(base_url=base_url, api_key="ollama")
+
+        messages: list = []
         if system_prompt:
-            full_prompt = f"{system_prompt}\n\n{prompt}"
-        
-        data = {
-            "model": model.model_name,
-            "prompt": full_prompt,
-            "stream": False,
-            "options": {
-                "temperature": temperature,
-                "num_predict": max_tokens
-            }
-        }
-        
-        response = requests.post(url, json=data, timeout=60)
-        response.raise_for_status()
-        
-        return response.json()['response']
+            messages.append({"role": "system", "content": system_prompt})
+
+        if image_data and image_data.get("base64"):
+            media_type = image_data.get("media_type", "image/jpeg")
+            content: list = [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{media_type};base64,{image_data['base64']}"
+                    },
+                },
+                {"type": "text", "text": prompt},
+            ]
+            messages.append({"role": "user", "content": content})
+        else:
+            messages.append({"role": "user", "content": prompt})
+
+        response = client.chat.completions.create(
+            model=model.model_name,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        return response.choices[0].message.content
     
     def generate_json(
         self,
         prompt: str,
         task: Optional[str] = None,
         model: Optional[LLMModel] = None,
-        max_tokens: int = 1024
+        max_tokens: int = 1024,
+        image_data: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
-        """
-        Generate and parse JSON response
-        
-        Returns:
-            Parsed JSON dictionary
-        """
+        """Generate and parse JSON response."""
         response = self.generate(
             prompt=prompt,
             task=task,
             model=model,
             max_tokens=max_tokens,
-            json_mode=True
+            json_mode=True,
+            image_data=image_data,
         )
-        
         return json.loads(response)
 
 

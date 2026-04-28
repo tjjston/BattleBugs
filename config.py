@@ -22,7 +22,7 @@ class Config:
     # File uploads (use absolute path inside project to avoid cwd issues)
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER') or os.path.join(basedir, 'uploads')
     MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH', 16 * 1024 * 1024))  # 16MB
-    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif', 'tiff', 'tif', 'bmp'}
     
     # Anthropic API
     ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')

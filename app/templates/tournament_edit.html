@@ -37,6 +37,17 @@
     </div>
 
     <div class="col-12">
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" value="1" id="retirement_event" name="retirement_event"
+                   {% if tournament.retirement_event %}checked{% endif %}>
+            <label class="form-check-label" for="retirement_event">
+                🎖️ <strong>Retirement Event</strong>
+                <span class="text-muted small ms-1">— open only to retired season veterans</span>
+            </label>
+        </div>
+    </div>
+
+    <div class="col-12">
         <button type="submit" class="btn btn-primary">Save Changes</button>
         <a href="{{ url_for('tournaments.view_tournament', tournament_id=tournament.id) }}" class="btn btn-secondary">Cancel</a>
         <form method="post" action="{{ url_for('tournaments.delete_tournament', tournament_id=tournament.id) }}" style="display:inline">

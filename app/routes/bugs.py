@@ -7,7 +7,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
-from app.models import Bug, Species, Comment, BugLore, CommentVote, BugLoreVote, Job, BugRival, ClassificationFlag, BlockedImageHash
+from app.models import Bug, Species, Comment, BugLore, CommentVote, BugLoreVote, Job, BugRival, ClassificationFlag, BlockedImageHash, RejectedSubmission
 from sqlalchemy import func
 from app.services.vision_service import comprehensive_bug_verification
 from app.services.tier_system import LLMStatGenerator, TierSystem, assign_tier_and_generate_stats
@@ -19,6 +19,7 @@ from app.services.economy import (
     should_charge_for_stat_regeneration,
     spend_currency,
 )
+import json
 import os
 from datetime import datetime
 import imagehash
@@ -26,6 +27,35 @@ from PIL import Image
 
 
 bp = Blueprint('bugs', __name__)
+
+
+def _save_rejected_for_review(temp_path, user_id, nickname, description,
+                               location_found, user_species_guess, rejection_reasons):
+    """Move the rejected image to the review folder and persist a RejectedSubmission record."""
+    try:
+        review_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], 'review')
+        os.makedirs(review_dir, exist_ok=True)
+        review_filename = f"review_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{os.path.basename(temp_path)}"
+        review_path = os.path.join(review_dir, review_filename)
+        os.rename(temp_path, review_path)
+        record = RejectedSubmission(
+            user_id=user_id,
+            image_path=f'review/{review_filename}',
+            nickname=nickname,
+            description=description,
+            location_found=location_found,
+            user_species_guess=user_species_guess,
+            rejection_reasons=json.dumps(rejection_reasons or []),
+        )
+        db.session.add(record)
+        db.session.commit()
+    except Exception as e:
+        current_app.logger.warning("Could not save rejected submission for review: %s", e)
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except Exception:
+            pass
 
 def allowed_file(filename):
     return '.' in filename and \
@@ -85,12 +115,18 @@ def view_bug(bug_id):
         (BugRival.encounter_count >= 2)
     ).order_by(BugRival.encounter_count.desc()).limit(5).all()
 
+    show_exact_stats = (
+        current_user.is_authenticated and
+        (current_user.id == bug.user_id or
+         current_user.role in ('MODERATOR', 'ADMIN', 'OWNER'))
+    )
     return render_template('bug_profile.html',
                          bug=bug,
                          comments=comments,
                          lore=lore,
                          jobs=jobs,
-                         rivals=rivals)
+                         rivals=rivals,
+                         show_exact_stats=show_exact_stats)
 
 def handle_submission():
     """Process bug submission with LLM-controlled classification"""
@@ -100,6 +136,7 @@ def handle_submission():
     description = request.form.get('description')
     location_found = request.form.get('location_found')
     user_species_guess = request.form.get('user_species_guess')
+    send_to_admin_review = bool(request.form.get('send_to_admin_review'))
 
     # Get user lore fields
     lore_data = {
@@ -140,7 +177,29 @@ def handle_submission():
         current_app.logger.exception("Could not save uploaded bug image")
         flash(f'Could not save upload. Check UPLOAD_FOLDER permissions: {e}', 'danger')
         return redirect(url_for('bugs.submit_bug'))
-    
+
+    # Convert HEIC/HEIF/TIFF/BMP → JPEG so downstream tools (imagehash, LLM) work
+    ext_raw = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+    if ext_raw in ('heic', 'heif', 'tiff', 'tif', 'bmp'):
+        try:
+            if ext_raw in ('heic', 'heif'):
+                try:
+                    import pillow_heif
+                    pillow_heif.register_heif_opener()
+                except ImportError:
+                    pass  # try Pillow directly; may work on some builds
+            converted_path = temp_path.rsplit('.', 1)[0] + '.jpg'
+            img_conv = Image.open(temp_path).convert('RGB')
+            img_conv.save(converted_path, 'JPEG', quality=92)
+            os.remove(temp_path)
+            temp_path = converted_path
+            temp_filename = os.path.basename(converted_path)
+        except Exception as conv_err:
+            current_app.logger.warning("Could not convert %s to JPEG: %s", ext_raw, conv_err)
+            flash(f'Could not process {ext_raw.upper()} file. Try converting to JPEG first.', 'danger')
+            os.remove(temp_path)
+            return redirect(url_for('bugs.submit_bug'))
+
     try:
         # --- Duplicate / blocked image hash check (before LLM call to save quota) ---
         candidate_hash = imagehash.average_hash(Image.open(temp_path))
@@ -184,15 +243,27 @@ def handle_submission():
 
         # Check if LLM approved
         if not classification.approved:
-            os.remove(temp_path)
             flash('❌ Submission Rejected', 'danger')
             for reason in classification.rejection_reasons:
                 flash(f'• {reason}', 'warning')
-            
-            # Show user's guess feedback if provided
+
             if classification.user_guess_feedback:
                 flash(f'About your identification: {classification.user_guess_feedback}', 'info')
-            
+
+            if send_to_admin_review:
+                _save_rejected_for_review(
+                    temp_path=temp_path,
+                    user_id=current_user.id,
+                    nickname=nickname,
+                    description=description,
+                    location_found=location_found,
+                    user_species_guess=user_species_guess,
+                    rejection_reasons=classification.rejection_reasons,
+                )
+                flash('Your submission has been sent to the admins for manual review.', 'info')
+            else:
+                os.remove(temp_path)
+
             return redirect(url_for('bugs.submit_bug'))
         
         # LLM APPROVED - check condition before committing
@@ -510,8 +581,9 @@ def deny_recalc_bug_stats(bug_id):
     return redirect(url_for('bugs.view_bug', bug_id=bug.id))
 
 
+@bp.route('/insectidex')
 @bp.route('/pokedex')
-def pokedex():
+def insectidex():
     """Species index with pioneer discovery data."""
     from app.models import BugAchievement, User as _User
     search = request.args.get('search', type=str)
@@ -584,16 +656,30 @@ def pokedex():
             'pioneer': pioneer_map.get(row.id),
         })
 
+    # Location markers for all bugs with lat/lon
+    location_markers = []
+    for bug in Bug.query.filter(Bug.latitude.isnot(None), Bug.longitude.isnot(None)).all():
+        species_name = (bug.species_info.common_name if bug.species_info else None) or bug.species or 'Unknown'
+        location_markers.append({
+            'lat': bug.latitude,
+            'lng': bug.longitude,
+            'nickname': bug.nickname,
+            'species': species_name,
+            'bug_id': bug.id,
+        })
+
     total_species = len(entries)
-    return render_template('pokedex.html',
+    return render_template('insectidex.html',
                            species_entries=entries,
                            search=search,
                            discovery_leaders=discovery_leaders,
-                           total_species=total_species)
+                           total_species=total_species,
+                           location_markers=location_markers)
 
 
+@bp.route('/insectidex/species/<int:species_id>')
 @bp.route('/pokedex/species/<int:species_id>')
-def pokedex_species(species_id):
+def insectidex_species(species_id):
     """Shortcut to list all bugs of a species via existing list view."""
     return redirect(url_for('bugs.list_bugs', species_id=species_id))
 
@@ -678,10 +764,13 @@ def add_comment(bug_id):
 @bp.route('/bug/<int:bug_id>/lore', methods=['POST'])
 @login_required
 def add_lore(bug_id):
-    """Add lore entry to a bug"""
+    """Add lore entry to a bug — restricted to the bug's owner and staff."""
     bug = db.get_or_404(Bug, bug_id)
+    if bug.user_id != current_user.id and current_user.role not in ('MODERATOR', 'ADMIN', 'OWNER'):
+        flash('You can only add lore to your own bugs.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
     lore_text = request.form.get('lore')
-    
+
     if not lore_text:
         flash('Lore cannot be empty', 'warning')
         return redirect(url_for('bugs.view_bug', bug_id=bug_id))
@@ -704,7 +793,7 @@ def add_lore(bug_id):
 @bp.route('/comment/<int:comment_id>/upvote', methods=['POST'])
 @login_required
 def upvote_comment(comment_id):
-    comment = Comment.query.get_or_404(comment_id)
+    comment = db.get_or_404(Comment, comment_id)
     existing = CommentVote.query.filter_by(comment_id=comment.id, user_id=current_user.id).first()
     if existing:
         return jsonify({'success': True, 'upvotes': comment.upvotes, 'already_voted': True}), 200
@@ -719,7 +808,7 @@ def upvote_comment(comment_id):
 @bp.route('/lore/<int:lore_id>/upvote', methods=['POST'])
 @login_required
 def upvote_lore(lore_id):
-    lore = BugLore.query.get_or_404(lore_id)
+    lore = db.get_or_404(BugLore, lore_id)
     existing = BugLoreVote.query.filter_by(lore_id=lore.id, user_id=current_user.id).first()
     if existing:
         return jsonify({'success': True, 'upvotes': lore.upvotes, 'already_voted': True}), 200
@@ -882,3 +971,145 @@ def correct_bug_species(bug_id):
     db.session.commit()
     flash('Species information updated.', 'success')
     return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+
+_VALID_ATTACK_TYPES = {
+    'piercing', 'crushing', 'slashing', 'venom', 'chemical',
+    'grappling', 'sonic', 'electric', 'neutral',
+}
+_VALID_DEFENSE_TYPES = {
+    'hard_shell', 'segmented_armor', 'evasive', 'hairy_spiny', 'toxic_skin',
+    'thick_hide', 'unarmored', 'regenerative', 'bioluminescent',
+}
+
+
+@bp.route('/admin/bug/<int:bug_id>/set_typing', methods=['POST'])
+@login_required
+@require_role(UserRole.MODERATOR)
+def set_bug_typing(bug_id):
+    """Allow admins/mods to set or update a bug's attack/defense typing."""
+    bug = db.get_or_404(Bug, bug_id)
+
+    attack_type = request.form.get('attack_type', '').strip() or None
+    defense_type = request.form.get('defense_type', '').strip() or None
+
+    if attack_type and attack_type not in _VALID_ATTACK_TYPES:
+        flash(f'Invalid attack type: {attack_type}', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+    if defense_type and defense_type not in _VALID_DEFENSE_TYPES:
+        flash(f'Invalid defense type: {defense_type}', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    bug.attack_type = attack_type
+    bug.defense_type = defense_type
+    db.session.commit()
+    flash('Combat typing updated.', 'success')
+    return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+
+# ── Admin rejected-submission review queue ────────────────────────────────────
+
+@bp.route('/admin/review-rejected')
+@login_required
+@require_role(UserRole.MODERATOR)
+def review_rejected_submissions():
+    submissions = (
+        RejectedSubmission.query
+        .filter_by(status='pending')
+        .order_by(RejectedSubmission.submitted_at.desc())
+        .all()
+    )
+    return render_template('admin/review_rejected.html', submissions=submissions)
+
+
+@bp.route('/admin/rejected/<int:submission_id>/dismiss', methods=['POST'])
+@login_required
+@require_role(UserRole.MODERATOR)
+def dismiss_rejected_submission(submission_id):
+    sub = db.get_or_404(RejectedSubmission, submission_id)
+    sub.status = 'dismissed'
+    sub.admin_notes = request.form.get('admin_notes', '')
+    sub.reviewed_at = datetime.utcnow()
+    sub.reviewed_by_id = current_user.id
+    db.session.commit()
+    # Clean up stored image
+    if sub.image_path:
+        img_full = os.path.join(current_app.config['UPLOAD_FOLDER'], sub.image_path)
+        try:
+            if os.path.exists(img_full):
+                os.remove(img_full)
+        except Exception:
+            pass
+    flash('Submission dismissed.', 'info')
+    return redirect(url_for('bugs.review_rejected_submissions'))
+
+
+@bp.route('/admin/rejected/<int:submission_id>/approve', methods=['POST'])
+@login_required
+@require_role(UserRole.MODERATOR)
+def approve_rejected_submission(submission_id):
+    """Admin manually approves a previously-rejected submission."""
+    sub = db.get_or_404(RejectedSubmission, submission_id)
+    if sub.status != 'pending':
+        flash('Already reviewed.', 'warning')
+        return redirect(url_for('bugs.review_rejected_submissions'))
+
+    # Move image from review folder to normal upload folder
+    if not sub.image_path:
+        flash('No image on file — cannot approve.', 'danger')
+        return redirect(url_for('bugs.review_rejected_submissions'))
+
+    review_full = os.path.join(current_app.config['UPLOAD_FOLDER'], sub.image_path)
+    if not os.path.exists(review_full):
+        flash('Image file missing — cannot approve.', 'danger')
+        return redirect(url_for('bugs.review_rejected_submissions'))
+
+    final_filename = f"approved_{sub.user_id}_{os.path.basename(sub.image_path)}"
+    final_path = os.path.join(current_app.config['UPLOAD_FOLDER'], final_filename)
+    os.rename(review_full, final_path)
+
+    from app.services.tier_system import LLMStatGenerator, TierSystem, TIER_DEFINITIONS
+    import imagehash as _ih
+
+    candidate_hash = _ih.average_hash(Image.open(final_path))
+
+    bug = Bug(
+        nickname=sub.nickname,
+        description=sub.description,
+        location_found=sub.location_found,
+        image_path=final_filename,
+        user_id=sub.user_id,
+        vision_verified=True,
+        vision_confidence=0.5,
+        requires_manual_review=False,
+        image_hash=str(candidate_hash),
+    )
+    db.session.add(bug)
+    db.session.flush()
+
+    stat_generator = LLMStatGenerator()
+    stats = stat_generator.generate_stats_with_llm({'common_name': sub.nickname or 'Unknown'})
+    bug.attack = stats.get('attack', 5)
+    bug.defense = stats.get('defense', 5)
+    bug.speed = stats.get('speed', 5)
+    bug.lethality = stats.get('lethality', 50)
+    bug.grip = stats.get('grip', 50)
+    bug.cunning = stats.get('cunning', 50)
+    bug.special_ability = stats.get('special_ability')
+    bug.stats_generation_method = 'admin_override'
+    bug.stats_generated = True
+    bug.tier = TierSystem.assign_tier(bug)
+    bug.condition = 'alive'
+    bug.generate_flair()
+
+    from app.services.job_queue import enqueue_bug_enrichment
+    enqueue_bug_enrichment(bug, final_path)
+
+    sub.status = 'approved'
+    sub.admin_notes = request.form.get('admin_notes', '')
+    sub.reviewed_at = datetime.utcnow()
+    sub.reviewed_by_id = current_user.id
+    db.session.commit()
+
+    flash(f'Submission approved — bug #{bug.id} created.', 'success')
+    return redirect(url_for('bugs.review_rejected_submissions'))

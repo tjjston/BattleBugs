@@ -8,7 +8,7 @@
 </div>
 
 <div class="row g-4">
-  <div class="col-md-7">
+  <div class="col-md-5">
     <form method="post">
       <div class="card mb-3">
         <div class="card-header"><strong>Details</strong></div>
@@ -26,6 +26,14 @@
             </select>
           </div>
           <div class="col-md-6">
+            <label class="form-label">Format</label>
+            <select name="format" class="form-select">
+              {% for f, lbl in [('single_elimination','Single Elimination'),('double_elimination','Double Elimination'),('swiss','Swiss'),('round_robin','Round Robin')] %}
+              <option value="{{ f }}" {% if (tournament.format or 'single_elimination') == f %}selected{% endif %}>{{ lbl }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
             <label class="form-label">Tier Restriction</label>
             <select name="tier" class="form-select">
               <option value="">— open —</option>
@@ -34,22 +42,26 @@
               {% endfor %}
             </select>
           </div>
-          <div class="col-md-6">
+          <div class="col-md-4">
             <label class="form-label">Max Participants</label>
-            <input type="number" name="max_participants" class="form-control" value="{{ tournament.max_participants or '' }}">
+            <input type="number" name="max_participants" class="form-control" value="{{ tournament.max_participants or '' }}" max="64" min="2">
           </div>
-          <div class="col-md-6 d-flex align-items-end">
-            <div class="form-check form-switch mb-2">
+          <div class="col-md-4">
+            <label class="form-label">Entries / User</label>
+            <input type="number" name="submissions_per_user" class="form-control" value="{{ tournament.submissions_per_user or 2 }}" min="1" max="4">
+          </div>
+          <div class="col-md-12 d-flex align-items-center gap-4">
+            <div class="form-check form-switch">
               <input class="form-check-input" type="checkbox" role="switch" name="allow_tier_above" value="1"
                      id="allowAbove" {% if tournament.allow_tier_above %}checked{% endif %}>
-              <label class="form-check-label" for="allowAbove">Allow bugs from higher tiers</label>
+              <label class="form-check-label" for="allowAbove">Allow higher-tier bugs</label>
             </div>
           </div>
         </div>
       </div>
 
       <div class="card mb-3">
-        <div class="card-header"><strong>Dates</strong> <span class="text-muted small">(ISO format: YYYY-MM-DDTHH:MM)</span></div>
+        <div class="card-header"><strong>Dates</strong></div>
         <div class="card-body row g-3">
           <div class="col-md-4">
             <label class="form-label">Start Date</label>
@@ -62,7 +74,7 @@
                    value="{{ tournament.end_date.strftime('%Y-%m-%dT%H:%M') if tournament.end_date else '' }}">
           </div>
           <div class="col-md-4">
-            <label class="form-label">Registration Deadline</label>
+            <label class="form-label">Reg. Deadline</label>
             <input type="datetime-local" name="registration_deadline" class="form-control"
                    value="{{ tournament.registration_deadline.strftime('%Y-%m-%dT%H:%M') if tournament.registration_deadline else '' }}">
           </div>
@@ -71,33 +83,8 @@
 
       <button type="submit" class="btn btn-primary">Save Changes</button>
     </form>
-  </div>
 
-  <div class="col-md-5">
-    <div class="card mb-3">
-      <div class="card-header"><strong>Applications ({{ applications|length }})</strong></div>
-      <div class="card-body p-0">
-        {% if applications %}
-        <ul class="list-group list-group-flush">
-          {% for app in applications %}
-          <li class="list-group-item d-flex justify-content-between align-items-center py-2">
-            <div>
-              <a href="{{ url_for('bugs.view_bug', bug_id=app.bug_id) }}" class="text-decoration-none">{{ app.bug.nickname if app.bug else '#' + app.bug_id|string }}</a>
-              <span class="text-muted small ms-2">by {{ app.user.username if app.user else '—' }}</span>
-            </div>
-            <span class="badge bg-{{ 'success' if app.status == 'approved' else 'secondary' if app.status == 'pending' else 'danger' }}">
-              {{ app.status }}
-            </span>
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <p class="text-muted p-3 mb-0">No applications yet.</p>
-        {% endif %}
-      </div>
-    </div>
-
-    <div class="card border-danger">
+    <div class="card border-danger mt-3">
       <div class="card-header text-danger"><strong>Danger Zone</strong></div>
       <div class="card-body">
         <form method="post" action="{{ url_for('admin.delete_tournament', tournament_id=tournament.id) }}"
@@ -106,6 +93,101 @@
         </form>
       </div>
     </div>
+  </div>
+
+  <div class="col-md-7">
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Participants ({{ applications|length }})</strong>
+        <span class="text-muted small">Max: {{ tournament.max_participants or '∞' }} · {{ tournament.submissions_per_user or 2 }} per user</span>
+      </div>
+      <div class="card-body p-0">
+        {% if applications %}
+        <table class="table table-sm mb-0">
+          <thead class="table-light"><tr><th>Bug</th><th>Owner</th><th>Status</th><th>Seed #</th><th></th></tr></thead>
+          <tbody>
+          {% for app in applications|sort(attribute='seed_number', reverse=False) %}
+          <tr>
+            <td><a href="{{ url_for('bugs.view_bug', bug_id=app.bug_id) }}" target="_blank">{{ app.bug.nickname if app.bug else '#' + app.bug_id|string }}</a></td>
+            <td class="text-muted small">{{ app.user.username if app.user else '—' }}</td>
+            <td><span class="badge bg-{{ 'success' if app.status == 'approved' else 'warning text-dark' if app.status == 'pending' else 'danger' }}">{{ app.status }}</span></td>
+            <td>
+              <form method="post" action="{{ url_for('admin.tournament_set_seed', tournament_id=tournament.id, app_id=app.id) }}" class="d-flex gap-1" style="width:90px">
+                <input type="number" name="seed" class="form-control form-control-sm" value="{{ app.seed_number or '' }}" min="1" style="width:55px">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">✓</button>
+              </form>
+            </td>
+            <td>
+              <form method="post" action="{{ url_for('admin.tournament_remove_bug', tournament_id=tournament.id, app_id=app.id) }}"
+                    onsubmit="return confirm('Remove this bug from the tournament?')">
+                <button type="submit" class="btn btn-sm btn-outline-danger">✕</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted p-3 mb-0">No participants yet.</p>
+        {% endif %}
+      </div>
+      <div class="card-footer">
+        {# Tier filter (GET param, refreshes available_bugs list) #}
+        <form method="get" class="d-flex gap-2 align-items-center mb-2">
+          <label class="form-label mb-0 small">Filter by tier:</label>
+          <select name="tier_filter" class="form-select form-select-sm" style="max-width:110px" onchange="this.form.submit()">
+            <option value="" {% if not tier_filter %}selected{% endif %}>— all —</option>
+            {% for t in ['uber','ou','uu','ru','nu','zu'] %}
+            <option value="{{ t }}" {% if tier_filter == t %}selected{% endif %}>{{ t|upper }}</option>
+            {% endfor %}
+          </select>
+          <span class="text-muted small">{{ available_bugs|length }} available</span>
+        </form>
+        <form method="post" action="{{ url_for('admin.tournament_add_bug', tournament_id=tournament.id) }}" class="d-flex gap-2 align-items-center">
+          <select name="bug_id" class="form-select form-select-sm" style="max-width:260px" required>
+            <option value="">— select a bug —</option>
+            {% for b in available_bugs %}
+            <option value="{{ b.id }}">{{ b.nickname }} ({{ b.tier|upper if b.tier else '?' }}) — {{ b.owner.username if b.owner else '?' }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-sm btn-primary" {% if not available_bugs %}disabled{% endif %}>Add Bug</button>
+        </form>
+      </div>
+    </div>
+
+    {% if tournament_battles %}
+    <div class="card">
+      <div class="card-header"><strong>Tournament Battles</strong></div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead class="table-light"><tr><th>Round</th><th>Bug 1</th><th>vs</th><th>Bug 2</th><th>Winner</th><th></th></tr></thead>
+          <tbody>
+          {% for battle in tournament_battles %}
+          <tr>
+            <td>{{ battle.round_number or '—' }}</td>
+            <td>{{ battle.bug1.nickname if battle.bug1 else '?' }}</td>
+            <td class="text-muted">vs</td>
+            <td>{{ battle.bug2.nickname if battle.bug2 else '?' }}</td>
+            <td>{{ battle.winner.nickname if battle.winner else '—' }}</td>
+            <td>
+              <button class="btn btn-xs btn-outline-warning" data-bs-toggle="collapse" data-bs-target="#overturn-{{ battle.id }}">Overturn</button>
+              <div class="collapse mt-1" id="overturn-{{ battle.id }}">
+                <form method="post" action="{{ url_for('admin.overturn_battle', battle_id=battle.id) }}">
+                  <select name="winner_id" class="form-select form-select-sm mb-1">
+                    <option value="{{ battle.bug1_id }}">{{ battle.bug1.nickname if battle.bug1 else battle.bug1_id }}</option>
+                    <option value="{{ battle.bug2_id }}">{{ battle.bug2.nickname if battle.bug2 else battle.bug2_id }}</option>
+                  </select>
+                  <button type="submit" class="btn btn-warning btn-sm w-100">Confirm Overturn</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

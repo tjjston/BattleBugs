@@ -130,3 +130,70 @@ def get_active_seasonal_tournament() -> Optional[object]:
     from app.models import Tournament
     key = get_season_key()
     return Tournament.query.filter_by(season_key=key).first()
+
+
+# Competitive tiers to auto-create each season (ascending power order)
+_AUTO_TIERS = ['nu', 'ru', 'uu', 'ou']
+
+# Season schedule relative to season start
+_REG_DURATION_WEEKS = 2
+_REGULAR_SEASON_WEEKS = 10
+_TOURNAMENT_WEEKS = 1
+
+
+def auto_create_seasonal_cohort(dt: Optional[datetime] = None) -> list:
+    """Create one Season per competitive tier for the current calendar season.
+
+    Idempotent — skips any tier that already has a Season for this period.
+    Returns a list of newly-created Season objects.
+
+    Schedule per season:
+      - Registration:     2 weeks
+      - Regular season:  10 weeks (automated daily matches)
+      - Tournament:       1 week  (round-robin, auto-scheduled)
+    """
+    from datetime import timedelta as _td
+    from app import db
+    from app.models import Season
+
+    now = dt or datetime.utcnow()
+    season_name, season_year = get_season_for_date(now)
+    season_start, _ = get_season_date_range(season_name, season_year)
+
+    # Use the actual season start, but never in the past by more than we want
+    reg_opens = max(season_start, now.replace(hour=0, minute=0, second=0, microsecond=0))
+    reg_closes = reg_opens + _td(weeks=_REG_DURATION_WEEKS)
+    rs_start = reg_closes
+    rs_end = rs_start + _td(weeks=_REGULAR_SEASON_WEEKS)
+    t_start = rs_end
+    t_end = t_start + _td(weeks=_TOURNAMENT_WEEKS)
+
+    meta = _SEASONS[season_name]
+    icon = meta['icon']
+    created = []
+
+    for tier in _AUTO_TIERS:
+        season_key = f"{season_name}_{season_year}_{tier}"
+        if Season.query.filter_by(season_key=season_key).first():
+            continue  # already exists
+
+        season = Season(
+            name=f"{icon} {season_name.capitalize()} {season_year} — {tier.upper()}",
+            tier=tier,
+            season_key=season_key,
+            phase='registration',
+            registration_opens=reg_opens,
+            registration_closes=reg_closes,
+            regular_season_start=rs_start,
+            regular_season_end=rs_end,
+            tournament_start=t_start,
+            tournament_end=t_end,
+            max_registrations=64,
+        )
+        db.session.add(season)
+        created.append(season)
+
+    if created:
+        db.session.commit()
+
+    return created

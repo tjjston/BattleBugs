@@ -43,6 +43,21 @@
       <button class="btn btn-primary" type="submit">Save changes</button>
       <a class="btn btn-secondary" href="{{ url_for('admin.manage_users') }}">Back</a>
     </form>
+
+    <hr class="my-4">
+    <h5>Reset Password</h5>
+    <form method="post" action="{{ url_for('admin.set_user_password', user_id=user.id) }}" class="row g-2 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label">New Password <small class="text-muted">(min 8 chars)</small></label>
+        <input type="password" class="form-control" name="new_password" minlength="8" required>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-warning" type="submit"
+                onclick="return confirm('Reset password for {{ user.username }}?')">
+          Reset Password
+        </button>
+      </div>
+    </form>
   </div>
 </div>
 

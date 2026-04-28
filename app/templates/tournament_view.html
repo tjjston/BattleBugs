@@ -11,11 +11,36 @@
         <span class="badge bg-{{ status_color }} fs-5">
             {{ tournament.status|upper }}
         </span>
+        {% if tournament.retirement_event %}
+        <span class="badge bg-purple fs-5 ms-2" style="background:#7c3aed !important;">🎖️ Retirement Event</span>
+        {% endif %}
     </div>
+    {% if tournament.retirement_event %}
+    <div class="alert alert-secondary text-center mb-3 py-2">
+      <strong>🎖️ Retirement Event</strong> — Only season veterans (retired bugs) may compete here.
+    </div>
+    {% endif %}
 
     {% if tournament.winner %}
-    <div class="alert alert-success text-center">
-        <h3>🏆 Champion: {{ tournament.winner.nickname }} 🏆</h3>
+    {% set w = tournament.winner %}
+    <div class="card border-warning mb-4 shadow-lg" style="background:linear-gradient(135deg,rgba(200,165,53,0.18) 0%,rgba(20,36,14,0.95) 60%);border-width:2px;">
+      <div class="card-body text-center py-4">
+        <div class="mb-2" style="font-size:2.5rem;">🏆</div>
+        <h2 class="fw-bold" style="color:var(--sun-warm,#e8c040);">{{ w.nickname }}</h2>
+        <p class="text-muted mb-2">{{ w.common_name or w.scientific_name or 'Champion' }}
+          {% if w.tier %}<span class="badge bg-warning text-dark ms-1">{{ w.tier|upper }}</span>{% endif %}
+        </p>
+        <div class="d-flex justify-content-center gap-4 mt-3 flex-wrap">
+          <div><div class="h5 mb-0">{{ w.wins }}</div><small class="text-muted">Season Wins</small></div>
+          <div><div class="h5 mb-0">{{ w.losses }}</div><small class="text-muted">Losses</small></div>
+          <div><div class="h5 mb-0">{{ "%.0f"|format(w.win_rate) }}%</div><small class="text-muted">Win Rate</small></div>
+          {% set badges = w.combat_badges %}{% if badges %}
+          <div class="d-flex flex-wrap gap-1 align-items-center">
+            {% for b in badges %}<span class="badge bg-{{ b.color }}">{{ b.icon }} {{ b.name }}</span>{% endfor %}
+          </div>{% endif %}
+        </div>
+        <a href="{{ url_for('bugs.view_bug', bug_id=w.id) }}" class="btn btn-warning mt-3 fw-semibold">View Champion Profile</a>
+      </div>
     </div>
     {% endif %}
 
@@ -23,9 +48,22 @@
     <div class="card mb-4">
         <div class="card-body">
             <h5>Tournament Details</h5>
-            <p><strong>Start Date:</strong> {{ tournament.start_date.strftime('%B %d, %Y') }}</p>
+            <p class="mb-1"><strong>Start:</strong> {{ tournament.start_date.strftime('%B %d, %Y') }}
+              {% if tournament.status in ('upcoming','registration') %}
+              — <span class="badge bg-warning text-dark"
+                      data-countdown-to="{{ tournament.start_date.strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+                      data-countdown-label="Starts"></span>
+              {% endif %}
+            </p>
+            {% if tournament.registration_deadline and tournament.status == 'registration' %}
+            <p class="mb-1"><strong>Registration closes:</strong>
+              <span class="badge bg-info text-dark"
+                    data-countdown-to="{{ tournament.registration_deadline.strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+                    data-countdown-label=""></span>
+            </p>
+            {% endif %}
             {% if tournament.end_date %}
-            <p><strong>End Date:</strong> {{ tournament.end_date.strftime('%B %d, %Y') }}</p>
+            <p class="mb-1"><strong>End Date:</strong> {{ tournament.end_date.strftime('%B %d, %Y') }}</p>
             {% endif %}
             {% if tournament.tier %}
             <p><strong>Tier Restriction:</strong> <span class="badge bg-info">{{ tournament.tier }}</span></p>

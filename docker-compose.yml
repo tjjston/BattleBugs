@@ -1,9 +1,9 @@
-version: '3.8'
 
 services:
   web:
     build: .
     container_name: battlebug-web
+    user: "1000:1001"
     ports:
       - "5000:5000"
     volumes:

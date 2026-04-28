@@ -6,7 +6,7 @@ Access to secret bug stats, xfactors, matchup predictions
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, current_app
 from flask_login import login_required, current_user
 from app import db
-from app.models import Bug, Battle, Tournament, User, Job, ClassificationFlag, Notification, SystemSetting
+from app.models import Bug, Battle, Tournament, User, Job, ClassificationFlag, Notification, SystemSetting, Season, RejectedSubmission
 from app.services.permission_system import (
     require_role, UserRole, AdminBugAnalyzer, AdminUserManager,
     can_view_secrets
@@ -43,6 +43,7 @@ def dashboard():
     # Flagged bugs
     flagged_bugs = Bug.query.filter_by(requires_manual_review=True).count()
     pending_classification_flags = ClassificationFlag.query.filter_by(status='pending').count()
+    pending_rejected_count = RejectedSubmission.query.filter_by(status='pending').count()
 
     return render_template('admin/dashboard.html',
                          total_bugs=total_bugs,
@@ -54,7 +55,8 @@ def dashboard():
                          recent_battles=recent_battles,
                          pending_apps=pending_apps,
                          flagged_bugs=flagged_bugs,
-                         pending_classification_flags=pending_classification_flags)
+                         pending_classification_flags=pending_classification_flags,
+                         pending_rejected_count=pending_rejected_count)
 
 
 @bp.route('/bug/<int:bug_id>/secrets')
@@ -204,6 +206,22 @@ def update_user(user_id):
     except PermissionError as e:
         flash(str(e), 'danger')
 
+    return redirect(url_for('admin.user_profile', user_id=user.id))
+
+
+@bp.route('/user/<int:user_id>/set-password', methods=['POST'])
+@login_required
+@require_role(UserRole.ADMIN)
+def set_user_password(user_id):
+    """Admin resets a user's password."""
+    user = db.get_or_404(User, user_id)
+    new_pw = request.form.get('new_password', '').strip()
+    if len(new_pw) < 8:
+        flash('Password must be at least 8 characters.', 'danger')
+        return redirect(url_for('admin.user_profile', user_id=user.id))
+    user.set_password(new_pw)
+    db.session.commit()
+    flash(f'Password for {user.username} has been reset.', 'success')
     return redirect(url_for('admin.user_profile', user_id=user.id))
 
 
@@ -436,6 +454,17 @@ def jobs():
         query = query.filter_by(status=status)
     jobs = query.order_by(Job.created_at.desc()).limit(100).all()
     return render_template('admin/jobs.html', jobs=jobs, status=status)
+
+
+@bp.route('/create-seasonal-tournaments', methods=['POST'])
+@login_required
+@require_role(UserRole.ADMIN)
+def trigger_seasonal_tournaments():
+    """Queue a job to create this season's per-tier tournaments."""
+    from app.services.job_queue import enqueue_seasonal_tournaments
+    enqueue_seasonal_tournaments()
+    flash('Seasonal tournament creation job queued.', 'success')
+    return redirect(url_for('admin.jobs'))
 
 
 @bp.route('/jobs/<int:job_id>/retry', methods=['POST'])
@@ -711,12 +740,127 @@ def edit_tournament(tournament_id):
             flash(f'Invalid date format: {exc}', 'danger')
             return redirect(url_for('admin.edit_tournament', tournament_id=tournament.id))
 
+        tournament.format = request.form.get('format', tournament.format or 'single_elimination')
+        tournament.submissions_per_user = request.form.get('submissions_per_user', type=int) or 2
         db.session.commit()
         flash(f'Tournament "{tournament.name}" updated.', 'success')
         return redirect(url_for('admin.edit_tournament', tournament_id=tournament.id))
 
-    applications = tournament.applications if hasattr(tournament, 'applications') else []
-    return render_template('admin/edit_tournament.html', tournament=tournament, applications=applications)
+    from app.models import TournamentApplication as _TA, Bug as _Bug
+    apps = _TA.query.filter_by(tournament_id=tournament_id).order_by(_TA.seed_number).all()
+    enrolled_bug_ids = {a.bug_id for a in apps}
+    tournament_battles = tournament.battles.order_by(Battle.round_number, Battle.id).all() \
+        if hasattr(tournament, 'battles') else []
+    # Bugs eligible to add: not retired, not already in this tournament
+    tier_filter = request.args.get('tier_filter', '')
+    bug_query = _Bug.query.filter(_Bug.id.notin_(enrolled_bug_ids), _Bug.is_retired == False)
+    if tier_filter:
+        bug_query = bug_query.filter(_Bug.tier == tier_filter)
+    available_bugs = bug_query.order_by(_Bug.tier, _Bug.nickname).all()
+    return render_template('admin/edit_tournament.html', tournament=tournament,
+                           applications=apps, tournament_battles=tournament_battles,
+                           available_bugs=available_bugs, tier_filter=tier_filter)
+
+
+@bp.route('/tournament/<int:tournament_id>/add-bug', methods=['POST'])
+@login_required
+@require_role(UserRole.MODERATOR)
+def tournament_add_bug(tournament_id):
+    """Admin-add a bug directly into a tournament (creates an approved application)."""
+    from app.models import TournamentApplication, Bug as _Bug
+    tournament = db.get_or_404(Tournament, tournament_id)
+    bug_id = request.form.get('bug_id', type=int)
+    if not bug_id:
+        flash('Bug ID required.', 'danger')
+        return redirect(url_for('admin.edit_tournament', tournament_id=tournament_id))
+
+    bug = db.session.get(_Bug, bug_id)
+    if not bug:
+        flash(f'Bug #{bug_id} not found.', 'danger')
+        return redirect(url_for('admin.edit_tournament', tournament_id=tournament_id))
+
+    existing = TournamentApplication.query.filter_by(
+        tournament_id=tournament_id, bug_id=bug_id).first()
+    if existing:
+        flash(f'{bug.nickname} is already in this tournament.', 'warning')
+        return redirect(url_for('admin.edit_tournament', tournament_id=tournament_id))
+
+    app = TournamentApplication(
+        tournament_id=tournament_id, bug_id=bug_id,
+        user_id=bug.user_id, status='approved',
+    )
+    db.session.add(app)
+    db.session.commit()
+    flash(f'{bug.nickname} added to tournament.', 'success')
+    return redirect(url_for('admin.edit_tournament', tournament_id=tournament_id))
+
+
+@bp.route('/tournament/<int:tournament_id>/remove-bug/<int:app_id>', methods=['POST'])
+@login_required
+@require_role(UserRole.MODERATOR)
+def tournament_remove_bug(tournament_id, app_id):
+    """Remove a bug application from a tournament."""
+    from app.models import TournamentApplication
+    app = db.get_or_404(TournamentApplication, app_id)
+    name = app.bug.nickname if app.bug else f'#{app.bug_id}'
+    db.session.delete(app)
+    db.session.commit()
+    flash(f'{name} removed from tournament.', 'info')
+    return redirect(url_for('admin.edit_tournament', tournament_id=tournament_id))
+
+
+@bp.route('/tournament/<int:tournament_id>/set-seed/<int:app_id>', methods=['POST'])
+@login_required
+@require_role(UserRole.MODERATOR)
+def tournament_set_seed(tournament_id, app_id):
+    """Manually override a bug's seed number."""
+    from app.models import TournamentApplication
+    app = db.get_or_404(TournamentApplication, app_id)
+    seed = request.form.get('seed', type=int)
+    app.seed_number = seed
+    db.session.commit()
+    flash('Seed updated.', 'success')
+    return redirect(url_for('admin.edit_tournament', tournament_id=tournament_id))
+
+
+@bp.route('/battle/<int:battle_id>/overturn', methods=['POST'])
+@login_required
+@require_role(UserRole.ADMIN)
+def overturn_battle(battle_id):
+    """Override a battle result — swap winner/loser and adjust win/loss counts."""
+    battle = db.get_or_404(Battle, battle_id)
+    new_winner_id = request.form.get('winner_id', type=int)
+    if new_winner_id not in (battle.bug1_id, battle.bug2_id):
+        flash('Winner must be one of the two combatants.', 'danger')
+        return redirect(url_for('admin.edit_tournament',
+                                tournament_id=battle.tournament_id) if battle.tournament_id
+                        else url_for('admin.dashboard'))
+
+    old_winner_id = battle.winner_id
+    if old_winner_id == new_winner_id:
+        flash('No change — same winner selected.', 'info')
+        return redirect(url_for('battles.view_battle', battle_id=battle_id))
+
+    from app.models import Bug as _Bug
+    if old_winner_id:
+        loser = db.session.get(_Bug, old_winner_id)
+        if loser:
+            loser.wins = max(0, (loser.wins or 0) - 1)
+            loser.losses = (loser.losses or 0) + 1
+    new_loser_id = battle.bug1_id if new_winner_id == battle.bug2_id else battle.bug2_id
+    old_loser = db.session.get(_Bug, new_loser_id)
+    if old_loser:
+        old_loser.losses = max(0, (old_loser.losses or 0) - 1)
+        old_loser.wins = (old_loser.wins or 0) + 1
+    new_winner = db.session.get(_Bug, new_winner_id)
+    if new_winner:
+        new_winner.wins = (new_winner.wins or 0) + 1
+        new_winner.losses = max(0, (new_winner.losses or 0) - 1)
+
+    battle.winner_id = new_winner_id
+    db.session.commit()
+    flash(f'Battle result overturned — {new_winner.nickname if new_winner else new_winner_id} is now the winner.', 'success')
+    return redirect(url_for('battles.view_battle', battle_id=battle_id))
 
 
 @bp.route('/tournament/<int:tournament_id>/delete', methods=['POST'])
@@ -730,6 +874,80 @@ def delete_tournament(tournament_id):
     db.session.commit()
     flash(f'Tournament "{name}" deleted.', 'warning')
     return redirect(url_for('admin.tournament_list'))
+
+
+@bp.route('/seasons/create', methods=['POST'])
+@login_required
+@require_role(UserRole.ADMIN)
+def create_season():
+    """Create a new season. Registration opens now, closes in N weeks per form input."""
+    from app.models import Season
+    from datetime import datetime as _dt, timedelta as _td
+    tier = request.form.get('tier', '').strip() or None
+    name = request.form.get('name', '').strip()
+    reg_weeks = int(request.form.get('reg_weeks') or 2)
+
+    now = _dt.utcnow()
+    reg_opens = now
+    reg_closes = now + _td(weeks=reg_weeks)
+    rs_start = reg_closes
+    rs_end = rs_start + _td(days=7)
+    t_start = rs_end
+    t_end = t_start + _td(days=7)
+
+    key_tier = tier or 'open'
+    from app.services.seasonal_tournament import get_season_key
+    season_key = f"{get_season_key(now)}_{key_tier}"
+    # Make key unique if it already exists
+    counter = 1
+    base_key = season_key
+    while Season.query.filter_by(season_key=season_key).first():
+        season_key = f"{base_key}_{counter}"
+        counter += 1
+
+    season = Season(
+        name=name or f"{get_season_key(now).replace('_',' ').title()} — {key_tier.upper()}",
+        tier=tier or '',
+        season_key=season_key,
+        phase='registration',
+        registration_opens=reg_opens,
+        registration_closes=reg_closes,
+        regular_season_start=rs_start,
+        regular_season_end=rs_end,
+        tournament_start=t_start,
+        tournament_end=t_end,
+    )
+    db.session.add(season)
+    db.session.commit()
+    flash(f'Season "{season.name}" created. Registration closes {reg_closes.strftime("%b %d")}.', 'success')
+    from flask import url_for as _url_for
+    return redirect(_url_for('tournaments.view_season', season_id=season.id))
+
+
+@bp.route('/seasons/create-cohort', methods=['POST'])
+@login_required
+@require_role(UserRole.ADMIN)
+def create_season_cohort():
+    """Mass-create one Season per competitive tier for the current (or a chosen) calendar season."""
+    from app.services.seasonal_tournament import auto_create_seasonal_cohort, get_season_for_date
+    from datetime import datetime as _dt
+
+    target = request.form.get('target_season', 'current')
+    now = _dt.utcnow()
+
+    if target == 'next':
+        from app.services.seasonal_tournament import _SEASONS
+        # Advance by ~13 weeks to land in the next calendar season
+        from datetime import timedelta as _td
+        now = now + _td(weeks=13)
+
+    created = auto_create_seasonal_cohort(dt=now)
+    if created:
+        flash(f'Created {len(created)} seasons: {", ".join(s.name for s in created)}.', 'success')
+    else:
+        sn, sy = get_season_for_date(now)
+        flash(f'All tiers for {sn.capitalize()} {sy} already exist.', 'info')
+    return redirect(url_for('admin.dashboard'))
 
 
 # Context processor to make admin checks available in templates
