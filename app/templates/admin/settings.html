@@ -60,7 +60,7 @@
       <div class="mb-3">
         <label class="form-label">Classifier API URL</label>
         <input type="text" name="classifier_url" class="form-control" style="max-width:400px"
-               value="{{ settings.get('classifier_url', '') }}" placeholder="e.g. http://192.168.0.99:8082">
+               value="{{ settings.get('classifier_url', '') }}" placeholder="e.g. http://192.168.0.99:8877">
       </div>
       <div class="form-check form-switch mb-2">
         <input class="form-check-input" type="checkbox" role="switch" id="classifierEnabled"
@@ -77,11 +77,61 @@
     </div>
   </div>
 
+  <div class="card mb-4">
+    <div class="card-header"><strong>News Briefing</strong></div>
+    <div class="card-body">
+      <p class="text-muted small">Cached for 1 hour, regenerated in the background. Model controlled by <strong>Battle Narrative</strong> above (default: <code>GEMMA_UC_E4B</code>).</p>
+      {% if news_briefing %}
+      <div class="border rounded p-2 mb-3 bg-light" style="font-size:0.85rem;max-height:120px;overflow-y:auto;">
+        {{ news_briefing }}
+        {% if news_age_min is not none %}<div class="text-muted mt-1" style="font-size:0.75rem;">Cached {{ news_age_min }}m ago</div>{% endif %}
+      </div>
+      {% else %}
+      <p class="text-muted fst-italic small mb-3">No cached briefing yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
   <button type="submit" class="btn btn-primary">Save Settings</button>
   <a href="{{ url_for('admin.dashboard') }}" class="btn btn-outline-secondary ms-2">Cancel</a>
 </form>
+<form method="post" action="{{ url_for('admin.refresh_news') }}" class="mt-2 d-inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button type="submit" class="btn btn-outline-warning btn-sm">Regenerate News Briefing</button>
+</form>
 
 <hr class="mt-5">
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>LLM Connection Test</strong>
+    <small class="text-muted">Fires a minimal prompt at the active LLM and shows the raw response</small>
+  </div>
+  <div class="card-body">
+    <div class="row g-3 align-items-end mb-3">
+      <div class="col-auto">
+        <label class="form-label">Provider to test</label>
+        <select id="llmTestProvider" class="form-select form-select-sm" style="max-width:180px">
+          <option value="">— active setting —</option>
+          <option value="ollama">Ollama (local)</option>
+          <option value="anthropic">Anthropic Claude</option>
+          <option value="openai">OpenAI GPT</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <button type="button" class="btn btn-outline-primary btn-sm" onclick="runLLMTest()">
+          Run Test
+        </button>
+      </div>
+    </div>
+    <div id="llmTestResult" class="d-none">
+      <div id="llmTestStatus" class="alert mb-2"></div>
+      <table class="table table-sm table-bordered mb-0" style="max-width:560px">
+        <tbody id="llmTestDetails"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <h5>Current Active Settings</h5>
 {% if settings %}
 <table class="table table-sm table-bordered" style="max-width:600px">
@@ -95,4 +145,68 @@
 {% else %}
 <p class="text-muted">No DB overrides active — all settings come from environment config.</p>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function _makeTestRow(label, value) {
+    var tr = document.createElement('tr');
+    var th = document.createElement('th');
+    th.className = 'text-nowrap';
+    th.style.width = '110px';
+    th.textContent = label;
+    var td = document.createElement('td');
+    var code = document.createElement('code');
+    code.textContent = value;
+    td.appendChild(code);
+    tr.appendChild(th);
+    tr.appendChild(td);
+    return tr;
+}
+
+function runLLMTest() {
+    var btn = document.querySelector('[onclick="runLLMTest()"]');
+    var resultDiv = document.getElementById('llmTestResult');
+    var statusDiv = document.getElementById('llmTestStatus');
+    var detailsTbody = document.getElementById('llmTestDetails');
+    var provider = document.getElementById('llmTestProvider').value;
+
+    btn.disabled = true;
+    btn.textContent = 'Testing...';
+    resultDiv.classList.add('d-none');
+
+    fetch('{{ url_for("admin.llm_test") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({provider: provider || null})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        resultDiv.classList.remove('d-none');
+        if (data.ok) {
+            statusDiv.className = 'alert alert-success mb-2';
+            statusDiv.textContent = 'Connected - LLM responded.';
+        } else {
+            statusDiv.className = 'alert alert-danger mb-2';
+            statusDiv.textContent = 'Error: ' + (data.error || 'Unknown failure');
+        }
+        detailsTbody.replaceChildren(
+            _makeTestRow('Provider', data.provider || '-'),
+            _makeTestRow('Model', data.model || '-'),
+            _makeTestRow('Response', data.response || data.error || '-'),
+            _makeTestRow('Round-trip', (data.elapsed_ms || 0) + ' ms')
+        );
+    })
+    .catch(function(err) {
+        resultDiv.classList.remove('d-none');
+        statusDiv.className = 'alert alert-danger mb-2';
+        statusDiv.textContent = 'Request failed: ' + err.message;
+        detailsTbody.replaceChildren();
+    })
+    .finally(function() {
+        btn.disabled = false;
+        btn.textContent = 'Run Test';
+    });
+}
+</script>
 {% endblock %}

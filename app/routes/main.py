@@ -44,6 +44,23 @@ def index():
     total_battles = Battle.query.count()
     total_retired = Bug.query.filter_by(is_retired=True).count()
 
+    # Championship Circuit — current belt holders for dashboard tiles
+    circuit_champions = []
+    try:
+        from app.models import TierChampionship
+        CIRCUIT_TIERS = ['uber', 'ou', 'uu', 'ru', 'nu', 'zu']
+        CIRCUIT_LABELS = {'uber': 'Legendary', 'ou': 'Elite', 'uu': 'Strong',
+                          'ru': 'Rising', 'nu': 'Newcomer', 'zu': 'Zero'}
+        for t in CIRCUIT_TIERS:
+            belt = TierChampionship.query.filter_by(tier=t).first()
+            circuit_champions.append({
+                'tier': t,
+                'label': CIRCUIT_LABELS[t],
+                'belt': belt,
+            })
+    except Exception:
+        pass
+
     return render_template('index.html',
                            season=season,
                            active_tournaments=active_tournaments,
@@ -57,7 +74,8 @@ def index():
                            seasonal_tournament=seasonal_tournament,
                            total_bugs=total_bugs,
                            total_battles=total_battles,
-                           total_retired=total_retired)
+                           total_retired=total_retired,
+                           circuit_champions=circuit_champions)
 
 @bp.route('/hall-of-fame')
 def hall_of_fame():
@@ -89,24 +107,54 @@ def leaderboards():
     top_ap = User.query.filter(User.accolade_points > 0)\
         .order_by(desc(User.accolade_points)).limit(20).all()
 
-    # Species pioneers: count per user via Bug join (BugAchievement has bug_id, not user_id)
+    # Species pioneers
     pioneer_rows = db.session.query(
-        Bug.user_id,
+        User,
         func.count(BugAchievement.id).label('count')
-    ).join(Bug, BugAchievement.bug_id == Bug.id)\
-     .filter(BugAchievement.achievement_type == 'species_pioneer')\
-     .group_by(Bug.user_id)\
+    ).join(Bug, Bug.user_id == User.id)\
+     .join(BugAchievement, (BugAchievement.bug_id == Bug.id) & (BugAchievement.achievement_type == 'species_pioneer'))\
+     .group_by(User.id)\
      .order_by(desc('count')).limit(20).all()
-    pioneer_users = []
-    for row in pioneer_rows:
-        u = db.session.get(User, row.user_id)
-        if u:
-            pioneer_users.append({'user': u, 'count': row.count})
+    pioneer_users = [{'user': u, 'count': count} for u, count in pioneer_rows]
+
+    # Season standings by tier — top bugs ranked by season wins in the most recent active season
+    from app.models import Season, SeasonRegistration
+    TIERS = ['uber', 'ou', 'uu', 'ru', 'nu', 'zu']
+    TIER_LABELS = {'uber': 'Legendary', 'ou': 'Elite', 'uu': 'Strong',
+                   'ru': 'Rising', 'nu': 'Newcomer', 'zu': 'Zero'}
+    season_standings = {}
+    for tier in TIERS:
+        latest_season = Season.query.filter_by(tier=tier)\
+            .order_by(Season.registration_opens.desc()).first()
+        if not latest_season:
+            continue
+        rows = db.session.query(SeasonRegistration, Bug)\
+            .join(Bug, SeasonRegistration.bug_id == Bug.id)\
+            .filter(SeasonRegistration.season_id == latest_season.id)\
+            .order_by(
+                desc(SeasonRegistration.season_wins),
+                SeasonRegistration.season_losses.asc(),
+            ).limit(10).all()
+        if rows:
+            season_standings[tier] = {
+                'season': latest_season,
+                'label': TIER_LABELS.get(tier, tier.upper()),
+                'rows': [{'reg': reg, 'bug': bug} for reg, bug in rows],
+            }
+
+    # P4P preview (top 5 for leaderboard tab)
+    try:
+        from app.services.championship_service import get_pfp_rankings
+        pfp_preview = get_pfp_rankings(limit=10)
+    except Exception:
+        pfp_preview = []
 
     return render_template('leaderboards.html',
                            top_wins=top_wins, top_win_rate=top_win_rate,
                            top_collectors=top_collectors, top_tournament=top_tournament,
-                           top_elo=top_elo, top_ap=top_ap, pioneer_users=pioneer_users)
+                           top_elo=top_elo, top_ap=top_ap, pioneer_users=pioneer_users,
+                           season_standings=season_standings, tier_order=TIERS,
+                           pfp_preview=pfp_preview)
 
 
 @bp.route('/collection')
@@ -117,6 +165,99 @@ def collection():
     species_count = len({bug.species_id for bug in bugs if bug.species_id})
     sightings = [bug for bug in bugs if bug.location_found or bug.found_date or bug.latitude or bug.longitude]
     return render_template('collection.html', bugs=bugs, species_count=species_count, sightings=sightings)
+
+
+@bp.route('/my-bugs')
+@login_required
+def my_bugs():
+    """Bug manager — competition track enrollment and tier overview."""
+    from app.models import Season, SeasonRegistration, TierRanking, TierChampionship
+
+    all_bugs = Bug.query.filter_by(user_id=current_user.id)\
+        .order_by(Bug.submission_date.desc()).all()
+
+    TIERS = ['uber', 'ou', 'uu', 'ru', 'nu', 'zu']
+    TIER_LABELS = {'uber': 'Legendary', 'ou': 'Elite', 'uu': 'Strong',
+                   'ru': 'Rising', 'nu': 'Newcomer', 'zu': 'Zero'}
+
+    # Build per-tier buckets — season and MMA separately
+    season_by_tier = {t: [] for t in TIERS}
+    mma_by_tier = {t: [] for t in TIERS}
+    untracked = []
+
+    for bug in all_bugs:
+        if not bug.tier:
+            continue
+        if bug.bug_track == 'mma':
+            mma_by_tier[bug.tier].append(bug)
+        elif bug.bug_track == 'season':
+            season_by_tier[bug.tier].append(bug)
+        else:
+            untracked.append(bug)
+
+    # Active seasons open for registration per tier
+    open_seasons = {}
+    for t in TIERS:
+        s = Season.query.filter_by(tier=t, phase='registration').first()
+        if s:
+            open_seasons[t] = s
+
+    # MMA active-count per tier (for limit display)
+    mma_active_count = {}
+    for t in TIERS:
+        mma_active_count[t] = Bug.query.filter(
+            Bug.user_id == current_user.id,
+            Bug.bug_track == 'mma',
+            Bug.tier == t,
+            Bug.is_retired == False,
+        ).count()
+
+    # Eligible open tournaments for the user's bugs
+    from app.models import Tournament, TournamentApplication
+    open_tournaments = Tournament.query.filter(
+        Tournament.status.in_(['registration', 'upcoming'])
+    ).order_by(Tournament.start_date).all()
+
+    # Build set of (tournament_id, bug_id) already applied
+    applied_pairs = set()
+    if all_bugs:
+        bug_ids = [b.id for b in all_bugs]
+        apps = TournamentApplication.query.filter(
+            TournamentApplication.bug_id.in_(bug_ids),
+            TournamentApplication.status.in_(['pending', 'approved']),
+        ).all()
+        applied_pairs = {(a.tournament_id, a.bug_id) for a in apps}
+
+    # Per tournament: which bugs are eligible
+    tournament_eligibility = []
+    for t in open_tournaments:
+        eligible = []
+        for bug in all_bugs:
+            if bug.is_retired:
+                continue
+            if not bug.tier:
+                continue
+            if t.tier and t.tier != bug.tier:
+                continue
+            if (t.id, bug.id) not in applied_pairs:
+                eligible.append(bug)
+        already_in = [b for b in all_bugs if (t.id, b.id) in applied_pairs]
+        tournament_eligibility.append({
+            'tournament': t,
+            'eligible': eligible,
+            'already_in': already_in,
+        })
+
+    return render_template('my_bugs.html',
+                           all_bugs=all_bugs,
+                           season_by_tier=season_by_tier,
+                           mma_by_tier=mma_by_tier,
+                           untracked=untracked,
+                           open_seasons=open_seasons,
+                           mma_active_count=mma_active_count,
+                           tier_labels=TIER_LABELS,
+                           tiers=TIERS,
+                           tournament_eligibility=tournament_eligibility)
 
 
 @bp.route('/ecosystem')
@@ -213,6 +354,11 @@ def dismiss_notification(notif_id):
         notif.is_read = True
         db.session.commit()
     return jsonify({'ok': True})
+
+
+@bp.route('/tutorial')
+def tutorial():
+    return render_template('tutorial.html')
 
 
 @bp.app_context_processor

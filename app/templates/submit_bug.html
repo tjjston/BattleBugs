@@ -67,7 +67,7 @@
 
         <div class="card submission-card">
             <div class="card-body">
-                <form method="POST" enctype="multipart/form-data" id="bugSubmissionForm">
+                <form method="POST" enctype="multipart/form-data" id="bugSubmissionForm" data-llm-loading='["Securing the specimen…", "Scanning for hidden combat traits…", "Forging battle armor…", "Consulting the arena sages…", "Calibrating power stats…", "Preparing your warrior for the arena…"]'>
                     
                     <!-- Step 1: Basic Info + Photo -->
                     <div class="submission-step" id="step1">
@@ -75,11 +75,15 @@
                         
                         <div class="mb-3">
                             <label for="image" class="form-label">Bug Photo *</label>
-                            <input type="file" class="form-control" id="image" name="image" 
+                            <input type="file" class="form-control" id="image" name="image"
                                    accept="image/*" required>
                             <small class="form-text text-muted">
-                                Upload a clear photo. Our system will analyze it
+                                Upload a clear photo. Our system will analyze it.
                             </small>
+                            <div id="photoValidationStatus" class="mt-2 d-none">
+                                <div id="photoValidationBody" class="alert alert-sm mb-1 py-2"></div>
+                                <div id="photoValidationInfo" class="text-muted small"></div>
+                            </div>
                             <div id="imagePreview" class="mt-2"></div>
                         </div>
 
@@ -294,11 +298,6 @@
                                             <strong>Ready for the Arena!</strong><br>
                                             Your bug will receive auto-generated stats based on species + secret visual analysis.
                                         </div>
-                                        <div class="alert alert-warning py-2 small mt-2">
-                                          ⚠️ <strong>Season note:</strong> Each bug can only be registered to one active season.
-                                          You may not submit a second bug of the same species while your first is still active.
-                                          Bugs that complete a season are <strong>permanently retired</strong> and may only enter Retirement Events.
-                                        </div>
                                         <div class="form-check mt-2">
                                           <input class="form-check-input" type="checkbox" name="send_to_admin_review"
                                                  id="sendToAdminReview" value="1">
@@ -430,6 +429,19 @@
 .submission-step {
     padding: 8px 0;
     min-height: 400px;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%       { transform: translateX(-6px); }
+    40%       { transform: translateX(6px); }
+    60%       { transform: translateX(-4px); }
+    80%       { transform: translateX(4px); }
+}
+.shake-error {
+    animation: shake 0.5s ease-in-out;
+    outline: 2px solid var(--bs-danger);
+    border-radius: 4px;
 }
 
 #imagePreview img, #finalImagePreview img {
@@ -607,29 +619,122 @@ const tutorialSteps = [
     }
 ];
 
-// Image preview
+// Track whether the client-side dimension check failed (used to gate Next button)
+let _photoClientDanger = false;
+
+// Image preview + live validation
 document.getElementById('image').addEventListener('change', function(e) {
     const file = e.target.files[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const imgHTML = `<img src="${e.target.result}" alt="Preview">`;
-            
-            // Clear and set image preview
-            const previewDiv = document.getElementById('imagePreview');
-            const finalPreviewDiv = document.getElementById('finalImagePreview');
-            
-            // Remove any existing images first
-            previewDiv.innerHTML = '';
-            finalPreviewDiv.innerHTML = '';
-            
-            // Add the new image
-            previewDiv.innerHTML = imgHTML;
-            finalPreviewDiv.innerHTML = imgHTML;
-        };
-        reader.readAsDataURL(file);
-    }
+    if (!file) return;
+
+    // Instant client-side checks
+    _photoClientCheck(file);
+
+    // Full server-side validation (async, non-blocking)
+    _photoServerCheck(file);
+
+    // Show image preview
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+        const img = document.createElement('img');
+        img.src = ev.target.result;
+        img.alt = 'Preview';
+        const previewDiv = document.getElementById('imagePreview');
+        const finalPreviewDiv = document.getElementById('finalImagePreview');
+        previewDiv.replaceChildren(img.cloneNode());
+        finalPreviewDiv.replaceChildren(img);
+    };
+    reader.readAsDataURL(file);
 });
+
+function _setPhotoStatus(type, lines, infoText) {
+    const statusDiv = document.getElementById('photoValidationStatus');
+    const body = document.getElementById('photoValidationBody');
+    const info = document.getElementById('photoValidationInfo');
+    statusDiv.classList.remove('d-none');
+    body.className = 'alert mb-1 py-2 alert-' + type;
+    body.replaceChildren();
+    lines.forEach(function(msg) {
+        const p = document.createElement('div');
+        p.textContent = msg;
+        body.appendChild(p);
+    });
+    info.textContent = infoText || '';
+}
+
+function _photoClientCheck(file) {
+    const maxBytes = {{ config.MAX_CONTENT_LENGTH | default(16 * 1024 * 1024) }};
+    if (file.size > maxBytes) {
+        _photoClientDanger = true;
+        _setPhotoStatus('danger', ['File is too large (' + (file.size / 1048576).toFixed(1) + ' MB). Max ' + (maxBytes / 1048576).toFixed(0) + ' MB.'], '');
+        return;
+    }
+    if (file.size < 2048) {
+        _photoClientDanger = false;
+        _setPhotoStatus('warning', ['File is very small (' + file.size + ' B). Are you sure this is a real photo?'], '');
+        return;
+    }
+    // HEIC/HEIF: browsers can't decode these natively — skip dimension check, rely on server
+    var fname = (file.name || '').toLowerCase();
+    if (fname.endsWith('.heic') || fname.endsWith('.heif') ||
+        file.type === 'image/heic' || file.type === 'image/heif') {
+        _photoClientDanger = false;
+        _setPhotoStatus('warning',
+            ['HEIC photo selected — the server will validate and convert it automatically.'],
+            file.name + ' — ' + (file.size / 1024).toFixed(0) + ' KB');
+        return;
+    }
+    // Check image dimensions once loaded
+    const url = URL.createObjectURL(file);
+    const tempImg = new Image();
+    tempImg.onload = function() {
+        URL.revokeObjectURL(url);
+        const w = tempImg.naturalWidth, h = tempImg.naturalHeight;
+        if (w < 100 || h < 100) {
+            _photoClientDanger = true;
+            _setPhotoStatus('danger',
+                ['Image is too small (' + w + 'x' + h + ' px). Minimum 100x100 px required.'],
+                file.name + ' - ' + (file.size / 1024).toFixed(0) + ' KB');
+        } else if (w < 300 || h < 300) {
+            _photoClientDanger = false;
+            _setPhotoStatus('warning',
+                ['Image is quite small (' + w + 'x' + h + ' px). A larger photo gives the AI more to work with.'],
+                file.name + ' - ' + (file.size / 1024).toFixed(0) + ' KB');
+        } else {
+            _photoClientDanger = false;
+            _setPhotoStatus('success',
+                ['Photo looks good (' + w + 'x' + h + ' px).'],
+                file.name + ' - ' + (file.size / 1024).toFixed(0) + ' KB');
+        }
+    };
+    tempImg.onerror = function() {
+        URL.revokeObjectURL(url);
+        _photoClientDanger = true;
+        _setPhotoStatus('danger', ['Could not read the file as an image.'], '');
+    };
+    tempImg.src = url;
+}
+
+function _photoServerCheck(file) {
+    const formData = new FormData();
+    formData.append('photo', file);
+    fetch('/api/validate-photo', {method: 'POST', body: formData})
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.errors && data.errors.length) {
+                _setPhotoStatus('danger', data.errors.concat(data.warnings || []),
+                    data.info ? (data.info.dimensions || '') + '  ' + (data.info.size_kb || '') + ' KB' : '');
+            } else if (data.warnings && data.warnings.length) {
+                _setPhotoStatus('warning', data.warnings,
+                    data.info ? (data.info.dimensions || '') + '  ' + (data.info.size_kb || '') + ' KB' : '');
+            } else if (data.info) {
+                _setPhotoStatus('success',
+                    ['Photo passed all checks' + (data.info.classifier_label ? ' - classified as: ' + data.info.classifier_label + ' (' + Math.round((data.info.classifier_confidence || 0) * 100) + '%)' : '.') ],
+                    (data.info.dimensions || '') + '  ' + (data.info.size_kb || '') + ' KB  ' + (data.info.format || ''));
+            }
+        })
+        .catch(function() { /* server check failed silently - client check already showed */ });
+}
 
 function goToStep(step) {
     // Validation
@@ -693,13 +798,30 @@ function applyTutorialSample() {
 }
 
 function validateStep1() {
-    const nickname = document.getElementById('nickname').value;
+    const nickname = document.getElementById('nickname').value.trim();
     const image = document.getElementById('image').files[0];
-    
-    if (!nickname || !image) {
-        alert('Please provide a name and image for your gladiator!');
+
+    if (!image) {
+        alert('Please upload a photo of your gladiator!');
+        document.getElementById('image').focus();
         return false;
     }
+
+    // Block only on client-side dimension/format errors, not server classifier results
+    if (_photoClientDanger) {
+        const statusDiv = document.getElementById('photoValidationStatus');
+        statusDiv.scrollIntoView({behavior: 'smooth', block: 'center'});
+        statusDiv.classList.add('shake-error');
+        setTimeout(() => statusDiv.classList.remove('shake-error'), 600);
+        return false;
+    }
+
+    if (!nickname) {
+        alert('Please give your gladiator a warrior name!');
+        document.getElementById('nickname').focus();
+        return false;
+    }
+
     return true;
 }
 
@@ -912,6 +1034,7 @@ function generateSuggestion(field) {
         alert('Failed to generate suggestion. Try again later.');
     });
 }
+
 
 function showQuickPicks(field, picks) {
     // Small toast-like suggestion box under the input

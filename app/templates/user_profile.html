@@ -143,7 +143,7 @@ new Chart(document.getElementById('radarChart'), {
     labels: ['Attack','Defense','Speed','Lethality','Grip','Cunning'],
     datasets: [{
       label: 'Avg Stats',
-      data: [avgStats.attack, avgStats.defense, avgStats.speed, avgStats.lethality/10, avgStats.grip/10, avgStats.cunning/10],
+      data: [avgStats.attack/10, avgStats.defense/10, avgStats.speed/10, avgStats.lethality/10, avgStats.grip/10, avgStats.cunning/10],
       backgroundColor: 'rgba(13,110,253,0.2)', borderColor: '#0d6efd', pointBackgroundColor: '#0d6efd'
     }]
   },

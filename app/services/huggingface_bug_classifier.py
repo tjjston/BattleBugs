@@ -18,14 +18,18 @@ class HuggingFaceBugClassifier:
     """REST-based bug image classifier — calls the local API at BUG_CLASSIFIER_URL."""
 
     def __init__(self):
-        self.base_url = current_app.config.get("BUG_CLASSIFIER_URL", "http://192.168.0.99:8082").rstrip("/")
+        self.base_url = current_app.config.get("BUG_CLASSIFIER_URL", "http://192.168.0.99:8877").rstrip("/")
         self.min_confidence = float(current_app.config.get("HF_BUG_CLASSIFIER_MIN_CONFIDENCE", 0.45))
 
     def _check_health(self) -> bool:
         import requests
         try:
             resp = requests.get(f"{self.base_url}/health", timeout=3)
-            return resp.ok and resp.json().get("ready", False)
+            if not resp.ok:
+                return False
+            data = resp.json()
+            # Poseidon: {"status":"ok"} — legacy HF: {"ready":true}
+            return data.get("status") == "ok" or data.get("ready", False)
         except Exception:
             return False
 

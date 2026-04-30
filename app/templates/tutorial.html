@@ -1,0 +1,318 @@
+{% extends "base.html" %}
+{% block title %}How to Play — Bug Arena{% endblock %}
+
+{% block content %}
+<div class="container py-4" style="max-width:860px;">
+
+  <div class="text-center mb-5">
+    <h1 class="display-5 fw-bold">The Bug Arena</h1>
+    <p class="lead text-muted">Field guide for new competitors</p>
+  </div>
+
+  {# ── TOC ──────────────────────────────────────────────────────────────── #}
+  <div class="card mb-4 border-0 bg-body-secondary">
+    <div class="card-body py-2">
+      <div class="d-flex flex-wrap gap-3 justify-content-center small fw-semibold">
+        <a href="#lore" class="text-decoration-none">The World</a>
+        <span class="text-muted">·</span>
+        <a href="#submission" class="text-decoration-none">Submitting Bugs</a>
+        <span class="text-muted">·</span>
+        <a href="#stats" class="text-decoration-none">Combat Stats</a>
+        <span class="text-muted">·</span>
+        <a href="#battles" class="text-decoration-none">Battles</a>
+        <span class="text-muted">·</span>
+        <a href="#tiers" class="text-decoration-none">Tiers</a>
+        <span class="text-muted">·</span>
+        <a href="#tracks" class="text-decoration-none">Competition Tracks</a>
+        <span class="text-muted">·</span>
+        <a href="#tips" class="text-decoration-none">Tips</a>
+      </div>
+    </div>
+  </div>
+
+  {# ── The World ─────────────────────────────────────────────────────────── #}
+  <section id="lore" class="mb-5">
+    <h2 class="fw-bold border-bottom pb-2 mb-3">The World</h2>
+    <p>
+      The Bug Arena is a living catalogue of the natural world's most capable fighters — arthropods,
+      insects, arachnids, and their kin — pitted against one another in structured combat. Every
+      creature you see here was photographed in the wild, identified by AI, and granted a roster
+      slot based on its real-world biological traits.
+    </p>
+    <p>
+      This is not a game of luck. A jumping spider's ambush instinct, a rhinoceros beetle's
+      crushing mandibles, or a velvet ant's legendary sting — these translate directly into the
+      numbers that decide every fight. The arena respects biology.
+    </p>
+    <p class="text-muted fst-italic small">
+      The insect world has been waging war for 400 million years. We just gave it a scoreboard.
+    </p>
+  </section>
+
+  {# ── Submitting ────────────────────────────────────────────────────────── #}
+  <section id="submission" class="mb-5">
+    <h2 class="fw-bold border-bottom pb-2 mb-3">Submitting a Bug</h2>
+    <p>
+      To enter a bug in the arena, you photograph a real arthropod and upload the image. The
+      submission pipeline does the rest:
+    </p>
+    <ol class="mb-3">
+      <li class="mb-2">
+        <strong>Image validation</strong> — the system checks that the photo actually contains
+        a bug (not a plant, person, or blurry mess) and that it meets minimum quality standards.
+      </li>
+      <li class="mb-2">
+        <strong>AI identification</strong> — a vision model analyses the photo and identifies
+        the species at genus or species level, drawing on a database of millions of arthropod
+        images. You can provide your own species guess to help calibrate the result.
+      </li>
+      <li class="mb-2">
+        <strong>Taxonomy enrichment</strong> — the identified species is cross-referenced against
+        GBIF, iNaturalist, and the Catalogue of Life to confirm its classification and fill in
+        biological detail: order, family, typical size, habitat, and diet.
+      </li>
+      <li class="mb-2">
+        <strong>Stat generation</strong> — an LLM reads the species dossier and assigns six
+        combat stats calibrated against a reference dataset of known fighters. A ground beetle
+        is not a bullet ant. The numbers reflect that.
+      </li>
+      <li class="mb-2">
+        <strong>Tier assignment</strong> — the bug's total power score places it in a competitive
+        tier, from Little Cup (ZU) all the way up to Legendary (Über).
+      </li>
+    </ol>
+    <div class="alert alert-info py-2 small">
+      <strong>One species per season</strong> — each user can enter one bug per species per
+      quarter. Variety is encouraged; stacking the same ant species is not.
+    </div>
+    <p>
+      After submission you can name your bug, write its lore, and assign it to a competition
+      track. The image is automatically cropped to the bug and enhanced for display.
+    </p>
+  </section>
+
+  {# ── Stats ─────────────────────────────────────────────────────────────── #}
+  <section id="stats" class="mb-5">
+    <h2 class="fw-bold border-bottom pb-2 mb-3">Combat Stats</h2>
+    <p>Every bug has six stats, each on a 1–100 scale:</p>
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <div class="card h-100 border-0 bg-body-secondary">
+          <div class="card-body">
+            <h6 class="fw-bold">⚔️ Attack</h6>
+            <p class="small mb-0">Raw offensive force — mandible strength, body mass used offensively, strike power. High attack bugs overwhelm in direct confrontation.</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100 border-0 bg-body-secondary">
+          <div class="card-body">
+            <h6 class="fw-bold">🛡️ Defense</h6>
+            <p class="small mb-0">Survivability — cuticle hardness, armor thickness, regenerative toughness. High defense bugs absorb punishment and outlast opponents.</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100 border-0 bg-body-secondary">
+          <div class="card-body">
+            <h6 class="fw-bold">⚡ Speed</h6>
+            <p class="small mb-0">Agility and reaction time — acceleration, evasion, movement in open terrain. Determines who lands the first blow and who can disengage.</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100 border-0 bg-body-secondary">
+          <div class="card-body">
+            <h6 class="fw-bold">☠️ Lethality</h6>
+            <p class="small mb-0">Effectiveness of biological weapons — venom potency, acid spray, neurotoxin precision. Amplifies type-advantage damage when it connects.</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100 border-0 bg-body-secondary">
+          <div class="card-body">
+            <h6 class="fw-bold">🦀 Grip</h6>
+            <p class="small mb-0">Engagement control — clinging strength, grapple force, limb hooks, suction. Determines who controls range and whether a fast opponent can escape.</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100 border-0 bg-body-secondary">
+          <div class="card-body">
+            <h6 class="fw-bold">🧠 Cunning</h6>
+            <p class="small mb-0">Tactical adaptation — feints, terrain exploitation, ambush timing, behavioral flexibility. Partially offsets type disadvantages through smarter fighting.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h5 class="fw-semibold mt-4 mb-2">Attack &amp; Defense Types</h5>
+    <p class="small text-muted mb-2">
+      Every bug has an <strong>attack type</strong> and a <strong>defense type</strong>. These
+      interact in a type-advantage system — certain attacks are especially effective against
+      certain defenses, and vice versa. Discovering strong and weak matchups is part of the
+      meta.
+    </p>
+    <div class="row g-2">
+      <div class="col-md-6">
+        <div class="card border-0 bg-body-secondary h-100">
+          <div class="card-body py-2">
+            <div class="small fw-semibold mb-1">Attack Types</div>
+            <div class="d-flex flex-wrap gap-1">
+              {% for t in ['Piercing','Crushing','Slashing','Venom','Chemical','Grappling','Sonic','Electric','Neutral'] %}
+              <span class="badge bg-secondary-subtle text-secondary border">{{ t }}</span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card border-0 bg-body-secondary h-100">
+          <div class="card-body py-2">
+            <div class="small fw-semibold mb-1">Defense Types</div>
+            <div class="d-flex flex-wrap gap-1">
+              {% for t in ['Hard Shell','Segmented Armor','Evasive','Hairy/Spiny','Toxic Skin','Thick Hide','Unarmored','Regenerative','Bioluminescent'] %}
+              <span class="badge bg-secondary-subtle text-secondary border">{{ t }}</span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h5 class="fw-semibold mt-4 mb-2">The X-Factor</h5>
+    <p class="small text-muted">
+      Every bug carries a hidden modifier — the X-Factor. It reflects intangibles that numbers
+      can't fully capture: the photo's environment, battle posture, visible injuries, unusual
+      anatomy, or something stranger. It shifts outcomes slightly when bugs are otherwise evenly
+      matched. You won't know yours until it matters.
+    </p>
+  </section>
+
+  {# ── Battles ────────────────────────────────────────────────────────────── #}
+  <section id="battles" class="mb-5">
+    <h2 class="fw-bold border-bottom pb-2 mb-3">Battles</h2>
+    <p>
+      Battles are turn-based simulations driven by stats, type matchups, special abilities, and
+      the X-Factor. Each fight produces a narrated play-by-play generated by an AI that
+      understands the actual biology involved.
+    </p>
+    <p>
+      You can challenge another user's bug by visiting their profile, or let the tournament
+      and season systems arrange fights automatically. Wins accumulate XP which feeds into
+      stat growth — bugs that keep fighting get stronger over time.
+    </p>
+    <div class="alert alert-secondary py-2 small">
+      <strong>Fair play:</strong> you cannot challenge your own bugs. Tier restrictions apply in
+      structured competition — a Legendary bug cannot stomp through the Little Cup.
+    </div>
+    <p>
+      After a battle, the winner's lore can be updated to reflect the victory. Notable wins
+      unlock achievements, climb the leaderboard, and may trigger rival bonds — a relationship
+      between two bugs that have fought repeatedly and refused to stay down.
+    </p>
+  </section>
+
+  {# ── Tiers ─────────────────────────────────────────────────────────────── #}
+  <section id="tiers" class="mb-5">
+    <h2 class="fw-bold border-bottom pb-2 mb-3">Competitive Tiers</h2>
+    <p>
+      Tier is determined by total power (sum of all six stats). It determines which competition
+      pools a bug can enter.
+    </p>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead class="table-dark">
+          <tr><th>Tier</th><th>Label</th><th>Power Range</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="badge bg-danger fs-6">ÜBER</span></td><td>Legendary</td><td>540–600</td><td>The absolute apex. Rare and feared.</td></tr>
+          <tr><td><span class="badge bg-warning text-dark fs-6">OU</span></td><td>A Tier</td><td>480–539</td><td>Top-end competitors. Dominant in most matchups.</td></tr>
+          <tr><td><span class="badge bg-primary fs-6">UU</span></td><td>B Tier</td><td>400–479</td><td>Strong but counterable. Deep meta.</td></tr>
+          <tr><td><span class="badge bg-info text-dark fs-6">RU</span></td><td>C Tier</td><td>320–399</td><td>Middle of the pack. Skill decides it.</td></tr>
+          <tr><td><span class="badge bg-secondary fs-6">NU</span></td><td>D Tier</td><td>240–319</td><td>Underdogs with heart. Upsets happen.</td></tr>
+          <tr><td><span class="badge bg-dark fs-6">ZU</span></td><td>Little Cup</td><td>0–239</td><td>Brave beginners. Anything can win here.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="small text-muted">
+      Most common bugs — house spiders, beetles, flies — land in the UU–RU range.
+      Bullet ants, goliath beetles, and giant hornets approach the Legendary tier.
+      If your backyard cricket lands in OU, something interesting is in that photo.
+    </p>
+  </section>
+
+  {# ── Competition Tracks ─────────────────────────────────────────────────── #}
+  <section id="tracks" class="mb-5">
+    <h2 class="fw-bold border-bottom pb-2 mb-3">Competition Tracks</h2>
+    <p>Once a bug is approved you assign it to a competition track:</p>
+
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="card h-100 border-success">
+          <div class="card-header bg-success bg-opacity-10 fw-bold">🏆 Season Circuit</div>
+          <div class="card-body small">
+            <p>Quarterly seasons where bugs compete within their tier division. Standings
+            accumulate across the season. The bug with the best record earns the division
+            championship title at season end.</p>
+            <p class="mb-0 text-muted">New seasons begin each quarter (Jan, Apr, Jul, Oct).
+            You register your bug and the system schedules matches automatically.</p>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100 border-warning">
+          <div class="card-header bg-warning bg-opacity-10 fw-bold">🥊 MMA Championship</div>
+          <div class="card-body small">
+            <p>A live contender ranking within each tier. Challenge other ranked bugs,
+            win fights to climb the ladder, and earn a title shot at the current champion.
+            Title fights are high-stakes — the belt changes hands on a loss.</p>
+            <p class="mb-0 text-muted">Maximum 2 MMA bugs per tier per user. Choose
+            carefully — once enrolled, the bug fights until retired or released.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# ── Tips ──────────────────────────────────────────────────────────────── #}
+  <section id="tips" class="mb-5">
+    <h2 class="fw-bold border-bottom pb-2 mb-3">Tips</h2>
+    <ul class="mb-0">
+      <li class="mb-2">
+        <strong>Photo quality matters.</strong> A clear, close-up shot of the bug against a
+        plain background gives the AI the best chance of a correct identification — and correct
+        identification means accurate stats.
+      </li>
+      <li class="mb-2">
+        <strong>Provide your species guess.</strong> If you know what you found, say so.
+        The system will tell you whether it agrees and explain any differences.
+      </li>
+      <li class="mb-2">
+        <strong>Rare species are stronger on average</strong> — not because they're special,
+        but because rare species tend to be larger, more venomous, or more anatomically extreme.
+        The stat system reflects biology, not rarity directly.
+      </li>
+      <li class="mb-2">
+        <strong>Battle consistently.</strong> Bugs grow through experience. A modest beetle
+        that fights 20 battles will outperform a stat-heavy bug that never leaves the bench.
+      </li>
+      <li class="mb-2">
+        <strong>Type matchups are real.</strong> A venom attack against a hard-shell defense
+        performs very differently than the same attack against unarmored prey. Learn the table.
+      </li>
+      <li class="mb-2">
+        <strong>The lore you write affects nothing mechanically</strong> — but it affects
+        everything culturally. The bugs that develop deep lore attract more challengers,
+        more rivals, and more story.
+      </li>
+    </ul>
+  </section>
+
+  <div class="text-center py-4">
+    <a href="{{ url_for('bugs.submit_bug') }}" class="btn btn-primary btn-lg me-2">Submit a Bug</a>
+    <a href="{{ url_for('bugs.list_bugs') }}" class="btn btn-outline-secondary btn-lg">View the Arena</a>
+  </div>
+
+</div>
+{% endblock %}

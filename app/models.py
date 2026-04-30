@@ -3,22 +3,25 @@ Enhanced Bug Model with User Lore + Hidden Visual Lore System
 This integrates with your existing models.py
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 import json
+
+def _now():
+    return datetime.now(timezone.utc)
 from app import db, login_manager
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return db.session.get(User, int(user_id))
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(64), unique=True, nullable=False, index=True)
     email = db.Column(db.String(120), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(256))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_now)
     role = db.Column(db.String(20), default='USER')  # USER, MODERATOR, ADMIN, OWNER
     elo = db.Column(db.Integer, default=1000)
     is_active = db.Column(db.Boolean, default=True)
@@ -162,11 +165,17 @@ class Species(db.Model):
     
     # External references
     gbif_id = db.Column(db.String(100))
+    gbif_backbone_key = db.Column(db.Integer)          # GBIF backbone usageKey (canonical)
+    accepted_name = db.Column(db.String(200))           # Canonical accepted name if this was a synonym
     inaturalist_id = db.Column(db.String(100))
+    catalogue_of_life_id = db.Column(db.String(100))   # COL ChecklistBank ID
     wikipedia_url = db.Column(db.String(500))
-    
+    interesting_facts = db.Column(db.Text)  # JSON-encoded list[str] from Wikipedia/iNaturalist
+    conservation_status = db.Column(db.String(50))      # IUCN: LC, NT, VU, EN, CR, EW, EX
+    observation_count = db.Column(db.Integer)           # iNaturalist research-grade observations
+
     # Cache metadata
-    last_updated = db.Column(db.DateTime, default=datetime.utcnow)
+    last_updated = db.Column(db.DateTime, default=_now)
     data_source = db.Column(db.String(100))
     
     # Relationships
@@ -288,7 +297,7 @@ class Bug(db.Model):
     
     # Metadata
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    submission_date = db.Column(db.DateTime, default=datetime.utcnow)
+    submission_date = db.Column(db.DateTime, default=_now, index=True)
     wins = db.Column(db.Integer, default=0)
     losses = db.Column(db.Integer, default=0)
     is_verified = db.Column(db.Boolean, default=False)
@@ -296,6 +305,9 @@ class Bug(db.Model):
     # Retirement
     is_retired = db.Column(db.Boolean, default=False)
     retired_at = db.Column(db.DateTime)
+
+    # Competition track: 'season' | 'mma' | None (unassigned)
+    bug_track = db.Column(db.String(20), nullable=True)
 
     # Cumulative stat growth from battle milestones (display only)
     stat_growth = db.Column(db.Integer, default=0)
@@ -376,6 +388,32 @@ class Bug(db.Model):
             badges.append({'icon': '🥈', 'name': '10W Veteran',  'color': 'secondary',         'type': 'milestone'})
         elif wins >= 5:
             badges.append({'icon': '🥉', 'name': '5W Fighter',   'color': 'secondary',         'type': 'milestone'})
+
+        # Consolation badges for the bottom tiers — lovingly roasted
+        if self.tier == 'zu':
+            _zu = [
+                ('🫧', 'Certified Harmless',  'secondary', 'zu_funny'),
+                ('🪑', 'Permanent Bench',     'secondary', 'zu_funny'),
+                ('🏳️', 'Participation Award', 'secondary', 'zu_funny'),
+                ('🎖️', 'Tried Its Best',      'secondary', 'zu_funny'),
+                ('💤', 'Deeply Misunderstood','secondary', 'zu_funny'),
+                ('🛒', 'Gently Used',         'secondary', 'zu_funny'),
+                ('🌈', 'Moral Victory',       'secondary', 'zu_funny'),
+            ]
+            b = _zu[(self.id or 0) % len(_zu)]
+            badges.append({'icon': b[0], 'name': b[1], 'color': b[2], 'type': b[3]})
+        elif self.tier == 'nu':
+            _nu = [
+                ('📋', 'Filed Away',          'dark', 'nu_funny'),
+                ('🌱', 'Just Needs a Chance', 'success', 'nu_funny'),
+                ('👻', 'Who?',                'secondary', 'nu_funny'),
+                ('📦', 'Unopened Potential',  'secondary', 'nu_funny'),
+                ('🎯', 'Niche Pick',          'info text-dark', 'nu_funny'),
+                ('🔍', 'Statistically Present','secondary', 'nu_funny'),
+            ]
+            b = _nu[(self.id or 0) % len(_nu)]
+            badges.append({'icon': b[0], 'name': b[1], 'color': b[2], 'type': b[3]})
+
         return badges
 
     @property
@@ -458,7 +496,7 @@ class BugAchievement(db.Model):
     achievement_name = db.Column(db.String(100), nullable=False)
     achievement_icon = db.Column(db.String(10))
     description = db.Column(db.Text)
-    earned_date = db.Column(db.DateTime, default=datetime.utcnow)
+    earned_date = db.Column(db.DateTime, default=_now)
     rarity = db.Column(db.String(20))
     
     def __repr__(self):
@@ -473,7 +511,7 @@ class Job(db.Model):
     payload_json = db.Column(db.Text)
     result_json = db.Column(db.Text)
     error = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_now, nullable=False)
     started_at = db.Column(db.DateTime)
     completed_at = db.Column(db.DateTime)
     attempts = db.Column(db.Integer, default=0, nullable=False)
@@ -516,7 +554,7 @@ class CurrencyTransaction(db.Model):
     reason = db.Column(db.String(120), nullable=False)
     reference_type = db.Column(db.String(50))
     reference_id = db.Column(db.Integer)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_now, nullable=False)
 
     user = db.relationship('User', backref=db.backref('currency_transactions', lazy='dynamic'))
 
@@ -532,7 +570,7 @@ class Battle(db.Model):
     winner = db.relationship('Bug', foreign_keys=[winner_id])
     
     narrative = db.Column(db.Text)
-    battle_date = db.Column(db.DateTime, default=datetime.utcnow)
+    battle_date = db.Column(db.DateTime, default=_now, index=True)
     
     # Tournament relationship
     tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'))
@@ -541,7 +579,11 @@ class Battle(db.Model):
     # Store which bug had xfactor advantage (for post-battle reveal)
     xfactor_triggered = db.Column(db.Boolean, default=False)
     xfactor_details = db.Column(db.Text)  # What secret advantage was used?
-    
+
+    # Battle venue and result flavour
+    venue = db.Column(db.String(100))          # e.g. "The Flower Bed"
+    battle_rating = db.Column(db.String(30))   # dominant|contested|nail_biter|upset
+
     def __repr__(self):
         return f'<Battle {self.id}: Bug{self.bug1_id} vs Bug{self.bug2_id}>'
 
@@ -557,7 +599,7 @@ class Tournament(db.Model):
     
     # Tier restriction
     tier = db.Column(db.String(20))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_now)
     registration_deadline = db.Column(db.DateTime)
     created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     created_by = db.relationship('User', foreign_keys=[created_by_id])
@@ -592,7 +634,7 @@ class TournamentApplication(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     
     status = db.Column(db.String(20), default='pending')  # pending, approved, rejected, withdrawn
-    applied_at = db.Column(db.DateTime, default=datetime.utcnow)
+    applied_at = db.Column(db.DateTime, default=_now)
     reviewed_at = db.Column(db.DateTime)
     reviewed_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     
@@ -643,7 +685,7 @@ class Comment(db.Model):
     bug_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     upvotes = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_now)
     
     def __repr__(self):
         return f'<Comment {self.id}>'
@@ -655,7 +697,7 @@ class BugLore(db.Model):
     bug_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     lore_text = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_now)
     upvotes = db.Column(db.Integer, default=0)
     
     def __repr__(self):
@@ -666,7 +708,7 @@ class CommentVote(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     comment_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_now)
 
     __table_args__ = (
         db.UniqueConstraint('comment_id', 'user_id', name='uq_comment_vote_user'),
@@ -677,7 +719,7 @@ class BugLoreVote(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     lore_id = db.Column(db.Integer, db.ForeignKey('bug_lore.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_now)
 
     __table_args__ = (
         db.UniqueConstraint('lore_id', 'user_id', name='uq_lore_vote_user'),
@@ -690,8 +732,8 @@ class BugRival(db.Model):
     bug1_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
     bug2_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
     encounter_count = db.Column(db.Integer, default=1, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    last_encounter_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_now)
+    last_encounter_at = db.Column(db.DateTime, default=_now)
 
     bug1_wins = db.Column(db.Integer, default=0, nullable=False)
     bug2_wins = db.Column(db.Integer, default=0, nullable=False)
@@ -720,7 +762,7 @@ class ClassificationFlag(db.Model):
     reason = db.Column(db.Text, nullable=False)
     suggested_species = db.Column(db.String(200))
     status = db.Column(db.String(20), default='pending', nullable=False)  # pending | reviewed | dismissed
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_now)
     reviewed_at = db.Column(db.DateTime)
     reviewer_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     reviewer_notes = db.Column(db.Text)
@@ -747,7 +789,7 @@ class Notification(db.Model):
     link_url = db.Column(db.String(500))
     is_read = db.Column(db.Boolean, default=False, nullable=False)
     notification_type = db.Column(db.String(30), default='info')  # info|tournament_victory|season_result
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_now)
 
     user = db.relationship('User', backref=db.backref('notifications', lazy='dynamic'))
 
@@ -774,7 +816,7 @@ class Season(db.Model):
     tournament_end = db.Column(db.DateTime)
     tournament_id = db.Column(db.Integer, db.ForeignKey('tournament.id'), nullable=True)
     max_registrations = db.Column(db.Integer, default=64)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_now)
 
     registrations = db.relationship('SeasonRegistration', backref='season', lazy='dynamic',
                                     cascade='all, delete-orphan')
@@ -794,7 +836,7 @@ class SeasonRegistration(db.Model):
     season_id = db.Column(db.Integer, db.ForeignKey('season.id'), nullable=False)
     bug_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    registered_at = db.Column(db.DateTime, default=datetime.utcnow)
+    registered_at = db.Column(db.DateTime, default=_now)
     status = db.Column(db.String(20), default='registered')  # registered|active|eliminated
     pending_boost_points = db.Column(db.Integer, default=0)
     # null = manual; one of: attack|defense|speed|lethality|grip|cunning
@@ -850,7 +892,7 @@ class BlockedImageHash(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     image_hash = db.Column(db.String(64), unique=True, nullable=False, index=True)
     reason = db.Column(db.String(100), default='zombug_failed')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_now)
 
     def __repr__(self):
         return f'<BlockedImageHash {self.image_hash[:8]}… reason={self.reason}>'
@@ -862,7 +904,7 @@ class SystemSetting(db.Model):
 
     key = db.Column(db.String(64), primary_key=True)
     value = db.Column(db.Text, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=_now)
     updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
 
     @classmethod
@@ -879,7 +921,7 @@ class SystemSetting(db.Model):
         row = db.session.get(cls, key)
         if row:
             row.value = str(value)
-            row.updated_at = datetime.utcnow()
+            row.updated_at = datetime.now(timezone.utc)
             if user_id:
                 row.updated_by_id = user_id
         else:
@@ -902,7 +944,7 @@ class RejectedSubmission(db.Model):
     location_found = db.Column(db.String(200))
     user_species_guess = db.Column(db.String(200))
     rejection_reasons = db.Column(db.Text)          # JSON list
-    submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    submitted_at = db.Column(db.DateTime, default=_now)
     status = db.Column(db.String(20), default='pending')  # pending / approved / dismissed
     admin_notes = db.Column(db.Text)
     reviewed_at = db.Column(db.DateTime)
@@ -917,3 +959,107 @@ class RejectedSubmission(db.Model):
             return json.loads(self.rejection_reasons or '[]')
         except Exception:
             return []
+
+
+# ── Championship / MMA Track ──────────────────────────────────────────────────
+
+CHAMPIONSHIP_TIERS = ['uber', 'ou', 'uu', 'ru', 'nu', 'zu']
+
+# Minimum AP bid required to challenge as each contender rank
+CONTENDER_MIN_BIDS = {1: 0, 2: 50, 3: 150}
+
+
+class TierChampionship(db.Model):
+    """One record per tier tracking the current belt holder."""
+    __tablename__ = 'tier_championship'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tier = db.Column(db.String(20), nullable=False, unique=True)
+    champion_bug_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=True)
+    won_date = db.Column(db.DateTime, nullable=True)
+    defense_count = db.Column(db.Integer, default=0)
+    next_defense_due = db.Column(db.DateTime, nullable=True)
+    status = db.Column(db.String(20), default='vacant')  # active | vacant
+
+    champion = db.relationship('Bug', foreign_keys=[champion_bug_id],
+                               backref=db.backref('championship_held', uselist=False))
+
+
+class TierRanking(db.Model):
+    """Contender ranking entry — one per bug per tier."""
+    __tablename__ = 'tier_ranking'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tier = db.Column(db.String(20), nullable=False, index=True)
+    bug_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
+    rank = db.Column(db.Integer, nullable=True)   # 1-10; None = ranked but outside top 10
+    ranking_score = db.Column(db.Float, default=0.0)
+    last_updated = db.Column(db.DateTime, default=_now)
+    last_fight_date = db.Column(db.DateTime, nullable=True)
+
+    bug = db.relationship('Bug', backref=db.backref('tier_ranking_entry', uselist=False))
+
+    __table_args__ = (db.UniqueConstraint('tier', 'bug_id', name='uq_tier_bug_ranking'),)
+
+
+class TitleFight(db.Model):
+    """A scheduled championship title fight."""
+    __tablename__ = 'title_fight'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tier = db.Column(db.String(20), nullable=False)
+    championship_id = db.Column(db.Integer, db.ForeignKey('tier_championship.id'), nullable=False)
+    challenger_bug_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=True)
+    scheduled_date = db.Column(db.DateTime, nullable=False)
+    bid_closes_at = db.Column(db.DateTime, nullable=False)
+    # bidding → locked (challenger chosen) → completed | cancelled
+    status = db.Column(db.String(20), default='bidding')
+    battle_id = db.Column(db.Integer, db.ForeignKey('battle.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=_now)
+
+    championship = db.relationship('TierChampionship', backref='title_fights')
+    challenger = db.relationship('Bug', foreign_keys=[challenger_bug_id],
+                                 backref='title_fight_challenges')
+    battle = db.relationship('Battle')
+
+
+class TitleBid(db.Model):
+    """An AP bid by a contender for the upcoming title shot."""
+    __tablename__ = 'title_bid'
+
+    id = db.Column(db.Integer, primary_key=True)
+    fight_id = db.Column(db.Integer, db.ForeignKey('title_fight.id'), nullable=False)
+    bug_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    amount = db.Column(db.Integer, nullable=False)          # AP bid amount
+    contender_rank = db.Column(db.Integer, nullable=False)  # rank at time of bid (1–3)
+    min_required = db.Column(db.Integer, nullable=False)    # minimum AP for that rank
+    placed_at = db.Column(db.DateTime, default=_now)
+    won_bid = db.Column(db.Boolean, default=False)
+
+    fight = db.relationship('TitleFight', backref='bids')
+    bug = db.relationship('Bug', backref='title_bids')
+    user = db.relationship('User', backref='title_bids')
+
+    __table_args__ = (db.UniqueConstraint('fight_id', 'bug_id', name='uq_fight_bug_bid'),)
+
+
+class ContenderCallout(db.Model):
+    """A ranked contender challenging another for a ranking bout."""
+    __tablename__ = 'contender_callout'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tier = db.Column(db.String(20), nullable=False)
+    challenger_bug_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
+    target_bug_id = db.Column(db.Integer, db.ForeignKey('bug.id'), nullable=False)
+    # pending → accepted → completed | declined | expired
+    status = db.Column(db.String(20), default='pending')
+    created_at = db.Column(db.DateTime, default=_now)
+    expires_at = db.Column(db.DateTime, nullable=False)   # 7 days to respond
+    battle_id = db.Column(db.Integer, db.ForeignKey('battle.id'), nullable=True)
+
+    challenger = db.relationship('Bug', foreign_keys=[challenger_bug_id],
+                                 backref='callouts_issued')
+    target = db.relationship('Bug', foreign_keys=[target_bug_id],
+                             backref='callouts_received')
+    battle = db.relationship('Battle')

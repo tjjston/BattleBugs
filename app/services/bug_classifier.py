@@ -4,11 +4,28 @@ Uses user's species guess as a hint, but LLM independently validates
 Prevents manipulation: "This ladybug is actually a bullet ant"
 """
 
+import json
+import re
 from typing import Dict, Any, Optional
 from flask import current_app
 from app.services.llm_manager import LLMService, LLMModel
 from app.services.vision_service import ImageQualityChecker
-import json
+
+
+def _extract_json(text: str) -> dict:
+    """Parse JSON from an LLM response, tolerating prose before/after the object."""
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    if text:
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
+    raise ValueError(f"No parseable JSON in LLM response: {(text or '')[:200]}")
 
 
 class BugClassificationResult:
@@ -87,7 +104,7 @@ class LLMBugClassifier:
         #self.validation_strictness = 'phylum'
         
         # Minimum requirements
-        self.min_confidence = 0.60
+        self.min_confidence = current_app.config.get('HF_BUG_CLASSIFIER_MIN_CONFIDENCE', 0.60)
         self.min_image_width = 400
         self.min_image_height = 400
         self.max_file_size_mb = 16
@@ -143,6 +160,8 @@ class LLMBugClassifier:
                         f"Duplicate of existing bug: {duplicate_check['duplicate_bug_name']}"
                     )
                     hf_result.reasoning += f"\n\nDuplicate detected: {duplicate_check['similarity_score']:.0%} similar."
+                else:
+                    hf_result = self._normalize_species_via_backbone(hf_result)
             return hf_result
         
         # Step 3: LLM fallback with User Hint
@@ -163,7 +182,11 @@ class LLMBugClassifier:
                     f"Duplicate of existing bug: {duplicate_check['duplicate_bug_name']}"
                 )
                 llm_result.reasoning += f"\n\nDuplicate detected: {duplicate_check['similarity_score']:.0%} similar."
-        
+
+        # Step 5: Normalise species name via GBIF backbone (synonym resolution + fill order/family)
+        if llm_result.approved:
+            llm_result = self._normalize_species_via_backbone(llm_result)
+
         return llm_result
 
     def _huggingface_analysis(
@@ -346,7 +369,11 @@ class LLMBugClassifier:
         
         # Get model preference
         model = self._get_preferred_model()
-        
+        current_app.logger.info(
+            "CLASSIFY using model provider=%s model=%s image=%s",
+            model.provider, model.model_name, image_path,
+        )
+
         try:
             response = self.llm.generate(
                 prompt=prompt,
@@ -357,26 +384,68 @@ class LLMBugClassifier:
                 temperature=0.3,
                 json_mode=True
             )
-            
-            result_data = json.loads(response)
-            
-            # Add provider metadata
+
+            if not response:
+                raise ValueError("LLM returned empty response")
+
+            result_data = _extract_json(response)
             result_data['llm_provider'] = model.provider
             result_data['llm_model'] = model.model_name
-            
+            current_app.logger.info(
+                "CLASSIFY result — approved=%s confidence=%.2f species=%s",
+                result_data.get('approved'), result_data.get('confidence'),
+                result_data.get('identified_species'),
+            )
             return BugClassificationResult(result_data)
-            
+
         except Exception as e:
-            current_app.logger.warning("LLM classification failed: %s", e)
-            
+            current_app.logger.warning(
+                "CLASSIFY failed (provider=%s model=%s) — %s: %s — falling back to manual review",
+                model.provider, model.model_name, type(e).__name__, e,
+            )
+            # Don't hard-reject when the classifier itself fails; queue for human review instead.
             return BugClassificationResult({
-                'approved': False,
-                'confidence': 0.0,
-                'rejection_reasons': [f'LLM classification failed: {str(e)}'],
-                'reasoning': 'Unable to complete classification',
-                'llm_provider': 'error',
-                'llm_model': 'failed'
+                'approved': True,
+                'confidence': 0.5,
+                'is_arthropod': True,
+                'reasoning': 'Automatic vision classification unavailable; submission queued for admin review.',
+                'quality_assessment': 'Not assessed',
+                'rejection_reasons': [],
+                'warnings': [
+                    'The AI classifier could not process this image automatically. '
+                    'An admin will review your submission shortly.'
+                ],
+                'llm_provider': 'fallback',
+                'llm_model': 'manual_review',
             })
+
+    def _normalize_species_via_backbone(self, result: BugClassificationResult) -> BugClassificationResult:
+        """
+        After LLM or HF classification, run the GBIF backbone to:
+          - Resolve synonyms to accepted canonical names
+          - Fill in missing order/family if only genus was identified
+          - Boost confidence when backbone confirms the name
+        """
+        if not result.scientific_name and not result.identified_species:
+            return result
+        name = result.scientific_name or result.identified_species
+        try:
+            from app.services.taxonomy import GBIFBackbone
+            match = GBIFBackbone().resolve_accepted(name)
+            if not match:
+                return result
+            canonical = match.get('canonicalName') or name
+            if canonical != name:
+                current_app.logger.info("CLASSIFY backbone: %r → canonical %r (conf=%s)",
+                                        name, canonical, match.get('confidence'))
+            result.scientific_name = canonical
+            if not result.order and match.get('order'):
+                result.order = match['order']
+            if not result.family and match.get('family'):
+                result.family = match['family']
+        except Exception as exc:
+            current_app.logger.debug("backbone normalisation skipped: %s", exc)
+        return result
     
     def _build_classification_prompt(
         self,

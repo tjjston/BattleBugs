@@ -3,12 +3,17 @@ from config import Config
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager, current_user
+from flask_wtf.csrf import CSRFProtect
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import os
 
 db = SQLAlchemy()
 login_manager = LoginManager()
 login_manager.login_view = 'auth.login'
 login_manager.login_message = 'Please log in to access this page.'
+csrf = CSRFProtect()
+limiter = Limiter(key_func=get_remote_address, default_limits=[], storage_uri="memory://")
 
 def create_app(config_class=Config):
     app = Flask(__name__)
@@ -17,6 +22,8 @@ def create_app(config_class=Config):
     db.init_app(app)
     migrate = Migrate(app, db)
     login_manager.init_app(app)
+    csrf.init_app(app)
+    limiter.init_app(app)
 
     # Compatibility shim: some Flask/Werkzeug combinations pass a 'partitioned' kw
     # to Response.set_cookie which older Werkzeug versions don't accept. Wrap
@@ -43,7 +50,7 @@ def create_app(config_class=Config):
         from app import models
     
     # Register blueprints
-    from app.routes import main, auth, bugs, battles, tournaments, api, admin
+    from app.routes import main, auth, bugs, battles, tournaments, api, admin, championship
     app.register_blueprint(main.bp)
     app.register_blueprint(auth.bp)
     app.register_blueprint(bugs.bp)
@@ -51,6 +58,16 @@ def create_app(config_class=Config):
     app.register_blueprint(tournaments.bp)
     app.register_blueprint(api.bp)
     app.register_blueprint(admin.bp)
+    app.register_blueprint(championship.bp)
+
+    # Custom Jinja2 filters
+    import json as _json
+    @app.template_filter('fromjson')
+    def _fromjson(value):
+        try:
+            return _json.loads(value) if isinstance(value, str) else value
+        except Exception:
+            return []
 
     # Inject permission helpers globally so templates can call is_admin/is_owner
     from app.services.permission_system import can_view_secrets, is_admin, is_moderator, is_owner

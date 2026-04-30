@@ -299,7 +299,7 @@ class AdminUserManager:
         # compute account age in days safely (user.created_at may be None)
         if getattr(user, 'created_at', None):
             try:
-                account_age_days = (datetime.utcnow() - user.created_at).days
+                account_age_days = (datetime.now(timezone.utc) - user.created_at).days
             except Exception:
                 account_age_days = None
         else:

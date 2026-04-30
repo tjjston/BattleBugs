@@ -8,7 +8,7 @@
 {% if not bugs %}
 <div class="alert alert-info">No bugs available to fight. Submit some bugs first.</div>
 {% else %}
-<form method="POST" action="{{ url_for('battles.new_battle') }}">
+<form method="POST" action="{{ url_for('battles.new_battle') }}" data-llm-loading="Preparing battle… this may take a moment.">
     <div class="row">
         <div class="col-md-6">
             <label for="bug1_id" class="form-label">Combatant One</label>

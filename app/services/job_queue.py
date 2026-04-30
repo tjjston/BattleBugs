@@ -1,8 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 import random as _random
 
 from flask import current_app
+from sqlalchemy import func
 
 from app import db
 from app.models import Bug, Job
@@ -51,7 +52,7 @@ def process_next_job() -> Optional[Job]:
 
 def process_job(job: Job) -> Job:
     job.status = 'processing'
-    job.started_at = datetime.utcnow()
+    job.started_at = datetime.now(timezone.utc)
     job.attempts = (job.attempts or 0) + 1
     job.error = None
     db.session.commit()
@@ -60,12 +61,12 @@ def process_job(job: Job) -> Job:
         result = _dispatch_job(job)
         job.result = result or {}
         job.status = 'complete'
-        job.completed_at = datetime.utcnow()
+        job.completed_at = datetime.now(timezone.utc)
     except Exception as exc:
         current_app.logger.exception("Background job %s failed", job.id)
         job.status = 'dead' if job.attempts >= MAX_JOB_ATTEMPTS else 'failed'
         job.error = str(exc)
-        job.completed_at = datetime.utcnow()
+        job.completed_at = datetime.now(timezone.utc)
         _mark_bug_enrichment_failed(job, str(exc))
 
     db.session.commit()
@@ -109,10 +110,27 @@ def _bug_from_job(job: Job) -> Bug:
 
 
 def _run_visual_lore_job(job: Job) -> dict:
+    import os as _os
     bug = _bug_from_job(job)
     image_path = job.payload.get('image_path') or bug.image_path
     if not image_path.startswith('/'):
         image_path = f"{current_app.config['UPLOAD_FOLDER']}/{image_path}"
+
+    current_app.logger.info(
+        "JOB visual_lore #%s — bug#%s image_path=%s exists=%s",
+        job.id, bug.id, image_path, _os.path.exists(image_path),
+    )
+    if not _os.path.exists(image_path):
+        upload_dir = current_app.config['UPLOAD_FOLDER']
+        on_disk = _os.listdir(upload_dir) if _os.path.isdir(upload_dir) else []
+        current_app.logger.error(
+            "JOB visual_lore #%s — image missing at %s. "
+            "UPLOAD_FOLDER=%s. Files matching bug#%s owner: %s",
+            job.id, image_path, upload_dir,
+            bug.id,
+            [f for f in on_disk if f.startswith(f"{bug.user_id}_")],
+        )
+        raise FileNotFoundError(f"Bug image not found: {image_path}")
 
     bug.enrichment_status = 'processing'
     db.session.add(bug)
@@ -189,7 +207,7 @@ def _refresh_bug_enrichment_status(job: Job) -> None:
         return
 
     related = Job.query.filter(
-        Job.payload_json.contains(f'"bug_id": {bug_id}')
+        func.json_extract(Job.payload_json, '$.bug_id') == bug_id
     ).all()
     if any(j.status == 'failed' for j in related):
         bug.enrichment_status = 'failed'
@@ -218,7 +236,7 @@ def _run_seasonal_tournaments_job(_job: Job) -> dict:
     from app.services.seasonal_tournament import get_season_key_for_date
     from app.services.news_service import get_current_season
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     try:
         season_key = get_season_key_for_date(now)
     except Exception:
@@ -281,6 +299,7 @@ def start_scheduler(app) -> None:
         id='battlebugs_job_worker',
         replace_existing=True,
         max_instances=1,
+        misfire_grace_time=60,
     )
     scheduler.add_job(
         daily_maintenance,
@@ -289,6 +308,7 @@ def start_scheduler(app) -> None:
         id='battlebugs_daily_maintenance',
         replace_existing=True,
         max_instances=1,
+        misfire_grace_time=3600,
     )
 
     def season_tick():
@@ -306,6 +326,7 @@ def start_scheduler(app) -> None:
         id='battlebugs_season_tick',
         replace_existing=True,
         max_instances=1,
+        misfire_grace_time=600,
     )
 
     def quarterly_season_creation():
@@ -331,6 +352,92 @@ def start_scheduler(app) -> None:
         max_instances=1,
     )
 
+    def weekly_ranking_recalc():
+        """Recalculate MMA contender rankings across all tiers."""
+        with app.app_context():
+            try:
+                from app.services.championship_service import recalculate_all_rankings, expire_stale_callouts
+                recalculate_all_rankings()
+                expire_stale_callouts()
+                current_app.logger.info("weekly_ranking_recalc: complete")
+            except Exception:
+                current_app.logger.exception("weekly_ranking_recalc failed")
+
+    scheduler.add_job(
+        weekly_ranking_recalc,
+        CronTrigger(day_of_week='mon', hour='3', minute='0'),
+        id='battlebugs_weekly_ranking_recalc',
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=3600,
+    )
+
+    def bimonthly_title_fight_check():
+        """Schedule title fights for belts that don't yet have one, and lock expired bidding windows."""
+        with app.app_context():
+            try:
+                from app.services.championship_service import (
+                    ensure_championships, schedule_title_fights,
+                )
+                from app.models import TitleFight
+                from datetime import datetime, timezone as _tz
+                ensure_championships()
+                schedule_title_fights()
+                # Close any bidding windows that have expired
+                now = datetime.now(_tz.utc)
+                open_fights = TitleFight.query.filter_by(status='bidding').all()
+                for fight in open_fights:
+                    if fight.bid_closes_at and fight.bid_closes_at <= now:
+                        from app.services.championship_service import close_bidding
+                        try:
+                            close_bidding(fight.id)
+                        except Exception:
+                            current_app.logger.exception(
+                                "bimonthly_title_fight_check: close_bidding(%s) failed", fight.id)
+                current_app.logger.info("bimonthly_title_fight_check: complete")
+            except Exception:
+                current_app.logger.exception("bimonthly_title_fight_check failed")
+
+    scheduler.add_job(
+        bimonthly_title_fight_check,
+        CronTrigger(day='1,15', hour='1', minute='0'),
+        id='battlebugs_bimonthly_title_fights',
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=3600,
+    )
+
+    def execute_ready_title_fights():
+        """Execute title fights whose scheduled_date has passed."""
+        with app.app_context():
+            try:
+                from app.services.championship_service import execute_title_fight
+                from app.models import TitleFight
+                from datetime import datetime, timezone as _tz
+                now = datetime.now(_tz.utc)
+                due = TitleFight.query.filter(
+                    TitleFight.status == 'locked',
+                    TitleFight.scheduled_date <= now,
+                ).all()
+                for fight in due:
+                    try:
+                        execute_title_fight(fight.id)
+                        current_app.logger.info("Executed title fight %s", fight.id)
+                    except Exception:
+                        current_app.logger.exception("execute_title_fight(%s) failed", fight.id)
+            except Exception:
+                current_app.logger.exception("execute_ready_title_fights failed")
+
+    scheduler.add_job(
+        execute_ready_title_fights,
+        'interval',
+        hours=6,
+        id='battlebugs_execute_title_fights',
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=3600,
+    )
+
     scheduler.start()
     app._battlebugs_scheduler_started = True
     app._battlebugs_scheduler = scheduler
@@ -342,7 +449,7 @@ def advance_season_phases() -> None:
     """Advance season phases based on current time."""
     from app.models import Season
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     seasons = Season.query.filter(Season.phase.notin_(['completed'])).all()
     for season in seasons:
         if season.phase == 'registration' and now >= season.registration_closes:
@@ -375,7 +482,7 @@ def _start_regular_season(season) -> None:
     _distribute_unassigned_boost_points(regs)
 
     # Round-robin pairing for 7 days (each bug plays once per day against a random opponent)
-    start = max(season.regular_season_start, datetime.utcnow().replace(hour=12, minute=0, second=0))
+    start = max(season.regular_season_start, datetime.now(timezone.utc).replace(tzinfo=None, hour=12, minute=0, second=0))
     bug_ids = [r.bug_id for r in regs]
     for day in range(1, 8):
         scheduled_at = start + timedelta(days=day - 1)
@@ -438,7 +545,7 @@ def _start_season_tournament(season) -> None:
         db.session.commit()
         return
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     t_start = season.tournament_start or now
     t_end = season.tournament_end or (t_start + timedelta(days=7))
 
@@ -563,7 +670,7 @@ def _retire_season_participants(season) -> None:
         if not bug or bug.is_retired:
             continue
         bug.is_retired = True
-        bug.retired_at = datetime.utcnow()
+        bug.retired_at = datetime.now(timezone.utc)
         db.session.add(bug)
         award_achievement(
             bug,
@@ -589,7 +696,7 @@ def play_due_season_matches() -> None:
     from app.models import SeasonMatch, SeasonRegistration
     from app.services.battle_engine import simulate_battle
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     due = SeasonMatch.query.filter(
         SeasonMatch.completed_at.is_(None),
         SeasonMatch.scheduled_at <= now,
@@ -611,7 +718,7 @@ def play_due_season_matches() -> None:
 
             battle = simulate_battle(bug1, bug2)
             sm.battle_id = battle.id
-            sm.completed_at = datetime.utcnow()
+            sm.completed_at = datetime.now(timezone.utc)
 
             # Award boost points
             winner_id = battle.winner_id

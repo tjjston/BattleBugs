@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone, timezone
 
 from app import db
 from app.models import Bug, BugAchievement
@@ -37,6 +37,79 @@ def award_achievement(bug, achievement_type: str, name: str, icon: str, descript
     return True
 
 
+_TIER_BADGES = {
+    'uber': ('tier_first_uber', 'Legendary Collector', '🔴', 'First Legendary tier bug collected', 'rare'),
+    'ou':   ('tier_first_ou',   'Elite Collector',     '🟠', 'First Elite tier bug collected',     'uncommon'),
+    'uu':   ('tier_first_uu',   'Strong Collector',    '🔵', 'First Strong tier bug collected',     'uncommon'),
+    'ru':   ('tier_first_ru',   'Rising Collector',    '🩵', 'First Rising tier bug collected',     'common'),
+    'nu':   ('tier_first_nu',   'Newcomer Collector',  '⚫', 'First Newcomer tier bug collected',   'common'),
+    'zu':   ('tier_first_zu',   'Zero Collector',      '🟤', 'First Zero tier bug collected',       'common'),
+}
+
+_ATTACK_BADGES = {
+    'piercing':  ('atk_first_piercing',  'Sharp Collector',    '⚔️',  'First piercing-type bug collected',  'common'),
+    'crushing':  ('atk_first_crushing',  'Crusher Collector',  '💥',  'First crushing-type bug collected',  'common'),
+    'slashing':  ('atk_first_slashing',  'Blade Collector',    '🔪',  'First slashing-type bug collected',  'common'),
+    'venom':     ('atk_first_venom',     'Venom Collector',    '☠️',  'First venom-type bug collected',     'uncommon'),
+    'chemical':  ('atk_first_chemical',  'Chem Collector',     '⚗️',  'First chemical-type bug collected',  'uncommon'),
+    'grappling': ('atk_first_grappling', 'Grappler Collector', '🤼',  'First grappling-type bug collected', 'common'),
+}
+
+_DEFENSE_BADGES = {
+    'hard_shell':      ('def_first_hard_shell',      'Shell Collector',    '🛡️',  'First hard-shell bug collected',      'common'),
+    'segmented_armor': ('def_first_segmented_armor', 'Armor Collector',    '🔗',  'First segmented-armor bug collected', 'common'),
+    'evasive':         ('def_first_evasive',         'Ghost Collector',    '💨',  'First evasive bug collected',         'common'),
+    'hairy_spiny':     ('def_first_hairy_spiny',     'Spiny Collector',    '🦔',  'First hairy/spiny bug collected',     'common'),
+    'toxic_skin':      ('def_first_toxic_skin',      'Toxic Collector',    '☢️',  'First toxic-skin bug collected',      'uncommon'),
+    'thick_hide':      ('def_first_thick_hide',      'Hide Collector',     '🦏',  'First thick-hide bug collected',      'common'),
+}
+
+_SIZE_BADGES = {
+    'tiny':    ('size_first_tiny',    'Tiny Terror',   '🔬', 'First tiny bug collected',    'common'),
+    'small':   ('size_first_small',   'Small Fry',     '🐜', 'First small bug collected',   'common'),
+    'medium':  ('size_first_medium',  'Mid Ranger',    '🐛', 'First medium bug collected',  'common'),
+    'large':   ('size_first_large',   'Big Bug',       '🦗', 'First large bug collected',   'uncommon'),
+    'massive': ('size_first_massive', 'Goliath Found', '🦂', 'First massive bug collected', 'rare'),
+}
+
+
+def _award_collector_badges(bug) -> None:
+    """Award first-of-kind collector badges to the bug's owner based on tier/attack/defense/size."""
+    owner = bug.owner
+    if not owner:
+        return
+
+    # Check via BugAchievement on any of the owner's bugs
+    from app.models import Bug as _Bug
+    owner_bug_ids = [b.id for b in _Bug.query.filter_by(user_id=owner.id).all()]
+
+    def _owner_has(atype):
+        return BugAchievement.query.filter(
+            BugAchievement.bug_id.in_(owner_bug_ids),
+            BugAchievement.achievement_type == atype,
+        ).first() is not None
+
+    if bug.tier and bug.tier in _TIER_BADGES:
+        atype, name, icon, desc, rarity = _TIER_BADGES[bug.tier]
+        if not _owner_has(atype):
+            award_achievement(bug, atype, name, icon, desc, rarity)
+
+    if bug.attack_type and bug.attack_type in _ATTACK_BADGES:
+        atype, name, icon, desc, rarity = _ATTACK_BADGES[bug.attack_type]
+        if not _owner_has(atype):
+            award_achievement(bug, atype, name, icon, desc, rarity)
+
+    if bug.defense_type and bug.defense_type in _DEFENSE_BADGES:
+        atype, name, icon, desc, rarity = _DEFENSE_BADGES[bug.defense_type]
+        if not _owner_has(atype):
+            award_achievement(bug, atype, name, icon, desc, rarity)
+
+    if bug.size_class and bug.size_class in _SIZE_BADGES:
+        atype, name, icon, desc, rarity = _SIZE_BADGES[bug.size_class]
+        if not _owner_has(atype):
+            award_achievement(bug, atype, name, icon, desc, rarity)
+
+
 def award_submission_achievements(bug) -> None:
     award_currency(
         bug.owner,
@@ -52,6 +125,7 @@ def award_submission_achievements(bug) -> None:
         '★',
         'Entered the BattleBugs arena.',
     )
+    _award_collector_badges(bug)
     if bug.species_id:
         # Per-user unique species bonus
         existing_species_count = Bug.query.filter(
@@ -208,7 +282,7 @@ def _retire_bug(bug) -> None:
     if bug.is_retired:
         return
     bug.is_retired = True
-    bug.retired_at = datetime.utcnow()
+    bug.retired_at = datetime.now(timezone.utc)
     db.session.add(bug)
     award_achievement(
         bug,

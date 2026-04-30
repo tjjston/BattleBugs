@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request
-from flask_login import login_required
+from flask_login import login_required, current_user
 from app import db
 from app.models import Bug, Battle, TournamentMatch, Tournament, Season, BugAchievement
 from app.services.battle_engine import simulate_battle, calculate_battle_stats, visible_win_summary
@@ -49,6 +49,14 @@ def new_battle():
             try:
                 tm = db.session.get(TournamentMatch, match_id)
                 if tm:
+                    # Verify match belongs to the supplied tournament
+                    if tournament_id and tm.tournament_id != tournament_id:
+                        flash('Match does not belong to the specified tournament.', 'danger')
+                        return redirect(url_for('battles.new_battle'))
+                    # Prevent overwriting an already-completed match
+                    if tm.winner_id is not None:
+                        flash('This tournament match has already been resolved.', 'warning')
+                        return redirect(url_for('tournaments.view_tournament', tournament_id=tm.tournament_id))
                     tm.battle_id = battle.id
                     tm.winner_id = battle.winner_id
                     tm.completed_at = battle.battle_date if getattr(battle, 'battle_date', None) else None
@@ -74,15 +82,24 @@ def new_battle():
                 db.session.rollback()
 
         flash(f'Battle complete! {battle.winner.name if battle.winner else "Draw"} wins!', 'success')
+        user_won = battle.winner and battle.winner.user_id == current_user.id
         # If this was a tournament match, redirect back to the tournament page so the bracket refreshes
         if match_id:
             try:
                 tm2 = db.session.get(TournamentMatch, match_id)
                 if tm2 and tm2.tournament_id:
+                    tournament = db.session.get(Tournament, tm2.tournament_id)
+                    tournament_complete = (tournament and tournament.status == 'completed'
+                                          and battle.winner_id == tournament.winner_id)
+                    if tournament_complete and user_won:
+                        return redirect(url_for('tournaments.view_tournament',
+                                                tournament_id=tm2.tournament_id,
+                                                _celebrate='win'))
                     return redirect(url_for('tournaments.view_tournament', tournament_id=tm2.tournament_id))
             except Exception:
                 pass
-        return redirect(url_for('battles.view_battle', battle_id=battle.id))
+        kw = {'_celebrate': 'win'} if user_won else {}
+        return redirect(url_for('battles.view_battle', battle_id=battle.id, **kw))
     
     bugs = Bug.query.all()
     return render_template('create_battle.html', bugs=bugs)

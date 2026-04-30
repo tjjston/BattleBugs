@@ -4,7 +4,7 @@ API routes for AJAX requests and external integrations
 
 from flask import Blueprint, jsonify, request, current_app
 from flask_login import login_required, current_user
-from app import db
+from app import db, csrf
 from app.models import Species, Bug, BugAchievement
 from app.services.permission_system import can_edit_bug
 from app.services.economy import (
@@ -16,6 +16,7 @@ from app.services.economy import (
 from app.services.taxonomy import TaxonomyService, StatsGenerator
 
 bp = Blueprint('api', __name__, url_prefix='/api')
+csrf.exempt(bp)  # JSON API — CSRF is enforced via same-origin + login_required
 
 
 _GLADIATOR_ADJECTIVES = [
@@ -280,34 +281,17 @@ def generate_bug_suggestion():
     llm = LLMService()
 
     if field == 'nickname':
-        common = context.get('common_name', '')
-        scientific = context.get('scientific_name', '')
-        prompt = (
-            f"You are naming a gladiator bug for an insect battle arena. "
-            f"Generate exactly 6 badass gladiator names for a {common or scientific or 'mystery bug'}. "
-            f"Rules: 2-3 words max, mix of dark adjectives + creature/weapon nouns, "
-            f"evoke fear or power (e.g. 'Iron Fang', 'Crimson Reaper', 'Bone Stalker', 'Venom Wraith'). "
-            f"Return ONLY a JSON array of 6 name strings, nothing else."
-        )
-        try:
-            resp = llm.generate(prompt, task='quick_tasks', max_tokens=200)
-            suggestions = _parse_json_list_or_lines(resp)
-            if not suggestions:
-                suggestions = _fallback_nicknames(context)
-            return jsonify({'field': 'nickname', 'suggestions': suggestions[:6]}), 200
-        except Exception as e:
-            current_app.logger.warning("Nickname generation fell back locally: %s", e)
-            return jsonify({'field': 'nickname', 'suggestions': _fallback_nicknames(context), 'fallback': True}), 200
+        return jsonify({'field': 'nickname', 'suggestions': _fallback_nicknames(context)}), 200
 
     if field == 'lore':
         hint = context.get('hint', '')
-        prompt = f"""Create lore for a bug gladiator. Provide three short sections as JSON: {{"background": "...", "motivation": "...", "personality": "..."}}.\nContext hint: {hint}"""
+        prompt = f"""Create lore for a bug gladiator. Provide three short sections as JSON: {{"background": "...", "motivation": "...", "personality": "..."}}.\nContext hint: {hint}\nRespond with valid JSON only — no markdown, no explanation."""
         try:
-            resp = llm.generate(prompt, task='quick_tasks', max_tokens=400)
+            resp = llm.generate(prompt, task='quick_tasks', max_tokens=400, json_mode=True)
             try:
                 parsed = json.loads(resp)
             except Exception:
-                parsed = {'background': resp}
+                parsed = _fallback_lore(context)
             return jsonify({'field': 'lore', 'result': parsed}), 200
         except Exception as e:
             current_app.logger.warning("Lore generation fell back locally: %s", e)
@@ -315,9 +299,9 @@ def generate_bug_suggestion():
 
     if field == 'species':
         desc = context.get('description', '')
-        prompt = f"""Given this description: {desc}\nSuggest 3 likely common names and scientific name guesses in JSON format: [{{"common_name":"", "scientific_name":""}}, ...]"""
+        prompt = f"""Given this description: {desc}\nSuggest 3 likely common names and scientific name guesses in JSON format: [{{"common_name":"", "scientific_name":""}}, ...]\nRespond with a valid JSON array only."""
         try:
-            resp = llm.generate(prompt, task='species_identification', max_tokens=400)
+            resp = llm.generate(prompt, task='species_identification', max_tokens=400, json_mode=True)
             try:
                 parsed = json.loads(resp)
             except Exception:
@@ -328,3 +312,111 @@ def generate_bug_suggestion():
             return jsonify({'field': 'species', 'suggestions': _fallback_species(context), 'fallback': True}), 200
 
     return jsonify({'error': 'Unknown field'}), 400
+
+
+@bp.route('/validate-photo', methods=['POST'])
+@login_required
+def validate_photo():
+    """Pre-validate a bug photo before full submission.
+
+    Checks file size, image dimensions, duplicate hash, and (if enabled)
+    the HuggingFace classifier.  Returns a JSON payload the front-end uses
+    to show immediate feedback without waiting for the full submission pipeline.
+    """
+    import io
+    from PIL import Image
+    import imagehash
+    from app.models import BlockedImageHash
+
+    file = request.files.get('photo')
+    if not file or not file.filename:
+        return jsonify({'valid': False, 'errors': ['No file provided.']}), 400
+
+    errors = []
+    warnings = []
+    info = {}
+
+    raw = file.read()
+    size_kb = len(raw) / 1024
+    info['size_kb'] = round(size_kb, 1)
+
+    if size_kb < 2:
+        errors.append('Image is too small (under 2 KB). Please upload a real photo.')
+
+    max_mb = current_app.config.get('MAX_CONTENT_LENGTH', 16 * 1024 * 1024) / (1024 * 1024)
+    if size_kb > max_mb * 1024:
+        errors.append(f'File exceeds the {max_mb:.0f} MB size limit.')
+
+    try:
+        filename_lower = (file.filename or '').lower()
+        if filename_lower.endswith(('.heic', '.heif')):
+            try:
+                import pillow_heif
+                pillow_heif.register_heif_opener()
+            except ImportError:
+                pass
+        img = Image.open(io.BytesIO(raw))
+        img.verify()
+        img = Image.open(io.BytesIO(raw))
+        w, h = img.size
+        info['dimensions'] = f'{w}x{h}'
+        info['format'] = img.format or 'unknown'
+
+        if w < 100 or h < 100:
+            errors.append(f'Image is too small ({w}x{h} px). Minimum 100×100 px required.')
+        elif w < 300 or h < 300:
+            warnings.append(f'Image is quite small ({w}x{h} px). A larger photo will give the AI more detail.')
+
+        if w > 6000 or h > 6000:
+            warnings.append(f'Very large image ({w}x{h} px) — it will be resized during processing.')
+
+    except Exception:
+        errors.append('Could not read the file as an image. Please upload a valid photo (JPEG, PNG, WebP, etc.).')
+        return jsonify({'valid': False, 'errors': errors, 'warnings': warnings, 'info': info})
+
+    # Duplicate / blocked hash check
+    try:
+        phash = str(imagehash.phash(img))
+        info['phash'] = phash
+
+        if BlockedImageHash.query.filter_by(image_hash=phash).first():
+            errors.append('This photo has been permanently blocked from submission.')
+        elif Bug.query.filter_by(image_hash=phash).first():
+            warnings.append('A bug with this photo already exists in the arena. Duplicate submissions are rejected.')
+    except Exception:
+        pass
+
+    # Optional: lightweight HuggingFace classifier pre-check
+    # Save the bytes to a temp file because HuggingFaceBugClassifier.classify() takes a path.
+    try:
+        hf_enabled = current_app.config.get('HF_BUG_CLASSIFIER_ENABLED', True)
+        hf_required = current_app.config.get('HF_BUG_CLASSIFIER_REQUIRED', False)
+        if hf_enabled and current_app.config.get('BUG_CLASSIFIER_URL'):
+            import tempfile, os as _os
+            from app.services.huggingface_bug_classifier import HuggingFaceBugClassifier
+            suffix = '.' + (file.filename.rsplit('.', 1)[-1] if file.filename and '.' in file.filename else 'jpg')
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp.write(raw)
+                tmp_path = tmp.name
+            try:
+                clf = HuggingFaceBugClassifier()
+                prediction = clf.classify(tmp_path)
+                if prediction.available:
+                    min_conf = current_app.config.get('HF_BUG_CLASSIFIER_MIN_CONFIDENCE', 0.45)
+                    info['classifier_label'] = prediction.label or ''
+                    info['classifier_confidence'] = round(prediction.confidence, 3)
+                    if not prediction.approved:
+                        msg = (f'The classifier is not confident this is a bug '
+                               f'({prediction.label}, {prediction.confidence:.0%}). '
+                               f'Submissions below {min_conf:.0%} confidence may be rejected.')
+                        if hf_required:
+                            errors.append(msg)
+                        else:
+                            warnings.append(msg)
+            finally:
+                _os.unlink(tmp_path)
+    except Exception as exc:
+        current_app.logger.debug('Classifier pre-check skipped: %s', exc)
+
+    valid = len(errors) == 0
+    return jsonify({'valid': valid, 'errors': errors, 'warnings': warnings, 'info': info})

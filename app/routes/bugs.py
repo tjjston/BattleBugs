@@ -7,7 +7,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
-from app.models import Bug, Species, Comment, BugLore, CommentVote, BugLoreVote, Job, BugRival, ClassificationFlag, BlockedImageHash, RejectedSubmission
+from app.models import Bug, Species, Comment, BugLore, CommentVote, BugLoreVote, Job, BugRival, ClassificationFlag, BlockedImageHash, RejectedSubmission, Season, SeasonRegistration, User
 from sqlalchemy import func
 from app.services.vision_service import comprehensive_bug_verification
 from app.services.tier_system import LLMStatGenerator, TierSystem, assign_tier_and_generate_stats
@@ -15,18 +15,75 @@ from app.services.taxonomy import TaxonomyService
 from app.services.permission_system import require_role, UserRole
 from app.services.economy import (
     InsufficientCurrencyError,
-    STAT_REGENERATION_COST,
-    should_charge_for_stat_regeneration,
     spend_currency,
 )
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 import imagehash
 from PIL import Image
 
 
 bp = Blueprint('bugs', __name__)
+
+
+def _crop_and_enhance_bug_image(image_path: str) -> None:
+    """
+    Detect the bug's bounding box via Poseidon (if available), crop to it,
+    apply mild contrast + sharpness enhancement, and save back in place.
+    Falls back to a center-weighted square crop when Poseidon is unavailable.
+    """
+    from PIL import ImageEnhance
+    try:
+        img = Image.open(image_path)
+    except Exception:
+        return
+
+    if img.mode not in ('RGB',):
+        img = img.convert('RGB')
+
+    orig_w, orig_h = img.size
+    cropped = None
+
+    # ── Poseidon detection crop ───────────────────────────────────────────
+    try:
+        from app.services.poseidon_pipeline import PoseidonPipeline
+        pipeline = PoseidonPipeline()
+        if pipeline.capabilities().get('detect'):
+            boxes = pipeline.detect(image_path)
+            real = [b for b in boxes if not (b.x1 == 0 and b.y1 == 0 and b.x2 == 1 and b.y2 == 1)]
+            if real:
+                best = max(real, key=lambda b: b.confidence)
+                pad_x = (best.x2 - best.x1) * 0.18
+                pad_y = (best.y2 - best.y1) * 0.18
+                x1 = int(max(0.0, best.x1 - pad_x) * orig_w)
+                y1 = int(max(0.0, best.y1 - pad_y) * orig_h)
+                x2 = int(min(1.0, best.x2 + pad_x) * orig_w)
+                y2 = int(min(1.0, best.y2 + pad_y) * orig_h)
+                if (x2 - x1) >= 80 and (y2 - y1) >= 80:
+                    cropped = img.crop((x1, y1, x2, y2))
+    except Exception:
+        pass
+
+    if cropped is None:
+        # ── Center-biased square crop (slightly above centre for most bug photos) ──
+        side = min(orig_w, orig_h)
+        left = (orig_w - side) // 2
+        top = max(0, int((orig_h - side) * 0.40))
+        cropped = img.crop((left, top, left + side, top + side))
+
+    # Resize to a standard profile-pic size (max 900 px on the long edge)
+    cropped.thumbnail((900, 900), Image.LANCZOS)
+
+    # Subtle enhancement — boost contrast + sharpness so the bug pops
+    cropped = ImageEnhance.Contrast(cropped).enhance(1.15)
+    cropped = ImageEnhance.Sharpness(cropped).enhance(1.35)
+
+    ext = os.path.splitext(image_path)[1].lower()
+    save_fmt = 'PNG' if ext == '.png' else 'JPEG'
+    save_kw = {'optimize': True} if save_fmt == 'PNG' else {'quality': 92, 'optimize': True}
+    cropped.save(image_path, save_fmt, **save_kw)
+    current_app.logger.info("Bug image cropped/enhanced → %s (%dx%d)", image_path, *cropped.size)
 
 
 def _save_rejected_for_review(temp_path, user_id, nickname, description,
@@ -66,11 +123,16 @@ def list_bugs():
     """List all bugs with pagination"""
     page = request.args.get('page', 1, type=int)
 
-    # Filters: search (name/species), tier, mine (show only current user's bugs)
+    # Filters
     search = request.args.get('search', type=str)
     tier = request.args.get('tier', type=str)
     mine = request.args.get('mine', default=0, type=int)
     species_id = request.args.get('species_id', type=int)
+    condition = request.args.get('condition', type=str)
+    sort_by = request.args.get('sort_by', default='newest', type=str)
+    active_only = request.args.get('active_only', default=0, type=int)
+    attack_type = request.args.get('attack_type', type=str)
+    defense_type = request.args.get('defense_type', type=str)
 
     query = Bug.query
 
@@ -83,6 +145,22 @@ def list_bugs():
     if species_id:
         query = query.filter(Bug.species_id == species_id)
 
+    if condition == 'alive':
+        query = query.filter(Bug.condition == 'alive')
+    elif condition == 'dead':
+        query = query.filter(Bug.is_zombug == True)
+    elif condition == 'damaged':
+        query = query.filter(Bug.condition.in_(['damaged', 'damaged_wings', 'damaged_legs', 'squashed']))
+
+    if active_only:
+        query = query.filter(Bug.is_retired != True)
+
+    if attack_type:
+        query = query.filter(Bug.attack_type == attack_type)
+
+    if defense_type:
+        query = query.filter(Bug.defense_type == defense_type)
+
     if search:
         likeq = f"%{search}%"
         query = query.filter(
@@ -91,14 +169,37 @@ def list_bugs():
             (Bug.scientific_name.ilike(likeq))
         )
 
-    bugs = query.order_by(Bug.submission_date.desc())\
-        .paginate(page=page, per_page=current_app.config.get('BUGS_PER_PAGE', 20), error_out=False)
+    if sort_by == 'wins':
+        query = query.order_by(Bug.wins.desc())
+    elif sort_by == 'power':
+        query = query.order_by(
+            (Bug.attack + Bug.defense + Bug.speed).desc()
+        )
+    elif sort_by == 'winrate':
+        query = query.filter((Bug.wins + Bug.losses) >= 1)\
+            .order_by(((Bug.wins * 100.0) / (Bug.wins + Bug.losses)).desc())
+    else:
+        query = query.order_by(Bug.submission_date.desc())
 
-    # Provide available tiers for the filter dropdown
+    bugs = query.paginate(page=page, per_page=current_app.config.get('BUGS_PER_PAGE', 20), error_out=False)
+
     tiers = db.session.query(Bug.tier).distinct().all()
     tiers = [t[0] for t in tiers if t[0]]
 
-    return render_template('bug_list.html', bugs=bugs, tiers=tiers, active_filters={'search': search, 'tier': tier, 'mine': mine, 'species_id': species_id})
+    species_filter_name = None
+    if species_id:
+        _sp = db.session.get(Species, species_id)
+        if _sp:
+            species_filter_name = _sp.common_name or _sp.scientific_name
+
+    return render_template('bug_list.html', bugs=bugs, tiers=tiers,
+                           active_filters={
+                               'search': search, 'tier': tier, 'mine': mine,
+                               'species_id': species_id, 'condition': condition,
+                               'sort_by': sort_by, 'active_only': active_only,
+                               'attack_type': attack_type, 'defense_type': defense_type,
+                           },
+                           species_filter_name=species_filter_name)
 
 @bp.route('/bug/<int:bug_id>')
 def view_bug(bug_id):
@@ -108,7 +209,7 @@ def view_bug(bug_id):
         .order_by(Comment.created_at.desc()).all()
     lore = BugLore.query.filter_by(bug_id=bug_id)\
         .order_by(BugLore.upvotes.desc()).all()
-    jobs = Job.query.filter(Job.payload_json.contains(f'"bug_id": {bug.id}'))\
+    jobs = Job.query.filter(func.json_extract(Job.payload_json, '$.bug_id') == bug.id)\
         .order_by(Job.created_at.desc()).all()
     rivals = BugRival.query.filter(
         ((BugRival.bug1_id == bug.id) | (BugRival.bug2_id == bug.id)) &
@@ -137,7 +238,6 @@ def handle_submission():
     location_found = request.form.get('location_found')
     user_species_guess = request.form.get('user_species_guess')
     send_to_admin_review = bool(request.form.get('send_to_admin_review'))
-
     # Get user lore fields
     lore_data = {
         'background': request.form.get('lore_background'),
@@ -200,10 +300,17 @@ def handle_submission():
             os.remove(temp_path)
             return redirect(url_for('bugs.submit_bug'))
 
+    file_size = os.path.getsize(temp_path)
+    current_app.logger.info(
+        "SUBMIT [user=%s] file saved: %s (%.1f KB)",
+        current_user.id, temp_path, file_size / 1024,
+    )
+
     try:
         # --- Duplicate / blocked image hash check (before LLM call to save quota) ---
         candidate_hash = imagehash.average_hash(Image.open(temp_path))
         h_str = str(candidate_hash)
+        current_app.logger.debug("SUBMIT [user=%s] image hash: %s", current_user.id, h_str)
 
         # Permanently blocked hashes (e.g. failed zombug conversions)
         if BlockedImageHash.query.filter_by(image_hash=h_str).first():
@@ -223,13 +330,19 @@ def handle_submission():
 
         # LLM Classification
         from app.services.bug_classifier import classify_bug_submission
-        
+
+        current_app.logger.info("SUBMIT [user=%s] starting LLM classification", current_user.id)
         classification = classify_bug_submission(
             image_path=temp_path,
             user_id=current_user.id,
             nickname=nickname,
             description=description,
             user_species_guess=user_species_guess
+        )
+        current_app.logger.info(
+            "SUBMIT [user=%s] classification done — approved=%s provider=%s confidence=%.2f reasons=%s",
+            current_user.id, classification.approved, classification.llm_provider,
+            classification.confidence, classification.rejection_reasons,
         )
         
         # Track species-guess accuracy (cosmetic badge; counted on every attempt)
@@ -291,7 +404,13 @@ def handle_submission():
         final_filename = f"{current_user.id}_{timestamp}_{filename}"
         final_path = os.path.join(current_app.config['UPLOAD_FOLDER'], final_filename)
         os.rename(temp_path, final_path)
-        
+
+        # Crop to subject + enhance — non-fatal if Poseidon is down
+        try:
+            _crop_and_enhance_bug_image(final_path)
+        except Exception as _ce:
+            current_app.logger.warning("Image crop/enhance skipped: %s", _ce)
+
         # Get/create species
         species_info = None
         if classification.scientific_name:
@@ -312,6 +431,21 @@ def handle_submission():
                 )
                 db.session.add(species_info)
                 db.session.flush()
+
+            # Enrich new or un-enriched species with photo + facts in background
+            if species_info and species_info.id and (
+                not species_info.image_url or not species_info.interesting_facts
+            ):
+                import threading as _threading
+                _species_id = species_info.id
+                _app = current_app._get_current_object()
+                def _enrich_bg(app, sid):
+                    try:
+                        with app.app_context():
+                            TaxonomyService().enrich_species(sid)
+                    except Exception:
+                        pass
+                _threading.Thread(target=_enrich_bg, args=(_app, _species_id), daemon=True).start()
 
         # --- Season/species uniqueness check ---
         if species_info and getattr(species_info, 'id', None):
@@ -334,6 +468,18 @@ def handle_submission():
                     'danger',
                 )
                 return redirect(url_for('bugs.submit_bug'))
+
+        # Second hash check: re-validate uniqueness immediately before writing,
+        # narrowing the race window that exists between the pre-LLM check and now.
+        for (existing_h,) in db.session.query(Bug.image_hash).filter(Bug.image_hash.isnot(None)).all():
+            try:
+                if imagehash.hex_to_hash(existing_h) - candidate_hash <= 8:
+                    os.remove(final_path)
+                    db.session.rollback()
+                    flash('This bug image has already been submitted.', 'danger')
+                    return redirect(url_for('bugs.submit_bug'))
+            except Exception:
+                continue
 
         # Create Bug entry
         bug = Bug(
@@ -372,7 +518,11 @@ def handle_submission():
         
         # Generate stats using LLM
         from app.services.tier_system import LLMStatGenerator, TierSystem, TIER_DEFINITIONS
-        
+
+        current_app.logger.info(
+            "SUBMIT [user=%s] generating stats for bug#%s (%s / %s)",
+            current_user.id, bug.id, bug.common_name, bug.scientific_name,
+        )
         stat_generator = LLMStatGenerator()
         bug_info = {
             'scientific_name': bug.scientific_name,
@@ -381,8 +531,13 @@ def handle_submission():
             'traits': _extract_traits_from_bug(bug),
             'species_info': bug.species_info.to_dict() if bug.species_info else None
         }
-        
+
         stats = stat_generator.generate_stats_with_llm(bug_info)
+        current_app.logger.info(
+            "SUBMIT [user=%s] stats — ATK=%s DEF=%s SPD=%s tier_rec=%s",
+            current_user.id, stats.get('attack'), stats.get('defense'),
+            stats.get('speed'), stats.get('tier_recommendation'),
+        )
         bug.attack = stats['attack']
         bug.defense = stats['defense']
         bug.speed = stats['speed']
@@ -406,14 +561,19 @@ def handle_submission():
         # Assign tier
         bug.tier = TierSystem.assign_tier(bug)
         tier_info = TIER_DEFINITIONS.get(bug.tier, {})
-        
+
         # Queue slower enrichment work so submission stays responsive.
         from app.services.achievements import award_submission_achievements
         from app.services.job_queue import enqueue_bug_enrichment
 
         award_submission_achievements(bug)
         bug.generate_flair()
-        enqueue_bug_enrichment(bug, final_path)
+        jobs = enqueue_bug_enrichment(bug, final_path)
+        current_app.logger.info(
+            "SUBMIT [user=%s] bug#%s created — tier=%s tier_assigned=%s enrichment_jobs=%s image=%s",
+            current_user.id, bug.id, bug.tier, bug.enrichment_status,
+            [j.id for j in jobs], final_path,
+        )
         
         # Success messages
         if user_species_guess:
@@ -436,16 +596,23 @@ def handle_submission():
             flash(f'⚠️ {warning}', 'warning')
         
         flash(f'Classified by: {classification.llm_provider}', 'info')
-        
+
+        # Increment owner's bug counter
+        current_user.bugs_submitted = (current_user.bugs_submitted or 0) + 1
+        db.session.commit()
+
         # NOW redirect (bug.id exists!)
-        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id, _celebrate='submit'))
         
     except Exception as e:
+        current_app.logger.error(
+            "SUBMIT [user=%s] FAILED at step unknown — %s",
+            current_user.id, e, exc_info=True,
+        )
         if os.path.exists(temp_path):
             os.remove(temp_path)
         db.session.rollback()
         flash(f'Error: {str(e)}', 'danger')
-        current_app.logger.error(f"Bug submission error: {e}", exc_info=True)
         return redirect(url_for('bugs.submit_bug'))
 
 @bp.route('/bug/submit', methods=['GET', 'POST'])
@@ -468,105 +635,21 @@ def _can_edit_bug(bug):
     return getattr(current_user, 'role', 'USER') in ['MODERATOR', 'ADMIN', 'OWNER']
 
 
-@bp.route('/bug/<int:bug_id>/recalc', methods=['GET'])
+@bp.route('/bug/<int:bug_id>/recalc', methods=['POST'])
 @login_required
 def recalc_bug_stats(bug_id):
-    """Preview LLM-recalculated stats with option to adjust before applying."""
+    """Admin-only: auto-apply LLM-recalculated stats immediately (no user review)."""
     bug = db.get_or_404(Bug, bug_id)
-    if not _can_edit_bug(bug):
-        flash('You do not have permission to recalculate this bug\'s stats.', 'danger')
+    if current_user.role not in ('ADMIN', 'OWNER'):
+        flash('Only admins can recalculate stats.', 'danger')
         return redirect(url_for('bugs.view_bug', bug_id=bug.id))
-    costs_points = should_charge_for_stat_regeneration(current_user, bug)
-    if costs_points and (current_user.accolade_points or 0) < STAT_REGENERATION_COST:
-        flash(f'Stat regeneration costs {STAT_REGENERATION_COST} Accolade Points. You have {current_user.accolade_points or 0}.', 'warning')
-        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
-
-    stat_generator = LLMStatGenerator()
-    bug_info = {
-        'scientific_name': bug.scientific_name,
-        'common_name': bug.common_name,
-        'size_mm': bug.species_info.average_size_mm if bug.species_info else None,
-        'traits': _extract_traits_from_bug(bug),
-        'species_info': bug.species_info.to_dict() if bug.species_info else None
-    }
-    stats = stat_generator.generate_stats_with_llm(bug_info)
-
-    proposed = {
-        'attack': max(0, min(100, int(stats['attack'] ))),
-        'defense': max(0, min(100, int(stats['defense'] ))),
-        'speed': max(0, min(100, int(stats['speed'] ))),
-        'special_ability': stats.get('special_ability') or bug.special_ability,
-        'reasoning': stats.get('reasoning') or ''
-    }
-
-    class _Tmp:  # minimal object for tier calc
-        pass
-    tmp = _Tmp()
-    tmp.attack, tmp.defense, tmp.speed = proposed['attack'], proposed['defense'], proposed['speed']
-    proposed_tier = TierSystem.assign_tier(tmp)
-
-    return render_template(
-        'recalc_stats.html',
-        bug=bug,
-        current={'attack': bug.attack, 'defense': bug.defense, 'speed': bug.speed, 'special_ability': bug.special_ability, 'tier': bug.tier},
-        proposed={**proposed, 'tier': proposed_tier},
-        stat_regeneration_cost=STAT_REGENERATION_COST,
-        costs_points=costs_points,
-        accolade_balance=current_user.accolade_points or 0
-    )
-
-
-@bp.route('/bug/<int:bug_id>/recalc/confirm', methods=['POST'])
-@login_required
-def confirm_recalc_bug_stats(bug_id):
-    bug = db.get_or_404(Bug, bug_id)
-    if not _can_edit_bug(bug):
-        flash('You do not have permission to update this bug\'s stats.', 'danger')
-        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
-
     try:
-        attack = int(request.form.get('attack'))
-        defense = int(request.form.get('defense'))
-        speed = int(request.form.get('speed'))
-        special_ability = request.form.get('special_ability')
-        reasoning = request.form.get('reasoning')
-        override_tier = request.form.get('override_tier') == '1'
-        selected_tier = request.form.get('tier')
-
-        for v in (attack, defense, speed):
-            if v < 0 or v > 100:
-                raise ValueError('Stats must be between 0 and 100')
-
-        if should_charge_for_stat_regeneration(current_user, bug):
-            spend_currency(
-                current_user,
-                STAT_REGENERATION_COST,
-                'stat_regeneration',
-                'bug',
-                bug.id,
-            )
-
-        bug.attack = attack
-        bug.defense = defense
-        bug.speed = speed
-        bug.special_ability = special_ability
-        bug.stats_generation_method = 'llm_recalc_reviewed'
-        bug.stats_generated = True
-
-        if override_tier and selected_tier:
-            bug.tier = selected_tier
-        else:
-            bug.tier = TierSystem.assign_tier(bug)
-
-        db.session.commit()
-        flash('Stats updated successfully.', 'success')
-    except InsufficientCurrencyError as e:
-        db.session.rollback()
-        flash(str(e), 'warning')
+        generator = LLMStatGenerator()
+        generator.regenerate_stats_for_bug(bug)
+        flash('Stats recalculated and applied by AI.', 'success')
     except Exception as e:
         db.session.rollback()
-        flash(f'Failed to update stats: {e}', 'danger')
-
+        flash(f'Stat recalculation failed: {e}', 'danger')
     return redirect(url_for('bugs.view_bug', bug_id=bug.id))
 
 
@@ -574,10 +657,7 @@ def confirm_recalc_bug_stats(bug_id):
 @login_required
 def deny_recalc_bug_stats(bug_id):
     bug = db.get_or_404(Bug, bug_id)
-    if not _can_edit_bug(bug):
-        flash('You do not have permission to modify this bug.', 'danger')
-        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
-    flash('Recalculated stats discarded. No changes applied.', 'info')
+    flash('No changes applied.', 'info')
     return redirect(url_for('bugs.view_bug', bug_id=bug.id))
 
 
@@ -594,6 +674,8 @@ def insectidex():
         Species.scientific_name,
         Species.order,
         Species.family,
+        Species.image_url,
+        Species.interesting_facts,
         func.count(Bug.id).label('count'),
         func.max(Bug.submission_date).label('last_seen'),
         func.min(Bug.submission_date).label('first_seen'),
@@ -643,6 +725,13 @@ def insectidex():
     for row in species_rows:
         representative = Bug.query.filter_by(species_id=row.id)\
             .order_by(Bug.submission_date.desc()).first()
+        facts = []
+        if row.interesting_facts:
+            try:
+                import json as _j
+                facts = _j.loads(row.interesting_facts)[:3]
+            except Exception:
+                pass
         entries.append({
             'id': row.id,
             'common_name': row.common_name,
@@ -653,6 +742,8 @@ def insectidex():
             'last_seen': row.last_seen,
             'first_seen': row.first_seen,
             'image_path': representative.image_path if representative else None,
+            'species_image_url': row.image_url,
+            'facts': facts,
             'pioneer': pioneer_map.get(row.id),
         })
 
@@ -680,8 +771,36 @@ def insectidex():
 @bp.route('/insectidex/species/<int:species_id>')
 @bp.route('/pokedex/species/<int:species_id>')
 def insectidex_species(species_id):
-    """Shortcut to list all bugs of a species via existing list view."""
-    return redirect(url_for('bugs.list_bugs', species_id=species_id))
+    """Species detail: taxonomy header tile + all arena bugs, newest first."""
+    import json as _json
+    species = db.get_or_404(Species, species_id)
+
+    bugs = Bug.query.filter_by(species_id=species_id)\
+        .order_by(Bug.submission_date.desc()).all()
+
+    facts = []
+    if species.interesting_facts:
+        try:
+            facts = _json.loads(species.interesting_facts)
+        except Exception:
+            pass
+
+    # Pioneer for this species
+    pioneer = None
+    try:
+        ach = BugAchievement.query\
+            .join(Bug, BugAchievement.bug_id == Bug.id)\
+            .filter(Bug.species_id == species_id,
+                    BugAchievement.achievement_type == 'species_pioneer')\
+            .order_by(BugAchievement.earned_date.asc()).first()
+        if ach:
+            pioneer = {'bug': ach.bug, 'user': ach.bug.owner, 'date': ach.earned_date}
+    except Exception:
+        pass
+
+    return render_template('insectidex_species.html',
+                           species=species, bugs=bugs,
+                           facts=facts, pioneer=pioneer)
 
 
 
@@ -1029,7 +1148,7 @@ def dismiss_rejected_submission(submission_id):
     sub = db.get_or_404(RejectedSubmission, submission_id)
     sub.status = 'dismissed'
     sub.admin_notes = request.form.get('admin_notes', '')
-    sub.reviewed_at = datetime.utcnow()
+    sub.reviewed_at = datetime.now(timezone.utc)
     sub.reviewed_by_id = current_user.id
     db.session.commit()
     # Clean up stored image
@@ -1107,9 +1226,201 @@ def approve_rejected_submission(submission_id):
 
     sub.status = 'approved'
     sub.admin_notes = request.form.get('admin_notes', '')
-    sub.reviewed_at = datetime.utcnow()
+    sub.reviewed_at = datetime.now(timezone.utc)
     sub.reviewed_by_id = current_user.id
+    # Increment owner's bug counter
+    owner = db.session.get(User, sub.user_id)
+    if owner:
+        owner.bugs_submitted = (owner.bugs_submitted or 0) + 1
     db.session.commit()
 
     flash(f'Submission approved — bug #{bug.id} created.', 'success')
     return redirect(url_for('bugs.review_rejected_submissions'))
+
+
+@bp.route('/bug/<int:bug_id>/enter-season', methods=['POST'])
+@login_required
+def enter_season(bug_id):
+    """Enroll an approved bug in the active Season for its tier."""
+    bug = db.get_or_404(Bug, bug_id)
+    if bug.user_id != current_user.id:
+        flash('Only the owner can enroll this bug.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+    if not bug.tier:
+        flash('Bug must have a tier assigned before joining a season.', 'warning')
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+    if bug.bug_track == 'mma':
+        flash('This bug is already in the MMA Championship Circuit. It cannot also join a season.', 'warning')
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+
+    active_season = Season.query.filter_by(tier=bug.tier, phase='registration').first()
+    if not active_season:
+        flash(f'No season is currently open for registration in the {bug.tier.upper()} tier.', 'warning')
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+
+    existing = SeasonRegistration.query.filter_by(season_id=active_season.id, bug_id=bug.id).first()
+    if existing:
+        flash('This bug is already registered for the active season.', 'info')
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+
+    reg = SeasonRegistration(season_id=active_season.id, bug_id=bug.id, user_id=current_user.id)
+    bug.bug_track = 'season'
+    db.session.add(reg)
+    db.session.commit()
+    flash(f'{bug.nickname} registered for {active_season.name}!', 'success')
+    return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+
+
+@bp.route('/bug/<int:bug_id>/release', methods=['POST'])
+@login_required
+def release_bug(bug_id):
+    bug = db.get_or_404(Bug, bug_id)
+
+    is_owner = bug.user_id == current_user.id
+    is_staff = current_user.role in ('ADMIN', 'OWNER')
+    if not (is_owner or is_staff):
+        flash('Only the bug owner or an admin can release a bug.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+
+    bug_name = bug.nickname
+    image_path = bug.image_path
+
+    try:
+        _do_release_bug(bug)
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error("Release bug#%s failed: %s", bug_id, e, exc_info=True)
+        flash(f'Could not release bug: {e}', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+
+    if image_path:
+        full_path = os.path.join(current_app.config['UPLOAD_FOLDER'], image_path)
+        try:
+            if os.path.exists(full_path):
+                os.remove(full_path)
+        except Exception:
+            pass
+
+    current_app.logger.info("RELEASE bug '%s' (id=%s) by user=%s", bug_name, bug_id, current_user.id)
+    flash(f'{bug_name} has been released back into the wild.', 'success')
+    return redirect(url_for('bugs.list_bugs'))
+
+
+def _do_release_bug(bug):
+    """Delete a bug and all records that reference it."""
+    from app.models import (
+        Battle, BugRival, ClassificationFlag, TournamentApplication,
+        TournamentMatch, SeasonMatch, SeasonRegistration, Job,
+        TierChampionship, TierRanking, TitleFight, TitleBid,
+        ContenderCallout, Tournament,
+    )
+    from sqlalchemy import or_
+
+    bug_id = bug.id
+
+    # Null out nullable FK references that point to this bug
+    db.session.query(TierChampionship).filter_by(champion_bug_id=bug_id).update(
+        {'champion_bug_id': None}, synchronize_session='fetch'
+    )
+    db.session.query(TitleFight).filter_by(challenger_bug_id=bug_id).update(
+        {'challenger_bug_id': None}, synchronize_session='fetch'
+    )
+    db.session.query(Tournament).filter_by(winner_id=bug_id).update(
+        {'winner_id': None}, synchronize_session='fetch'
+    )
+
+    # Delete records with non-nullable bug_id FKs
+    ClassificationFlag.query.filter_by(bug_id=bug_id).delete(synchronize_session='fetch')
+    TournamentApplication.query.filter_by(bug_id=bug_id).delete(synchronize_session='fetch')
+    SeasonRegistration.query.filter_by(bug_id=bug_id).delete(synchronize_session='fetch')
+    TierRanking.query.filter_by(bug_id=bug_id).delete(synchronize_session='fetch')
+    TitleBid.query.filter_by(bug_id=bug_id).delete(synchronize_session='fetch')
+    ContenderCallout.query.filter(
+        or_(ContenderCallout.challenger_bug_id == bug_id,
+            ContenderCallout.target_bug_id == bug_id)
+    ).delete(synchronize_session='fetch')
+    BugRival.query.filter(
+        or_(BugRival.bug1_id == bug_id, BugRival.bug2_id == bug_id)
+    ).delete(synchronize_session='fetch')
+
+    # TournamentMatch rows referencing this bug (FKs are nullable — just delete them)
+    TournamentMatch.query.filter(
+        or_(
+            TournamentMatch.bug1_id == bug_id,
+            TournamentMatch.bug2_id == bug_id,
+            TournamentMatch.winner_id == bug_id,
+        )
+    ).delete(synchronize_session='fetch')
+
+    # Battles involving this bug (bug1_id / bug2_id are NOT NULL)
+    affected_battles = db.session.query(Battle.id).filter(
+        or_(Battle.bug1_id == bug_id, Battle.bug2_id == bug_id)
+    ).all()
+    battle_ids = [r.id for r in affected_battles]
+
+    if battle_ids:
+        # Null out SeasonMatch.battle_id references to these battles before deleting them
+        SeasonMatch.query.filter(
+            SeasonMatch.battle_id.in_(battle_ids)
+        ).update({'battle_id': None}, synchronize_session='fetch')
+        Battle.query.filter(Battle.id.in_(battle_ids)).delete(synchronize_session='fetch')
+
+    # SeasonMatch rows referencing this bug (bug1_id / bug2_id are NOT NULL)
+    SeasonMatch.query.filter(
+        or_(SeasonMatch.bug1_id == bug_id, SeasonMatch.bug2_id == bug_id)
+    ).delete(synchronize_session='fetch')
+
+    # Background jobs enqueued for this bug — filter in Python to avoid json_extract compat issues
+    all_pending = Job.query.filter(Job.status.in_(['pending', 'processing'])).all()
+    for job in all_pending:
+        try:
+            import json as _json
+            payload = _json.loads(job.payload_json or '{}')
+            if payload.get('bug_id') == bug_id:
+                db.session.delete(job)
+        except Exception:
+            pass
+
+    db.session.delete(bug)  # cascade: comments, lore, achievements
+    db.session.commit()
+
+
+@bp.route('/bug/<int:bug_id>/enter-mma', methods=['POST'])
+@login_required
+def enter_mma(bug_id):
+    """Enroll an approved bug in the MMA Championship Circuit."""
+    bug = db.get_or_404(Bug, bug_id)
+    if bug.user_id != current_user.id:
+        flash('Only the owner can enroll this bug.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+    if not bug.tier:
+        flash('Bug must have a tier assigned before entering the Circuit.', 'warning')
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+    if bug.bug_track == 'mma':
+        flash('This bug is already in the MMA Championship Circuit.', 'info')
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+
+    # 2-active-per-tier limit
+    active_count = Bug.query.filter(
+        Bug.user_id == current_user.id,
+        Bug.bug_track == 'mma',
+        Bug.tier == bug.tier,
+        Bug.is_retired == False,
+    ).count()
+    if active_count >= 2:
+        flash(
+            f'You already have 2 active MMA bugs in the {(bug.tier or "").upper()} tier. '
+            'Retire one before entering another.',
+            'danger',
+        )
+        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
+
+    bug.bug_track = 'mma'
+    db.session.commit()
+    try:
+        from app.services.championship_service import recalculate_tier_rankings
+        recalculate_tier_rankings(bug.tier)
+    except Exception:
+        pass
+    flash(f'{bug.nickname} has entered the MMA Championship Circuit!', 'success')
+    return redirect(url_for('bugs.view_bug', bug_id=bug_id))

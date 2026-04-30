@@ -10,12 +10,14 @@ services:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
       - ./database:/app/database
+    env_file:
+      - .env
     environment:
-      - FLASK_ENV=development
+      - FLASK_ENV=production
       - DATABASE_URL=sqlite:////app/database/bug_arena.db
+      - UPLOAD_FOLDER=/app/uploads
       - SECRET_KEY=${SECRET_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OLLAMA_API_KEY=${OLLAMA_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     restart: unless-stopped
-    command: python run.py

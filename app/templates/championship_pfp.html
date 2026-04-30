@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Pound-for-Pound Rankings — Bug Arena{% endblock %}
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <div>
+    <a href="{{ url_for('championship.overview') }}" class="text-muted small">← All Belts</a>
+    <h1 class="mb-0">⚖️ Pound-for-Pound Rankings</h1>
+    <small class="text-muted">Cross-tier comparison: championship achievements weighted by tier difficulty.</small>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header fw-bold">Top Fighters, All Tiers</div>
+  {% if rankings %}
+  <table class="table table-hover mb-0">
+    <thead class="table-dark">
+      <tr><th>#</th><th colspan="2">Bug</th><th>Tier</th><th>Owner</th><th>Status</th><th>Record</th><th>P4P Score</th></tr>
+    </thead>
+    <tbody>
+    {% for r in rankings %}
+    {%- set is_champ = r.bug.championship_held and r.bug.championship_held.status == 'active' -%}
+    {%- set rank_entry = r.bug.tier_ranking_entry -%}
+    <tr>
+      <td>
+        {% if r.rank == 1 %}<span class="badge bg-warning text-dark" style="font-size:1rem;">🥇</span>
+        {% elif r.rank == 2 %}<span class="badge bg-secondary" style="font-size:1rem;">🥈</span>
+        {% elif r.rank == 3 %}<span class="badge bg-danger" style="font-size:1rem;">🥉</span>
+        {% else %}<strong>{{ r.rank }}</strong>{% endif %}
+      </td>
+      <td style="width:48px;padding-right:0;">
+        {% if r.bug.image_path %}
+        <img src="{{ url_for('main.uploaded_file', filename=r.bug.image_path) }}"
+             alt="{{ r.bug.nickname }}"
+             style="width:40px;height:40px;object-fit:cover;border-radius:6px;
+               {% if is_champ %}border:2px solid #ffc107;box-shadow:0 0 6px rgba(255,193,7,0.6);
+               {% elif rank_entry and rank_entry.rank == 1 %}border:2px solid #adb5bd;
+               {% elif rank_entry and rank_entry.rank and rank_entry.rank <= 3 %}border:2px solid #cd7f32;
+               {% endif %}">
+        {% endif %}
+      </td>
+      <td>
+        <a href="{{ url_for('bugs.view_bug', bug_id=r.bug.id) }}" class="fw-semibold">{{ r.bug.nickname }}</a>
+        {% if is_champ %}
+        <span class="badge bg-warning text-dark ms-1" title="Current champion">🏆</span>
+        {% endif %}
+      </td>
+      <td><span class="badge bg-dark">{{ (r.bug.tier or '?').upper() }}</span></td>
+      <td class="text-muted small">{{ r.bug.owner.username }}</td>
+      <td>
+        {% if r.bug.championship_held and r.bug.championship_held.status == 'active' %}
+          <span class="badge bg-warning text-dark">Champion</span>
+          <span class="badge bg-secondary">{{ r.bug.championship_held.defense_count }} def.</span>
+        {% elif r.bug.tier_ranking_entry and r.bug.tier_ranking_entry.rank %}
+          <span class="badge bg-info text-dark">Rank #{{ r.bug.tier_ranking_entry.rank }}</span>
+        {% else %}
+          <span class="text-muted small">—</span>
+        {% endif %}
+      </td>
+      <td>
+        <span class="badge bg-success">{{ r.bug.wins }}W</span>
+        <span class="badge bg-danger">{{ r.bug.losses }}L</span>
+      </td>
+      <td><strong>{{ "%.1f"|format(r.score) }}</strong></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="card-body text-center text-muted py-5">
+    <div style="font-size:3rem;">⚖️</div>
+    No pound-for-pound rankings yet. Bugs need to compete in the MMA track to be ranked.
+  </div>
+  {% endif %}
+</div>
+
+<div class="card mt-3">
+  <div class="card-header fw-bold small">ℹ️ How P4P is Calculated</div>
+  <div class="card-body small text-muted">
+    <p>Pound-for-pound ranks bugs by dominance within their tier — tiers are treated equally. A perfect ZU champion beats an average Uber champion.</p>
+    <ul class="mb-0 ps-3">
+      <li><strong>Champions</strong>: 300 base + win rate (×100) + 25 per title defense.</li>
+      <li><strong>Contenders</strong>: position score (rank 1 = 145 pts, sliding down) + win rate (×60).</li>
+      <li>No tier multiplier — a ZU #1 contender with a 100% win rate ranks above an Uber #1 with losses.</li>
+    </ul>
+  </div>
+</div>
+
+{% endblock %}

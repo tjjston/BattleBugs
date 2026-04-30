@@ -62,6 +62,57 @@
     </div>
 </div>
 
+{# ── Size Matchup Matrix ─────────────────────────────────────────── #}
+<div class="card mb-5">
+    <div class="card-header">
+        <h4 class="mb-0">📏 Size Matchup Matrix</h4>
+        <small class="text-muted">
+            How attacker size affects damage output against each defender size class.
+            Size-agnostic attacks (venom, chemical, sonic, electric) ignore these modifiers.
+        </small>
+    </div>
+    <div class="card-body p-2" style="overflow-x:auto;">
+        <table class="table table-sm table-bordered mb-0" style="min-width:380px;">
+            <thead class="table-dark">
+                <tr>
+                    <th class="text-center" style="width:110px;"><small>Attacker ↓ / Defender →</small></th>
+                    {% for sz in data.size_order %}
+                    <th class="text-center small">{{ sz|capitalize }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row_sz in data.size_order %}
+                <tr>
+                    <td class="fw-bold small text-end bg-dark text-white">{{ row_sz|capitalize }}</td>
+                    {% for mult in data.size_matrix[loop.index0] %}
+                    {% if mult > 1.2 %}
+                        {% set bg = '#d4edda' %}{% set tx = '#155724' %}
+                    {% elif mult < 0.9 %}
+                        {% set bg = '#f8d7da' %}{% set tx = '#721c24' %}
+                    {% elif mult == 1.0 %}
+                        {% set bg = '#e9ecef' %}{% set tx = '#495057' %}
+                    {% else %}
+                        {% set bg = '#fff3cd' %}{% set tx = '#856404' %}
+                    {% endif %}
+                    <td class="text-center small fw-semibold" style="background:{{ bg }};color:{{ tx }};">
+                        {{ '%.2f'|format(mult) }}×
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer">
+        <span class="badge" style="background:#d4edda;color:#155724;">≥1.2× Advantage</span>
+        <span class="badge ms-1" style="background:#fff3cd;color:#856404;">~1.0× Slight edge</span>
+        <span class="badge ms-1" style="background:#e9ecef;color:#495057;">1.0× Neutral (same size)</span>
+        <span class="badge ms-1" style="background:#f8d7da;color:#721c24;">&lt;0.9× Disadvantage</span>
+        <span class="badge ms-2 bg-secondary">Size-agnostic attacks: venom · chemical · sonic · electric</span>
+    </div>
+</div>
+
 {# ── Species Network ────────────────────────────────────────────── #}
 <div class="card mb-4">
     <div class="card-header">

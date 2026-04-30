@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}Battle Bugs{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
@@ -19,37 +21,51 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('bugs.list_bugs') }}">All Bugs</a>
+                        <a class="nav-link" href="{{ url_for('bugs.list_bugs') }}">Bugs</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('bugs.insectidex') }}">Insectidex</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main.ecosystem') }}">Ecosystem</a>
+                        <a class="nav-link" href="{{ url_for('tournaments.list_seasons') }}">Seasons</a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="{{ url_for('championship.overview') }}" role="button" data-bs-toggle="dropdown">Undisputed</a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{{ url_for('championship.overview') }}">Championship Belts</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('championship.pfp') }}">Pound-for-Pound</a></li>
+                        </ul>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('battles.list_battles') }}">Battles</a>
+                        <a class="nav-link" href="{{ url_for('main.leaderboards') }}">Leaderboards</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('main.ecosystem') }}">Ecosystem</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('tournaments.list_tournaments') }}">Tournaments</a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('tournaments.list_seasons') }}">Seasons</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main.hall_of_fame') }}">Hall of Fame</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('main.leaderboards') }}">Leaderboards</a>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">More</a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{{ url_for('battles.list_battles') }}">All Battles</a></li>
+                            {% if current_user.is_authenticated %}
+                            <li><a class="dropdown-item" href="{{ url_for('battles.new_battle') }}">Spar / Test Battle</a></li>
+                            {% endif %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('main.hall_of_fame') }}">Hall of Fame</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('main.tutorial') }}">How to Play</a></li>
+                        </ul>
                     </li>
                 </ul>
                 <ul class="navbar-nav">
                     {% if current_user.is_authenticated %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('bugs.submit_bug') }}">Submit Bug</a>
+                        <a class="nav-link" href="{{ url_for('main.my_bugs') }}">My Bugs</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('battles.new_battle') }}">New Battle</a>
+                        <a class="nav-link" href="{{ url_for('bugs.submit_bug') }}">Submit Bug</a>
                     </li>
                     <li class="nav-item">
                         <span class="nav-link">{{ current_user.accolade_points or 0 }} AP</span>
@@ -116,9 +132,64 @@
         </div>
     </footer>
 
+    {# ── Global LLM loading overlay ────────────────────────────── #}
+    <div id="llm-loading-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:16px;">
+      <div class="spinner-border text-light" style="width:3rem;height:3rem;" role="status"></div>
+      <div class="text-light fw-semibold" id="llm-loading-msg">Processing…</div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script>
+    // ── LLM loading overlay ───────────────────────────────────────────────
+    (function () {
+      var overlay = document.getElementById('llm-loading-overlay');
+      var msg = document.getElementById('llm-loading-msg');
+      var _cycleTimer = null;
+
+      function _startCycle(messages, intervalMs) {
+        if (_cycleTimer) clearInterval(_cycleTimer);
+        var i = 0;
+        msg.textContent = messages[0];
+        _cycleTimer = setInterval(function () {
+          i = (i + 1) % messages.length;
+          msg.textContent = messages[i];
+        }, intervalMs || 4000);
+      }
+
+      function _stopCycle() {
+        if (_cycleTimer) { clearInterval(_cycleTimer); _cycleTimer = null; }
+      }
+
+      var LLM_FORM_SELECTORS = [
+        'form[data-llm-loading]',
+        'form[action*="/submit"]',
+        'form[action*="/recalc"]',
+        'form[action*="/battle/new"]',
+        'form[action*="/bug/new"]',
+      ];
+      document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll(LLM_FORM_SELECTORS.join(',')).forEach(function (form) {
+          form.addEventListener('submit', function () {
+            var raw = form.dataset.llmLoading || 'Thinking…';
+            var messages;
+            try { messages = JSON.parse(raw); } catch (e) { messages = [raw]; }
+            _startCycle(Array.isArray(messages) ? messages : [messages]);
+            overlay.style.display = 'flex';
+          });
+        });
+        window.showLLMLoading = function (label) {
+          _stopCycle();
+          msg.textContent = label || 'Processing…';
+          overlay.style.display = 'flex';
+        };
+        window.hideLLMLoading = function () {
+          _stopCycle();
+          overlay.style.display = 'none';
+        };
+      });
+    })();
+
     // ── Countdown clock helper ─────────────────────────────────────────────
     // Usage: <span data-countdown-to="2026-05-01T12:00:00Z" data-countdown-label="Registration closes"></span>
     (function () {
@@ -151,6 +222,119 @@
     </script>
     {% block scripts %}{% endblock %}
 
+    {# ── Celebration canvas (confetti / gold burst) ───────────────── #}
+    <canvas id="celebration-canvas" style="position:fixed;inset:0;pointer-events:none;z-index:9998;display:none;"></canvas>
+    <script>
+    (function () {
+      var canvas = document.getElementById('celebration-canvas');
+      var ctx = canvas.getContext('2d');
+      var particles = [];
+      var raf = null;
+
+      function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
+      window.addEventListener('resize', resize);
+
+      function _makeParticle(x, y, palette) {
+        var angle = Math.random() * Math.PI * 2;
+        var speed = 3 + Math.random() * 7;
+        return {
+          x: x, y: y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 4,
+          size: 5 + Math.random() * 7,
+          color: palette[Math.floor(Math.random() * palette.length)],
+          life: 1.0,
+          decay: 0.012 + Math.random() * 0.01,
+          rotation: Math.random() * Math.PI * 2,
+          spin: (Math.random() - 0.5) * 0.3,
+          shape: Math.random() < 0.6 ? 'rect' : 'circle',
+        };
+      }
+
+      function _burst(x, y, count, palette) {
+        resize();
+        canvas.style.display = 'block';
+        for (var i = 0; i < count; i++) particles.push(_makeParticle(x, y, palette));
+        if (!raf) _tick();
+      }
+
+      function _tick() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        particles = particles.filter(function (p) {
+          p.x += p.vx; p.y += p.vy; p.vy += 0.18;
+          p.vx *= 0.99; p.life -= p.decay; p.rotation += p.spin;
+          if (p.life <= 0) return false;
+          ctx.save();
+          ctx.globalAlpha = p.life;
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.rotation);
+          ctx.fillStyle = p.color;
+          if (p.shape === 'rect') {
+            ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+          } else {
+            ctx.beginPath();
+            ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
+          return true;
+        });
+        if (particles.length > 0) {
+          raf = requestAnimationFrame(_tick);
+        } else {
+          raf = null;
+          canvas.style.display = 'none';
+        }
+      }
+
+      var CONFETTI_PALETTE = ['#ff595e','#ffca3a','#6a4c93','#1982c4','#8ac926','#ff924c','#ffffff'];
+      var GOLD_PALETTE     = ['#ffd700','#ffec6e','#ffa500','#fff8dc','#fffacd','#c9a800','#ffffff'];
+
+      // Public API
+      window.celebrateSubmit = function () {
+        var cx = innerWidth / 2, cy = innerHeight * 0.35;
+        for (var w = 0; w < 5; w++) {
+          (function(delay) {
+            setTimeout(function () { _burst(cx + (Math.random()-0.5)*80, cy, 30, CONFETTI_PALETTE); }, delay);
+          })(w * 120);
+        }
+      };
+      window.celebrateVictory = function () {
+        // Gold rain from top + bottom-corner bursts
+        for (var w = 0; w < 8; w++) {
+          (function(delay) {
+            setTimeout(function () {
+              _burst(Math.random() * innerWidth, -20, 25, GOLD_PALETTE);
+              if (Math.random() < 0.4) _burst(Math.random() * innerWidth, innerHeight + 20, 20, GOLD_PALETTE);
+            }, delay);
+          })(w * 180);
+        }
+      };
+      window.celebrateBelt = function () {
+        // Massive golden explosion
+        var cx = innerWidth / 2, cy = innerHeight / 2;
+        _burst(cx, cy, 120, GOLD_PALETTE);
+        setTimeout(function () { _burst(cx, cy, 80, ['#ffffff','#ffd700','#fffacd']); }, 300);
+        setTimeout(function () { _burst(0, innerHeight, 60, GOLD_PALETTE); _burst(innerWidth, innerHeight, 60, GOLD_PALETTE); }, 500);
+      };
+
+      // Auto-fire based on URL flag set by server on redirect after key events
+      document.addEventListener('DOMContentLoaded', function () {
+        var params = new URLSearchParams(window.location.search);
+        var celebrate = params.get('_celebrate');
+        if (celebrate === 'submit')     { setTimeout(celebrateSubmit, 300); }
+        else if (celebrate === 'belt')  { setTimeout(celebrateBelt, 400); }
+        else if (celebrate === 'win')   { setTimeout(celebrateVictory, 400); }
+        // Clean the param from the URL bar without reload
+        if (celebrate) {
+          params.delete('_celebrate');
+          var clean = window.location.pathname + (params.toString() ? '?' + params : '') + window.location.hash;
+          history.replaceState(null, '', clean);
+        }
+      });
+    })();
+    </script>
+
     {# ── Tournament victory toasts ──────────────────────────────── #}
     {% if current_user.is_authenticated and victory_banners %}
     <div aria-live="polite" aria-atomic="true" class="position-fixed top-0 end-0 p-3" style="z-index:1090;">
@@ -168,7 +352,8 @@
     </div>
     <script>
     document.addEventListener('DOMContentLoaded', function () {
-      document.querySelectorAll('.victory-toast').forEach(function (el) {
+      var toasts = document.querySelectorAll('.victory-toast');
+      toasts.forEach(function (el) {
         new bootstrap.Toast(el, {autohide: false}).show();
       });
       document.querySelectorAll('.dismiss-toast').forEach(function (btn) {
@@ -184,5 +369,40 @@
     });
     </script>
     {% endif %}
+<script>
+(function() {
+    var csrfToken = document.querySelector('meta[name="csrf-token"]');
+    if (!csrfToken) return;
+    var token = csrfToken.content;
+
+    // Inject hidden CSRF field into every POST/PUT/PATCH form on load
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('form').forEach(function(form) {
+            var method = (form.getAttribute('method') || 'GET').toUpperCase();
+            if (['POST', 'PUT', 'PATCH', 'DELETE'].indexOf(method) === -1) return;
+            if (form.querySelector('input[name="csrf_token"]')) return;
+            var inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = 'csrf_token';
+            inp.value = token;
+            form.prepend(inp);
+        });
+    });
+
+    // Patch fetch so AJAX POST requests carry the CSRF token in the header
+    var _fetch = window.fetch;
+    window.fetch = function(url, opts) {
+        opts = opts || {};
+        var method = (opts.method || 'GET').toUpperCase();
+        if (['POST', 'PUT', 'PATCH', 'DELETE'].indexOf(method) !== -1) {
+            opts.headers = opts.headers || {};
+            if (!opts.headers['X-CSRFToken']) {
+                opts.headers['X-CSRFToken'] = token;
+            }
+        }
+        return _fetch.call(this, url, opts);
+    };
+})();
+</script>
 </body>
 </html>

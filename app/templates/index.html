@@ -212,9 +212,57 @@
 
 </div>
 
+{# ── Championship Circuit ───────────────────────────────────── #}
+{% if circuit_champions %}
+<div class="mt-4">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <h4 class="mb-0">🥊 Championship Circuit</h4>
+      <small class="text-muted">Current belt holders across all tiers</small>
+    </div>
+    <a href="{{ url_for('championship.overview') }}" class="btn btn-outline-warning btn-sm">All Belts →</a>
+  </div>
+  <div class="row g-3">
+    {% for c in circuit_champions %}
+    <div class="col-md-4 col-lg-2">
+      <a href="{{ url_for('championship.tier_detail', tier=c.tier) }}" class="text-decoration-none">
+        <div class="card h-100 border-0 shadow-sm circuit-tile
+          {% if c.belt and c.belt.champion %}border-warning{% endif %}"
+          style="{% if c.belt and c.belt.champion %}border: 2px solid #ffc107!important;{% else %}border: 2px solid #6c757d!important;{% endif %}">
+          <div class="card-body p-2 text-center">
+            <div class="fw-bold small text-muted mb-1">{{ c.label }}</div>
+            {% if c.belt and c.belt.champion %}
+              {% set champ = c.belt.champion %}
+              {% if champ.image_path %}
+              <div class="circuit-champ-img mx-auto mb-1">
+                <img src="{{ url_for('main.uploaded_file', filename=champ.image_path) }}"
+                     alt="{{ champ.nickname }}"
+                     style="width:56px;height:56px;object-fit:cover;border-radius:50%;border:2px solid #ffc107;">
+              </div>
+              {% else %}
+              <div class="fs-2 mb-1">🏆</div>
+              {% endif %}
+              <div class="fw-bold small text-dark" style="font-size:0.8rem;line-height:1.2;">{{ champ.nickname }}</div>
+              <div class="text-muted" style="font-size:0.7rem;">{{ champ.wins }}W–{{ champ.losses }}L</div>
+              <div class="badge bg-warning text-dark mt-1" style="font-size:0.65rem;">{{ c.belt.defense_count }} def.</div>
+            {% else %}
+              <div class="fs-2 mb-1 text-muted">🔓</div>
+              <div class="text-muted small">Vacant</div>
+            {% endif %}
+          </div>
+        </div>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <style>
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
 .blink { animation: blink 1.5s infinite; }
+.circuit-tile { transition: transform 0.15s, box-shadow 0.15s; cursor: pointer; }
+.circuit-tile:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,0.15)!important; }
 </style>
 
 {% endblock %}

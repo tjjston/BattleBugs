@@ -1,14 +1,302 @@
 """
 Taxonomy Service - Species Identification and Data Retrieval
-Integrates with GBIF (Global Biodiversity Information Facility) and iNaturalist
+
+Three-layer backbone architecture:
+  1. GBIF Species API      — canonical name, synonyms, full classification tree
+  2. iNaturalist API       — common names, photos, observation counts, conservation status
+  3. Catalogue of Life     — authoritative checklist verification / fallback
 """
 
+import json
+import re
 import requests
 from flask import current_app
 from app import db
 from app.models import Species
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 import random
+
+
+# ── Tier 1: GBIF Backbone ────────────────────────────────────────────────────
+
+class GBIFBackbone:
+    """
+    GBIF Species Match API — the canonical taxonomy backbone.
+
+    Use this for:  scientific name → accepted name, GBIF key, full classification
+                   synonym resolution, parent taxon chain
+    """
+
+    BASE = "https://api.gbif.org/v1"
+    _session = requests.Session()
+    _session.headers['User-Agent'] = 'BattleBugs/1.0 (taxonomy enrichment)'
+
+    def match(self, name: str, rank: str = 'SPECIES') -> dict | None:
+        """
+        Fuzzy-match a scientific name against the GBIF backbone.
+
+        Returns a dict with usageKey, canonicalName, status (ACCEPTED/SYNONYM),
+        confidence (0-100), and full classification (kingdom→species).
+        Returns None if no match above confidence 50.
+        """
+        try:
+            r = self._session.get(f"{self.BASE}/species/match", params={
+                'name': name, 'rank': rank, 'verbose': 'false', 'strict': 'false',
+            }, timeout=10)
+            if not r.ok:
+                return None
+            data = r.json()
+            if data.get('matchType') == 'NONE' or data.get('confidence', 0) < 50:
+                return None
+            return {
+                'usageKey':      data.get('usageKey'),
+                'acceptedKey':   data.get('acceptedUsageKey'),
+                'canonicalName': data.get('canonicalName'),
+                'scientificName': data.get('scientificName'),
+                'rank':          data.get('rank'),
+                'status':        data.get('status'),       # ACCEPTED | SYNONYM | DOUBTFUL
+                'matchType':     data.get('matchType'),    # EXACT | FUZZY | HIGHERRANK
+                'confidence':    data.get('confidence', 0),
+                'kingdom':  data.get('kingdom'),
+                'phylum':   data.get('phylum'),
+                'class_':   data.get('clazz'),
+                'order':    data.get('order'),
+                'family':   data.get('family'),
+                'genus':    data.get('genus'),
+                'species':  data.get('species'),
+            }
+        except Exception as exc:
+            current_app.logger.debug("GBIFBackbone.match failed for %r: %s", name, exc)
+            return None
+
+    def resolve_accepted(self, name: str) -> dict | None:
+        """
+        If name is a known synonym, follow the link to the accepted species.
+        Always returns the accepted taxon's dict (or the match itself if already accepted).
+        """
+        match = self.match(name)
+        if not match:
+            return None
+        if match['status'] == 'SYNONYM' and match.get('acceptedKey'):
+            try:
+                r = self._session.get(f"{self.BASE}/species/{match['acceptedKey']}", timeout=10)
+                if r.ok:
+                    data = r.json()
+                    match['canonicalName'] = data.get('canonicalName', match['canonicalName'])
+                    match['scientificName'] = data.get('scientificName', match['scientificName'])
+                    match['usageKey'] = match['acceptedKey']
+                    match['status'] = 'ACCEPTED'
+            except Exception:
+                pass
+        return match
+
+    def get_synonyms(self, usage_key: int) -> list[str]:
+        """Return list of known synonym names for a backbone taxon."""
+        try:
+            r = self._session.get(f"{self.BASE}/species/{usage_key}/synonyms",
+                                  params={'limit': 20}, timeout=10)
+            if not r.ok:
+                return []
+            return [
+                s.get('canonicalName') or s.get('scientificName')
+                for s in r.json().get('results', [])
+                if s.get('canonicalName') or s.get('scientificName')
+            ]
+        except Exception:
+            return []
+
+    def get_vernacular_names(self, usage_key: int, lang: str = 'eng') -> list[str]:
+        """Return common names for a backbone taxon, preferring the given language."""
+        try:
+            r = self._session.get(f"{self.BASE}/species/{usage_key}/vernacularNames",
+                                  params={'limit': 20}, timeout=10)
+            if not r.ok:
+                return []
+            results = r.json().get('results', [])
+            preferred = [x['vernacularName'] for x in results if x.get('language') == lang and x.get('vernacularName')]
+            fallback  = [x['vernacularName'] for x in results if x.get('vernacularName') and x['vernacularName'] not in preferred]
+            return preferred or fallback
+        except Exception:
+            return []
+
+
+# ── Tier 2: iNaturalist Enrichment Layer ────────────────────────────────────
+
+class iNaturalistLayer:
+    """
+    iNaturalist API — app-layer enrichment.
+
+    Use this for:  common names, reference photos, observation counts,
+                   conservation status, similar taxa, nearby observations.
+    """
+
+    BASE = "https://api.inaturalist.org/v1"
+    _session = requests.Session()
+    _session.headers['User-Agent'] = 'BattleBugs/1.0 (taxonomy enrichment)'
+
+    # IUCN status → human-readable label
+    CONSERVATION_LABELS = {
+        'LC': 'Least Concern', 'NT': 'Near Threatened', 'VU': 'Vulnerable',
+        'EN': 'Endangered',    'CR': 'Critically Endangered',
+        'EW': 'Extinct in the Wild', 'EX': 'Extinct',
+    }
+
+    def search_taxon(self, scientific_name: str, rank: str = 'species') -> dict | None:
+        """Find the iNaturalist taxon record for a scientific name."""
+        try:
+            r = self._session.get(f"{self.BASE}/taxa", params={
+                'q': scientific_name, 'rank': rank, 'per_page': 1,
+                'order_by': 'observations_count', 'order': 'desc',
+            }, timeout=10)
+            if not r.ok:
+                return None
+            results = r.json().get('results', [])
+            return results[0] if results else None
+        except Exception as exc:
+            current_app.logger.debug("iNaturalist.search_taxon failed for %r: %s", scientific_name, exc)
+            return None
+
+    def get_taxon_detail(self, taxon_id: int) -> dict | None:
+        """Fetch full taxon record including conservation status and similar species."""
+        try:
+            r = self._session.get(f"{self.BASE}/taxa/{taxon_id}", timeout=10)
+            if not r.ok:
+                return None
+            results = r.json().get('results', [])
+            return results[0] if results else None
+        except Exception:
+            return None
+
+    def get_nearby_observations(self, taxon_id: int, lat: float, lng: float,
+                                radius_km: int = 50, limit: int = 5) -> list[dict]:
+        """
+        Research-grade observations of this taxon within radius_km of (lat, lng).
+        Each item has: observed_on, place_guess, user.login, photos[0].url
+        """
+        try:
+            r = self._session.get(f"{self.BASE}/observations", params={
+                'taxon_id': taxon_id, 'lat': lat, 'lng': lng, 'radius': radius_km,
+                'per_page': limit, 'order': 'desc', 'order_by': 'observed_on',
+                'quality_grade': 'research', 'photos': 'true',
+            }, timeout=10)
+            if not r.ok:
+                return []
+            return r.json().get('results', [])
+        except Exception:
+            return []
+
+    def get_similar_species(self, taxon_id: int, limit: int = 5) -> list[dict]:
+        """Taxa that observers frequently misidentify as this taxon."""
+        try:
+            r = self._session.get(f"{self.BASE}/taxa/{taxon_id}/similar_species",
+                                  params={'per_page': limit}, timeout=10)
+            if not r.ok:
+                return []
+            return [
+                {
+                    'taxon_id': item.get('taxon', {}).get('id'),
+                    'scientific_name': item.get('taxon', {}).get('name'),
+                    'common_name': item.get('taxon', {}).get('preferred_common_name'),
+                    'photo_url': (item.get('taxon', {}).get('default_photo') or {}).get('square_url'),
+                    'count': item.get('count', 0),
+                }
+                for item in r.json().get('results', [])
+            ]
+        except Exception:
+            return []
+
+    def enrich_dict(self, scientific_name: str) -> dict:
+        """
+        Single call that returns everything iNaturalist knows about the species.
+        Safe to call in a background thread.
+        """
+        out = {
+            'taxon_id': None, 'common_name': None, 'photo_url': None,
+            'observation_count': None, 'conservation_status': None,
+            'wikipedia_url': None, 'similar_species': [],
+        }
+        taxon = self.search_taxon(scientific_name)
+        if not taxon:
+            return out
+
+        out['taxon_id'] = taxon.get('id')
+        out['common_name'] = taxon.get('preferred_common_name')
+        out['observation_count'] = taxon.get('observations_count')
+        out['wikipedia_url'] = taxon.get('wikipedia_url')
+
+        photo = taxon.get('default_photo') or {}
+        out['photo_url'] = photo.get('medium_url') or photo.get('square_url')
+
+        # Conservation status (nested inside taxon_geoprivacy/conservation)
+        status_code = (taxon.get('conservation_status') or {}).get('status_name') or \
+                      taxon.get('threatened') and 'VU' or None
+        if status_code:
+            out['conservation_status'] = status_code.upper()
+
+        if out['taxon_id']:
+            out['similar_species'] = self.get_similar_species(out['taxon_id'])
+
+        return out
+
+
+# ── Tier 3: Catalogue of Life ────────────────────────────────────────────────
+
+class CatalogueOfLife:
+    """
+    Catalogue of Life (COL) ChecklistBank API — authoritative global species checklist.
+
+    Use this for:  formal name verification, synonym resolution when GBIF is ambiguous,
+                   COL ID for cross-referencing external biodiversity databases.
+    """
+
+    BASE = "https://api.catalogueoflife.org"
+    _session = requests.Session()
+    _session.headers['User-Agent'] = 'BattleBugs/1.0 (taxonomy enrichment)'
+
+    def match(self, scientific_name: str) -> dict | None:
+        """
+        Match a name against the Catalogue of Life ChecklistBank.
+
+        Uses the global /nameusage/search endpoint. Returns the COL internal
+        usage ID and available classification data.
+        """
+        try:
+            r = self._session.get(f"{self.BASE}/nameusage/search", params={
+                'q': scientific_name, 'rank': 'species', 'limit': 5,
+            }, timeout=10)
+            if not r.ok:
+                return None
+            results = r.json().get('result', [])
+            if not results:
+                return None
+            # The global search aggregates many datasets; prefer results whose ID
+            # looks like a COL internal ID (numeric string) over external URLs.
+            col_result = None
+            for res in results:
+                rid = str(res.get('id', ''))
+                usage = res.get('usage') or {}
+                # COL internal IDs are plain integers; external IDs are URLs
+                if rid.isdigit() or (usage.get('id') and str(usage['id']).isdigit()):
+                    col_result = res
+                    break
+            if not col_result:
+                col_result = results[0]  # fallback to first result
+
+            usage = col_result.get('usage') or {}
+            col_id = str(usage.get('id') or col_result.get('id', ''))
+            # Extract classification labels from the classification list
+            classification = col_result.get('classification', [])
+            classify_map = {node['rank']: node['name'] for node in classification if node.get('rank') and node.get('name')}
+
+            return {
+                'col_id':          col_id,
+                'scientific_name': col_result.get('labelHtml') or scientific_name,
+                'rank':            'species',
+                'classification':  classify_map,
+            }
+        except Exception as exc:
+            current_app.logger.debug("CatalogueOfLife.match failed for %r: %s", scientific_name, exc)
+            return None
 
 class TaxonomyService:
     """Service for fetching and caching species taxonomy data"""
@@ -294,46 +582,70 @@ class TaxonomyService:
     
     def get_species_details(self, scientific_name=None, gbif_id=None, inaturalist_id=None):
         """
-        Get detailed species information
-        
-        Args:
-            scientific_name: Scientific name to look up
-            gbif_id: GBIF ID
-            inaturalist_id: iNaturalist ID
-        
-        Returns:
-            Species object (from cache or API)
+        Get detailed species information, using GBIF backbone as the canonical source.
+
+        Resolution order:
+          1. Local DB cache (if still fresh)
+          2. GBIF backbone match (canonical name, full classification)
+          3. iNaturalist search (photo, common name)
+          4. Legacy GBIF text search fallback
         """
-        # Check cache
+        # Check local cache first
         if scientific_name:
             species = Species.query.filter_by(scientific_name=scientific_name).first()
             if species and self._is_cache_valid(species):
                 return species
-        
-        # Fetch from API
+
+        # Try GBIF backbone match — most authoritative source
+        if scientific_name:
+            backbone = GBIFBackbone()
+            gbif_match = backbone.resolve_accepted(scientific_name)
+            if gbif_match and gbif_match.get('confidence', 0) >= 70:
+                # Check if we have this canonical name cached already
+                canonical = gbif_match.get('canonicalName') or scientific_name
+                cached = Species.query.filter_by(scientific_name=canonical).first()
+                if cached and self._is_cache_valid(cached):
+                    return cached
+                # Build species data from backbone result
+                inat = iNaturalistLayer()
+                inat_data = inat.enrich_dict(canonical)
+                species_data = {
+                    'scientific_name': canonical,
+                    'common_name':     inat_data.get('common_name'),
+                    'kingdom':         gbif_match.get('kingdom', 'Animalia'),
+                    'phylum':          gbif_match.get('phylum', 'Arthropoda'),
+                    'class_name':      gbif_match.get('class_', 'Insecta'),
+                    'order':           gbif_match.get('order'),
+                    'family':          gbif_match.get('family'),
+                    'genus':           gbif_match.get('genus'),
+                    'species':         gbif_match.get('species'),
+                    'gbif_id':         str(gbif_match['usageKey']) if gbif_match.get('usageKey') else None,
+                    'gbif_backbone_key': gbif_match.get('usageKey'),
+                    'inaturalist_id':  str(inat_data['taxon_id']) if inat_data.get('taxon_id') else None,
+                    'image_url':       inat_data.get('photo_url'),
+                    'observation_count': inat_data.get('observation_count'),
+                    'conservation_status': inat_data.get('conservation_status'),
+                    'data_source':     'gbif_backbone',
+                }
+                return self._cache_species(species_data)
+
+        # Legacy path: explicit ID lookup or text search fallback
         if gbif_id:
             species_data = self._fetch_gbif_details(gbif_id)
         elif inaturalist_id:
             species_data = self._fetch_inaturalist_details(inaturalist_id)
         elif scientific_name:
-            # Try to find the ID first
             search_results = self.search_species(scientific_name)
             if not search_results:
                 return None
-            
             first_result = search_results[0]
-            if first_result.get('gbif_id'):
-                species_data = self._fetch_gbif_details(first_result['gbif_id'])
-            else:
-                species_data = first_result
+            species_data = (self._fetch_gbif_details(first_result['gbif_id'])
+                            if first_result.get('gbif_id') else first_result)
         else:
             return None
-        
-        # Cache it
+
         if species_data:
-            species = self._cache_species(species_data)
-            return species
-        
+            return self._cache_species(species_data)
         return None
     
     def _fetch_gbif_details(self, gbif_id):
@@ -417,7 +729,7 @@ class TaxonomyService:
             if hasattr(species, key) and value is not None:
                 setattr(species, key, value)
         
-        species.last_updated = datetime.utcnow()
+        species.last_updated = datetime.now(timezone.utc)
         
         db.session.add(species)
         db.session.commit()
@@ -429,25 +741,169 @@ class TaxonomyService:
         if not species.last_updated:
             return False
         
-        age = datetime.utcnow() - species.last_updated
+        age = datetime.now(timezone.utc) - species.last_updated
         return age < self.cache_duration
     
     def identify_from_image(self, image_path):
-        """
-        Future feature: Use image recognition to identify species
-        Could integrate with iNaturalist's computer vision API
-        
-        Args:
-            image_path: Path to bug image
-        
-        Returns:
-            List of possible species matches with confidence scores
-        """
-        
         return {
             'suggestions': [],
             'message': 'Image recognition not yet implemented. Please search manually.'
         }
+
+    # ── Enrichment ────────────────────────────────────────────────────────────
+
+    def enrich_species(self, species_id: int) -> bool:
+        """
+        Full three-layer enrichment for a species record.
+
+        Layer order:
+          1. GBIF backbone — canonical name, synonym resolution, classification chain
+          2. iNaturalist   — photo, observation count, conservation status, similar taxa
+          3. Catalogue of Life — authoritative COL ID
+          4. Wikipedia     — interesting facts fallback
+
+        Safe to call from a background thread (needs app context pushed by caller).
+        Returns True if anything was updated.
+        """
+        species = db.session.get(Species, species_id)
+        if not species or not species.scientific_name:
+            return False
+
+        updated = False
+        name = species.scientific_name
+
+        # ── Layer 1: GBIF Backbone ──────────────────────────────────────────
+        backbone = GBIFBackbone()
+        gbif_match = backbone.resolve_accepted(name)
+        if gbif_match:
+            if not species.gbif_backbone_key and gbif_match.get('usageKey'):
+                species.gbif_backbone_key = gbif_match['usageKey']
+                updated = True
+            if not species.gbif_id and gbif_match.get('usageKey'):
+                species.gbif_id = str(gbif_match['usageKey'])
+                updated = True
+            # Fill in canonical accepted name if this was a synonym
+            if gbif_match.get('status') == 'SYNONYM' and gbif_match.get('canonicalName'):
+                if not species.accepted_name:
+                    species.accepted_name = gbif_match['canonicalName']
+                    updated = True
+            # Fill in missing taxonomy fields
+            for attr, key in [('order', 'order'), ('family', 'family'),
+                               ('genus', 'genus'), ('class_name', 'class_')]:
+                if not getattr(species, attr, None) and gbif_match.get(key):
+                    setattr(species, attr, gbif_match[key])
+                    updated = True
+            # Vernacular names as a better common name source
+            if not species.common_name and gbif_match.get('usageKey'):
+                vern = backbone.get_vernacular_names(gbif_match['usageKey'])
+                if vern:
+                    species.common_name = vern[0]
+                    updated = True
+
+        # ── Layer 2: iNaturalist Enrichment ────────────────────────────────
+        inat = iNaturalistLayer()
+        inat_data = inat.enrich_dict(name)
+        if inat_data.get('taxon_id') and not species.inaturalist_id:
+            species.inaturalist_id = str(inat_data['taxon_id'])
+            updated = True
+        if inat_data.get('photo_url') and not species.image_url:
+            species.image_url = inat_data['photo_url']
+            updated = True
+        if inat_data.get('common_name') and not species.common_name:
+            species.common_name = inat_data['common_name']
+            updated = True
+        if inat_data.get('observation_count') and not species.observation_count:
+            species.observation_count = inat_data['observation_count']
+            updated = True
+        if inat_data.get('conservation_status') and not species.conservation_status:
+            species.conservation_status = inat_data['conservation_status']
+            updated = True
+        if inat_data.get('wikipedia_url') and not species.wikipedia_url:
+            species.wikipedia_url = inat_data['wikipedia_url']
+            updated = True
+
+        # ── Layer 3: Catalogue of Life ──────────────────────────────────────
+        col = CatalogueOfLife()
+        col_match = col.match(name)
+        if col_match and col_match.get('col_id') and not species.catalogue_of_life_id:
+            species.catalogue_of_life_id = col_match['col_id']
+            updated = True
+
+        # ── Layer 4: Wikipedia facts (fallback) ─────────────────────────────
+        if not species.interesting_facts:
+            facts = self._fetch_wikipedia_facts(name)
+            if not facts and species.common_name:
+                facts = self._fetch_wikipedia_facts(species.common_name)
+            if facts:
+                species.interesting_facts = json.dumps(facts)
+                updated = True
+
+        if updated:
+            species.last_updated = datetime.now(timezone.utc)
+            try:
+                db.session.commit()
+                current_app.logger.info(
+                    "TAXONOMY enriched species#%s (%s) — gbif_key=%s inat_id=%s col_id=%s obs=%s status=%s",
+                    species_id, name, species.gbif_backbone_key, species.inaturalist_id,
+                    species.catalogue_of_life_id, species.observation_count, species.conservation_status,
+                )
+            except Exception:
+                db.session.rollback()
+
+        return updated
+
+    def _fetch_inaturalist_photo(self, scientific_name: str) -> str | None:
+        try:
+            resp = requests.get(
+                f"{self.INATURALIST_API}/taxa",
+                params={'q': scientific_name, 'rank': 'species', 'per_page': 1},
+                timeout=8,
+            )
+            if resp.status_code != 200:
+                return None
+            results = resp.json().get('results', [])
+            if not results:
+                return None
+            photo = results[0].get('default_photo') or {}
+            return photo.get('medium_url') or photo.get('square_url')
+        except Exception:
+            return None
+
+    def _fetch_inaturalist_taxon_id(self, scientific_name: str) -> int | None:
+        try:
+            resp = requests.get(
+                f"{self.INATURALIST_API}/taxa",
+                params={'q': scientific_name, 'rank': 'species', 'per_page': 1},
+                timeout=8,
+            )
+            if resp.status_code != 200:
+                return None
+            results = resp.json().get('results', [])
+            return results[0].get('id') if results else None
+        except Exception:
+            return None
+
+    def _fetch_wikipedia_facts(self, name: str) -> list[str]:
+        """Return up to 5 interesting sentences from a Wikipedia page summary."""
+        try:
+            slug = name.strip().replace(' ', '_')
+            resp = requests.get(
+                f"https://en.wikipedia.org/api/rest_v1/page/summary/{slug}",
+                headers={'User-Agent': 'BattleBugs/1.0 (insectidex enrichment)'},
+                timeout=8,
+            )
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+            extract = data.get('extract', '')
+            if not extract:
+                return []
+            # Split into sentences, take first 5 non-trivial ones
+            sentences = re.split(r'(?<=[.!?])\s+', extract)
+            facts = [s.strip() for s in sentences if len(s.strip()) > 40][:5]
+            return facts
+        except Exception:
+            return []
 
 
 class StatsGenerator:

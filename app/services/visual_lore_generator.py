@@ -5,11 +5,24 @@ that can provide secret combat advantages in battles.
 """
 
 import base64
-from anthropic import Anthropic
+import json
+import re
 from flask import current_app
 from app import db
 from app.models import Bug
-import json
+
+
+def _parse_json_safe(text: str) -> dict:
+    """Try direct JSON parse first, then extract from prose."""
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        return json.loads(match.group())
+    raise ValueError(f"No JSON found in response: {text[:200]}")
+
 
 class VisualLoreAnalyzer:
     """
@@ -18,21 +31,12 @@ class VisualLoreAnalyzer:
     - Environmental features (sitting on rock = defensive position)
     - Posture/stance (aggressive vs defensive)
     - Unique physical traits not captured in stats
-    
+
     Generates a secret xfactor score (-5.0 to +5.0) that subtly affects battles
     """
-    
+
     def __init__(self):
-        self.client = None
-    
-    def _get_client(self):
-        """Lazy load Anthropic client"""
-        if not self.client:
-            api_key = current_app.config.get('ANTHROPIC_API_KEY')
-            if not api_key:
-                raise ValueError("ANTHROPIC_API_KEY not configured")
-            self.client = Anthropic(api_key=api_key)
-        return self.client
+        pass
     
     def analyze_for_hidden_lore(self, image_path, user_lore=None):
         """
@@ -52,9 +56,6 @@ class VisualLoreAnalyzer:
                 - xfactor: Float from -5.0 to +5.0
                 - xfactor_reason: Why this xfactor value
         """
-        with open(image_path, 'rb') as f:
-            image_data = base64.standard_b64encode(f.read()).decode('utf-8')
-        
         media_type = self._get_media_type(image_path)
         
         lore_context = ""
@@ -135,37 +136,22 @@ BE CREATIVE! Find interesting details. If the bug is near a twig, maybe it's a L
 """
         
         try:
-            client = self._get_client()
-            
-            message = client.messages.create(
-                model="claude-sonnet-4-20250514",
+            from app.services.llm_manager import LLMService
+            llm = LLMService()
+            with open(image_path, 'rb') as f:
+                image_b64 = base64.standard_b64encode(f.read()).decode('utf-8')
+            response_text = llm.generate(
+                prompt=prompt,
+                task='vision_analysis',
+                image_data={'base64': image_b64, 'media_type': media_type},
                 max_tokens=1024,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": media_type,
-                                    "data": image_data,
-                                },
-                            },
-                            {
-                                "type": "text",
-                                "text": prompt
-                            }
-                        ],
-                    }
-                ],
+                temperature=0.7,
+                system_prompt="You are a mystical arena sage. Always respond with valid JSON only, no markdown.",
+                json_mode=True,
             )
-            
-            response_text = message.content[0].text
-            
-            response_text = response_text.replace('```json', '').replace('```', '').strip()
-            
-            result = json.loads(response_text)
+            if not response_text:
+                raise ValueError("LLM returned empty response")
+            result = _parse_json_safe(response_text)
             
             # Validate xfactor is in range
             xfactor = float(result.get('xfactor', 0.0))
@@ -232,7 +218,7 @@ BE CREATIVE! Find interesting details. If the bug is near a twig, maybe it's a L
         return bug
 
 
-def generate_lore_enhanced_battle_narrative(bug1, bug2, winner):
+def generate_lore_enhanced_battle_narrative(bug1, bug2, winner, venue=None):
     """
     Enhanced battle narrative routed through LLMService (defaults to Ollama/Qwen).
     Secretly incorporates visual lore without revealing it to users.
@@ -244,8 +230,12 @@ def generate_lore_enhanced_battle_narrative(bug1, bug2, winner):
     public1 = bug1.get_public_lore()
     public2 = bug2.get_public_lore()
 
-    prompt = f"""Generate an epic 3-paragraph battle narrative between two bug gladiators.
+    venue_line = ""
+    if venue:
+        venue_line = f"\n**Arena: {venue['name']}** — {venue['desc']}\n"
 
+    prompt = f"""Generate an epic 3-paragraph battle narrative between two bug gladiators.
+{venue_line}
 **{bug1.nickname}**
 Background: {public1.get('background') or 'Unknown origin'}
 Motivation: {public1.get('motivation') or 'Fights for glory'}
@@ -260,13 +250,16 @@ Secret edge: {secret2['items_weapons']} | {secret2['environment']} | xfactor {se
 
 **WINNER: {winner.nickname}**
 
-Write a dramatic 3-paragraph battle (Opening / Mid-battle / Climax). Weave the secret edges in
-SUBTLY — never name them literally. Use the lore and personality naturally. Keep under 300 words.
-End with a one-line declaration of the winner."""
+Write a dramatic 3-paragraph battle (Opening / Mid-battle / Climax). Use the arena setting to
+establish atmosphere. Weave the secret edges SUBTLY — never name them literally. Use the lore
+and personality naturally. Keep under 300 words. End with a one-line declaration of the winner."""
 
     try:
         llm = LLMService()
-        return llm.generate(prompt, task='battle_narrative', max_tokens=800, temperature=0.85)
+        result = llm.generate(prompt, task='battle_narrative', max_tokens=800, temperature=0.85)
+        if not result or not result.strip():
+            raise ValueError("LLM returned empty narrative")
+        return result
     except Exception as e:
         current_app.logger.warning("Battle narrative failed: %s", e)
 

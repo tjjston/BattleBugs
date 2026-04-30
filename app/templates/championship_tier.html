@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% block title %}{{ data.label }} Championship — Bug Arena{% endblock %}
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div>
+    <a href="{{ url_for('championship.overview') }}" class="text-muted small">← All Belts</a>
+    <h1 class="mb-0">{{ data.label }} Belt</h1>
+  </div>
+</div>
+
+<div class="row g-4">
+
+  {# ── Left: Champion + Title Fight ───────────────────────── #}
+  <div class="col-lg-5">
+
+    {# Champion card #}
+    <div class="card mb-3 border-warning">
+      <div class="card-header bg-warning text-dark fw-bold">👑 Current Champion</div>
+      <div class="card-body">
+      {% if data.championship and data.championship.champion %}
+        {% set champ = data.championship.champion %}
+        <div class="d-flex gap-3 align-items-start">
+          {% if champ.image_path %}
+          <img src="{{ url_for('main.uploaded_file', filename=champ.image_path) }}"
+               style="width:80px;height:80px;object-fit:cover;border-radius:6px;">
+          {% else %}
+          <div style="width:80px;height:80px;display:flex;align-items:center;justify-content:center;background:#ffd700;border-radius:6px;font-size:2.5rem;">🏆</div>
+          {% endif %}
+          <div>
+            <h5 class="mb-1"><a href="{{ url_for('bugs.view_bug', bug_id=champ.id) }}">{{ champ.nickname }}</a></h5>
+            <div class="text-muted small">{{ champ.common_name or champ.scientific_name or 'Unknown species' }}</div>
+            <div class="mt-1">
+              <span class="badge bg-success">{{ champ.wins }}W</span>
+              <span class="badge bg-danger">{{ champ.losses }}L</span>
+              <span class="badge bg-warning text-dark">{{ data.championship.defense_count }} Defense{{ 's' if data.championship.defense_count != 1 else '' }}</span>
+            </div>
+            {% if data.championship.next_defense_due %}
+            <div class="text-muted small mt-1">Next defense due: {{ data.championship.next_defense_due.strftime('%b %d, %Y') }}</div>
+            {% endif %}
+          </div>
+        </div>
+      {% else %}
+        <div class="text-center py-3 text-muted">
+          <div style="font-size:3rem;">🔓</div>
+          <strong>Belt is Vacant</strong>
+          <p class="small mt-1">The top two contenders will fight for the inaugural title.</p>
+        </div>
+      {% endif %}
+      </div>
+    </div>
+
+    {# Title fight / bidding #}
+    {% if data.fight %}
+    <div class="card mb-3
+      {% if data.fight.status == 'bidding' %}border-info{% else %}border-success{% endif %}">
+      <div class="card-header
+        {% if data.fight.status == 'bidding' %}bg-info text-white{% else %}bg-success text-white{% endif %}
+        fw-bold">
+        {% if data.fight.status == 'bidding' %}🎯 Title Shot — Bidding Open{% else %}🔒 Challenger Confirmed{% endif %}
+      </div>
+      <div class="card-body">
+        <div class="row text-center mb-2">
+          <div class="col-6">
+            <div class="text-muted small">Fight Date</div>
+            <strong>{{ data.fight.scheduled_date.strftime('%b %d, %Y') }}</strong>
+          </div>
+          <div class="col-6">
+            <div class="text-muted small">Bids Close</div>
+            <strong>{{ data.fight.bid_closes_at.strftime('%b %d') }}</strong>
+          </div>
+        </div>
+
+        {% if data.fight.status == 'locked' and data.fight.challenger %}
+        <div class="alert alert-success py-2 small mb-2">
+          Challenger confirmed: <strong>{{ data.fight.challenger.nickname }}</strong>
+        </div>
+        {% endif %}
+
+        {# Bid table #}
+        {% if data.fight.status == 'bidding' %}
+        <table class="table table-sm mb-2">
+          <thead><tr><th>Rank</th><th>Contender</th><th>Min Bid</th><th>Current Bid</th></tr></thead>
+          <tbody>
+          {% for entry in data.contenders[:3] %}
+          <tr>
+            <td><span class="badge bg-dark">#{{ entry.rank }}</span></td>
+            <td><a href="{{ url_for('bugs.view_bug', bug_id=entry.bug.id) }}">{{ entry.bug.nickname }}</a></td>
+            <td>{{ data.min_bids.get(entry.rank, '—') }} AP</td>
+            <td>
+              {% if data.bids.get(entry.bug.id) %}
+                <span class="badge bg-primary">{{ data.bids[entry.bug.id].amount }} AP</span>
+              {% else %}
+                <span class="text-muted small">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+
+        {# Bid form for eligible user bugs #}
+        {% if current_user.is_authenticated %}
+          {% set user_contender_entries = data.contenders[:3] | selectattr('bug.user_id', 'equalto', current_user.id) | list %}
+          {% for entry in user_contender_entries %}
+          <div class="border rounded p-2 mb-2 bg-light">
+            <strong class="small">Place bid for {{ entry.bug.nickname }} (Rank #{{ entry.rank }})</strong>
+            <div class="text-muted small">Min: {{ data.min_bids.get(entry.rank, 0) }} AP &nbsp;·&nbsp; Your balance: {{ current_user.accolade_points or 0 }} AP</div>
+            <form method="post" action="{{ url_for('championship.submit_bid') }}" class="d-flex gap-2 mt-1">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="fight_id" value="{{ data.fight.id }}">
+              <input type="hidden" name="bug_id" value="{{ entry.bug.id }}">
+              <input type="number" name="amount" class="form-control form-control-sm"
+                     min="{{ data.min_bids.get(entry.rank, 0) }}" max="{{ current_user.accolade_points or 0 }}"
+                     placeholder="AP amount" required style="max-width:120px;">
+              <button type="submit" class="btn btn-primary btn-sm">Bid</button>
+            </form>
+          </div>
+          {% endfor %}
+        {% endif %}
+        {% endif %}{# end bidding status #}
+
+      </div>
+    </div>
+    {% else %}
+    <div class="card mb-3 border-secondary">
+      <div class="card-body text-muted small text-center py-3">
+        No title fight scheduled yet. Rankings must fill for a fight to be scheduled.
+      </div>
+    </div>
+    {% endif %}
+
+    {# Pending callouts for current user #}
+    {% if user_callouts %}
+    <div class="card border-warning mb-3">
+      <div class="card-header bg-warning text-dark fw-bold small">⚡ Pending Callouts</div>
+      <ul class="list-group list-group-flush">
+      {% for c in user_callouts %}
+      <li class="list-group-item py-2 small">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <strong>{{ c.challenger.nickname }}</strong> called out <strong>{{ c.target.nickname }}</strong>
+            <div class="text-muted" style="font-size:0.75rem;">Expires {{ c.expires_at.strftime('%b %d') }}</div>
+          </div>
+          {% if c.target.user_id == current_user.id %}
+          <div class="d-flex gap-1">
+            <form method="post" action="{{ url_for('championship.respond_to_callout', callout_id=c.id) }}" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="accept">
+              <button type="submit" class="btn btn-success btn-sm">Accept</button>
+            </form>
+            <form method="post" action="{{ url_for('championship.respond_to_callout', callout_id=c.id) }}" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="decline">
+              <button type="submit" class="btn btn-outline-secondary btn-sm">Decline</button>
+            </form>
+          </div>
+          {% else %}
+          <span class="badge bg-secondary">Awaiting response</span>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+  </div>{# end left col #}
+
+  {# ── Right: Contender Rankings ──────────────────────────── #}
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header fw-bold">📋 Contender Rankings</div>
+      {% if data.contenders %}
+      <table class="table table-sm mb-0 table-hover">
+        <thead class="table-dark">
+          <tr><th>#</th><th>Bug</th><th>Owner</th><th>Record</th><th>Score</th><th></th></tr>
+        </thead>
+        <tbody>
+        {% for entry in data.contenders %}
+        <tr>
+          <td>
+            {% if entry.rank == 1 %}<span class="badge bg-warning text-dark">🥇 1</span>
+            {% elif entry.rank == 2 %}<span class="badge bg-secondary">🥈 2</span>
+            {% elif entry.rank == 3 %}<span class="badge bg-danger">🥉 3</span>
+            {% else %}<span class="badge bg-dark">{{ entry.rank }}</span>{% endif %}
+          </td>
+          <td><a href="{{ url_for('bugs.view_bug', bug_id=entry.bug.id) }}" class="fw-semibold">{{ entry.bug.nickname }}</a></td>
+          <td class="text-muted small">{{ entry.bug.owner.username }}</td>
+          <td><span class="badge bg-success">{{ entry.bug.wins }}W</span> <span class="badge bg-danger">{{ entry.bug.losses }}L</span></td>
+          <td class="text-muted small">{{ "%.0f"|format(entry.ranking_score) }}</td>
+          <td>
+            {# Callout button for eligible user bugs in this tier #}
+            {% if current_user.is_authenticated and entry.bug.user_id != current_user.id %}
+              {% set my_bugs_here = data.contenders | selectattr('bug.user_id', 'equalto', current_user.id) | list %}
+              {% for my_entry in my_bugs_here %}
+                {% if (my_entry.rank - entry.rank)|abs <= 3 %}
+                <form method="post" action="{{ url_for('championship.callout') }}" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="challenger_id" value="{{ my_entry.bug.id }}">
+                  <input type="hidden" name="target_id" value="{{ entry.bug.id }}">
+                  <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
+                          title="{{ my_entry.bug.nickname }} calls out {{ entry.bug.nickname }}">
+                    📣 Call Out
+                  </button>
+                </form>
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="card-body text-muted text-center py-4">
+        <div style="font-size:2.5rem;">🐛</div>
+        No ranked contenders yet.<br>
+        <small>Bugs need {{ data.contenders|length }} wins and must be in the MMA track to enter rankings.</small>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header fw-bold small">ℹ️ How Rankings Work</div>
+      <div class="card-body small text-muted">
+        <ul class="mb-0 ps-3">
+          <li>Bugs earn ranking points through wins — recent wins score more than old ones.</li>
+          <li>Beating higher-ranked bugs earns bonus points.</li>
+          <li>Inactivity decays your score after 3 idle weeks.</li>
+          <li>Top-3 contenders may bid AP for the bi-monthly title shot. Rank #1 bids free; Rank #2 minimum 50 AP; Rank #3 minimum 150 AP.</li>
+          <li>Use <strong>📣 Call Out</strong> to challenge bugs within 3 ranks of you — winner climbs, loser drops.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

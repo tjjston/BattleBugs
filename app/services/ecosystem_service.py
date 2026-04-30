@@ -15,8 +15,8 @@ CACHE_TTL = 1800  # 30 minutes
 
 
 # All known combat types (for consistent matrix axes)
-ALL_ATTACK_TYPES = ['piercing', 'crushing', 'slashing', 'venom', 'chemical', 'grappling']
-ALL_DEFENSE_TYPES = ['hard_shell', 'segmented_armor', 'evasive', 'hairy_spiny', 'toxic_skin', 'thick_hide']
+ALL_ATTACK_TYPES = ['piercing', 'crushing', 'slashing', 'venom', 'chemical', 'grappling', 'sonic', 'electric', 'neutral']
+ALL_DEFENSE_TYPES = ['hard_shell', 'segmented_armor', 'evasive', 'hairy_spiny', 'toxic_skin', 'thick_hide', 'unarmored', 'regenerative', 'bioluminescent']
 
 
 def get_combat_type_matrix() -> dict[tuple, dict]:
@@ -122,6 +122,21 @@ def get_species_graph() -> dict:
     return {'nodes': nodes, 'links': links}
 
 
+def build_size_matrix_table() -> list[list]:
+    """Return a 5×5 table of size advantage multipliers (attacker × defender)."""
+    from app.services.battle_engine import SIZE_ORDER, SIZE_BASE_MODIFIER
+    rows = []
+    for attacker in SIZE_ORDER:
+        row = []
+        for defender in SIZE_ORDER:
+            if attacker == defender:
+                row.append(1.0)
+            else:
+                row.append(SIZE_BASE_MODIFIER.get((attacker, defender), 1.0))
+        rows.append(row)
+    return rows
+
+
 def get_ecosystem_data() -> dict:
     """Cached ecosystem data (30-min TTL)."""
     now = time.time()
@@ -129,10 +144,13 @@ def get_ecosystem_data() -> dict:
         return _cache['data']
 
     live_matrix = get_combat_type_matrix()
+    from app.services.battle_engine import SIZE_ORDER
     data = {
         'matrix_table': build_matrix_table(live_matrix),
         'attack_types': ALL_ATTACK_TYPES,
         'defense_types': ALL_DEFENSE_TYPES,
+        'size_matrix': build_size_matrix_table(),
+        'size_order': SIZE_ORDER,
         'species_graph': get_species_graph(),
         'has_battle_data': bool(live_matrix),
     }

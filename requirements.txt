@@ -31,6 +31,9 @@ APScheduler==3.11.0
 # Security
 Flask-Limiter==3.9.0
 
+# Production WSGI server
+gunicorn==23.0.0
+
 # Testing
 pytest==8.3.4
 pytest-flask==1.3.0

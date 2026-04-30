@@ -2,12 +2,46 @@
 Tier System & LLM-Powered Stat Generation for BattleBugs Tournamanents
 """
 
-from anthropic import Anthropic
 from flask import current_app
 from app import db
 from app.models import Bug, Species, Battle
 import json
 from datetime import datetime, timedelta
+
+
+def _fallback_stats(bug_info: dict) -> dict:
+    """Deterministic varied stats when LLM is unavailable.
+
+    Seeded from the species name so the same bug always gets the same fallback
+    stats rather than boring all-50s.
+    """
+    import hashlib
+    import random as _r
+
+    name = (bug_info.get('scientific_name') or bug_info.get('common_name') or 'Unknown')
+    seed = int(hashlib.md5(name.encode()).hexdigest()[:8], 16)
+    rng = _r.Random(seed)
+
+    _ATTACK_TYPES = ['piercing', 'crushing', 'slashing', 'venom', 'chemical', 'grappling', 'neutral']
+    _DEFENSE_TYPES = ['hard_shell', 'segmented_armor', 'evasive', 'hairy_spiny', 'thick_hide', 'unarmored']
+
+    # Budget 300–420 split unevenly across 6 stats
+    raw = [rng.randint(25, 75) for _ in range(6)]
+    total_budget = rng.randint(300, 420)
+    scale = total_budget / sum(raw)
+    vals = [max(1, min(100, round(v * scale))) for v in raw]
+
+    return {
+        'attack': vals[0], 'defense': vals[1], 'speed': vals[2],
+        'lethality': vals[3], 'grip': vals[4], 'cunning': vals[5],
+        'attack_type': rng.choice(_ATTACK_TYPES),
+        'defense_type': rng.choice(_DEFENSE_TYPES),
+        'special_ability': 'Survival Instinct',
+        'reasoning': 'Auto-generated (LLM unavailable); an admin can recalculate.',
+        'tier_recommendation': 'nu',
+        'confidence': 0.3,
+    }
+
 
 # Tourney Tiers
 TIER_DEFINITIONS = {
@@ -332,6 +366,7 @@ class LLMStatGenerator:
 - Size: {bug_info.get('size_mm', 'Unknown')}mm
 - Characteristics: {bug_info.get('traits', [])}
 - Species Info: {bug_info.get('species_info', 'N/A')}
+{f"- Real-world facts: {'; '.join(bug_info['species_facts'])}" if bug_info.get('species_facts') else ''}
 
 **Instructions:**
 1. Compare this bug to the reference dataset to calibrate power level
@@ -385,33 +420,43 @@ BE REALISTIC: Most bugs should sit in the 360-440 total range (all six stats). O
         try:
             from app.services.llm_manager import LLMService
             llm = LLMService()
-            raw = llm.generate(prompt, task='stat_generation', max_tokens=1024, json_mode=True)
-            response_text = raw.replace('```json', '').replace('```', '').strip()
-            result = json.loads(response_text)
-            
+            current_app.logger.info(
+                "STATS generating for %s / %s",
+                bug_info.get('common_name'), bug_info.get('scientific_name'),
+            )
+            raw = llm.generate(prompt, task='stat_generation', max_tokens=4096, json_mode=True)
+            if not raw:
+                current_app.logger.warning("STATS LLM returned empty — task=stat_generation common=%s scientific=%s",
+                    bug_info.get('common_name'), bug_info.get('scientific_name'))
+                raise ValueError("LLM returned an empty response")
+
+            # Robust extraction: try direct parse, then find {...} in prose
+            import re as _re
+            try:
+                result = json.loads(raw)
+            except json.JSONDecodeError:
+                _m = _re.search(r'\{.*\}', raw, _re.DOTALL)
+                if _m:
+                    result = json.loads(_m.group())
+                else:
+                    raise ValueError(f"No JSON in response: {raw[:200]}")
+
             # Validate
             if not all(k in result for k in ['attack', 'defense', 'speed']):
                 raise ValueError("Missing required stat fields")
 
             # Clamp all stats to valid range
-            for stat in ('attack', 'defense', 'speed'):
-                result[stat] = max(1, min(100, result[stat]))
-            result['lethality'] = max(1, min(100, result.get('lethality', 50)))
-            result['grip'] = max(1, min(100, result.get('grip', 50)))
-            result['cunning'] = max(1, min(100, result.get('cunning', 50)))
+            for stat in ('attack', 'defense', 'speed', 'lethality', 'grip', 'cunning'):
+                result[stat] = max(1, min(100, result.get(stat, 50)))
 
             return result
 
         except Exception as e:
-            current_app.logger.warning("LLM stat generation failed: %s", e)
-            return {
-                'attack': 50, 'defense': 50, 'speed': 50,
-                'lethality': 50, 'grip': 50, 'cunning': 50,
-                'special_ability': 'Survival Instinct',
-                'reasoning': f'LLM generation failed: {str(e)}. Using balanced defaults.',
-                'tier_recommendation': 'uu',
-                'confidence': 0.3,
-            }
+            current_app.logger.warning(
+                "STATS generation failed (%s: %s) — using fallback for %s",
+                type(e).__name__, e, bug_info.get('common_name'),
+            )
+            return _fallback_stats(bug_info)
     
     def _build_reference_context(self):
         """Build formatted reference context for LLM"""
@@ -454,12 +499,20 @@ BE REALISTIC: Most bugs should sit in the 360-440 total range (all six stats). O
         Returns:
             Updated bug with new stats
         """
+        facts = []
+        if bug.species_info and bug.species_info.interesting_facts:
+            try:
+                import json as _j
+                facts = _j.loads(bug.species_info.interesting_facts)[:3]
+            except Exception:
+                pass
         bug_info = {
             'scientific_name': bug.scientific_name,
             'common_name': bug.common_name,
             'size_mm': bug.species_info.average_size_mm if bug.species_info else None,
             'traits': self._extract_traits(bug),
-            'species_info': bug.species_info.to_dict() if bug.species_info else None
+            'species_info': bug.species_info.to_dict() if bug.species_info else None,
+            'species_facts': facts,
         }
         
         stats = self.generate_stats_with_llm(bug_info)

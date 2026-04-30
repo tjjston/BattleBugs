@@ -8,7 +8,7 @@ Features:
 - Automatic bracket generation
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
 from app import db
 from app.models import Tournament, Bug, TournamentApplication, TournamentMatch
@@ -102,11 +102,11 @@ class TournamentEligibilityChecker:
         
         # Check 6: Registration deadline
         if tournament.registration_deadline:
-            if datetime.utcnow() > tournament.registration_deadline:
+            if datetime.now(timezone.utc) > tournament.registration_deadline:
                 result['eligible'] = False
                 result['reasons'].append("Registration deadline has passed")
             else:
-                days_left = (tournament.registration_deadline - datetime.utcnow()).days
+                days_left = (tournament.registration_deadline - datetime.now(timezone.utc)).days
                 result['warnings'].append(f"{days_left} days left to register")
         
         # Check 7: Max participants
@@ -175,7 +175,7 @@ class TournamentManager:
             # If it's `None`, leave it `None` to allow open/indefinite registration.
             registration_deadline=registration_deadline,
             created_by_id=created_by_id,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
             status='registration'
         )
         
@@ -206,7 +206,7 @@ class TournamentManager:
 
         # If auto-approved, mark reviewed metadata using tournament creator if available
         if application.status == 'approved':
-            application.reviewed_at = datetime.utcnow()
+            application.reviewed_at = datetime.now(timezone.utc)
             application.reviewed_by_id = tournament.created_by_id if getattr(tournament, 'created_by_id', None) else None
 
         db.session.add(application)
@@ -220,7 +220,7 @@ class TournamentManager:
         application = db.get_or_404(TournamentApplication, application_id)
         
         application.status = 'approved'
-        application.reviewed_at = datetime.utcnow()
+        application.reviewed_at = datetime.now(timezone.utc)
         application.reviewed_by_id = reviewer_id
         
         db.session.commit()
@@ -390,6 +390,6 @@ def add_tournament_fields():
     max_participants = db.Column(db.Integer)
     registration_deadline = db.Column(db.DateTime)
     created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     """
     pass

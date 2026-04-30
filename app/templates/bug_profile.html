@@ -5,8 +5,22 @@
 {% block content %}
 <div class="row">
     <div class="col-md-4">
-        <div class="card">
-                  <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}" 
+        {%- set _bp_is_champ = bug.championship_held and bug.championship_held.status == 'active' -%}
+        {%- set _bp_rank = bug.tier_ranking_entry.rank if bug.tier_ranking_entry and bug.tier_ranking_entry.rank else 99 -%}
+        <div class="card"
+          style="{% if _bp_is_champ %}border: 3px solid #ffc107!important;box-shadow:0 0 18px rgba(255,193,7,0.4)!important;{% elif _bp_rank <= 3 %}border: 2px solid #6c757d!important;{% endif %}">
+          {%- if _bp_is_champ %}
+          <div class="text-center py-1" style="background:#ffc107;font-size:0.8rem;font-weight:700;color:#000;">
+            🏆 CIRCUIT CHAMPION · {{ bug.championship_held.defense_count }} defense{{ 's' if bug.championship_held.defense_count != 1 else '' }}
+          </div>
+          {%- elif _bp_rank == 1 %}
+          <div class="text-center py-1" style="background:#6c757d;font-size:0.75rem;font-weight:700;color:#fff;">🥇 CIRCUIT CONTENDER #1</div>
+          {%- elif _bp_rank == 2 %}
+          <div class="text-center py-1" style="background:#6c757d;font-size:0.75rem;font-weight:700;color:#fff;">🥈 CIRCUIT CONTENDER #2</div>
+          {%- elif _bp_rank == 3 %}
+          <div class="text-center py-1" style="background:#6c757d;font-size:0.75rem;font-weight:700;color:#fff;">🥉 CIRCUIT CONTENDER #3</div>
+          {%- endif %}
+                  <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}"
                  class="card-img-top bug-image" alt="{{ bug.name }}">
             <div class="card-body">
                 <h3 class="card-title">
@@ -136,16 +150,11 @@
                 <div class="d-flex gap-2 mt-2 mb-1 align-items-center flex-wrap">
                   {% if bug.attack_type and bug.attack_type in _atk_map %}
                   {%- set _a = _atk_map[bug.attack_type] %}
-                  <span class="badge fs-6 bg-{{ _a[2] }}" title="Attack type">{{ _a[0] }} {{ _a[1] }}</span>
-                  {% else %}
-                  <span class="badge fs-6 bg-secondary opacity-50" title="Attack type not set">⚔️ —</span>
+                  <span class="badge fs-6 bg-{{ _a[2] }}">{{ _a[0] }} {{ _a[1] }}</span>
                   {% endif %}
-                  <span class="text-muted small">vs</span>
                   {% if bug.defense_type and bug.defense_type in _def_map %}
                   {%- set _d = _def_map[bug.defense_type] %}
-                  <span class="badge fs-6 bg-{{ _d[2] }}" title="Defense type">{{ _d[0] }} {{ _d[1] }}</span>
-                  {% else %}
-                  <span class="badge fs-6 bg-secondary opacity-50" title="Defense type not set">🛡️ —</span>
+                  <span class="badge fs-6 bg-{{ _d[2] }}">{{ _d[0] }} {{ _d[1] }}</span>
                   {% endif %}
                   {% if current_user.is_authenticated and current_user.role in ['MODERATOR','ADMIN','OWNER'] %}
                   <button class="btn btn-sm btn-link p-0 ms-1 text-muted" type="button"
@@ -209,12 +218,12 @@
                 <p class="small text-danger">{{ bug.enrichment_error }}</p>
                 {% endif %}
 
-                {% if current_user.is_authenticated and (current_user.id == bug.user_id or current_user.role in ['MODERATOR','ADMIN','OWNER']) %}
+                {% if current_user.is_authenticated and current_user.role in ['ADMIN','OWNER'] %}
                 <div class="d-grid mt-3">
-                    <a class="btn btn-sm btn-warning" href="{{ url_for('bugs.recalc_bug_stats', bug_id=bug.id) }}">Recalculate Stats</a>
-                    {% if current_user.id == bug.user_id %}
-                    <small class="text-muted mt-1">Costs 50 Accolade Points.</small>
-                    {% endif %}
+                    <form method="post" action="{{ url_for('bugs.recalc_bug_stats', bug_id=bug.id) }}"
+                          data-llm-loading="Recalculating stats… this may take a moment.">
+                        <button type="submit" class="btn btn-sm btn-warning w-100">Recalculate Stats</button>
+                    </form>
                 </div>
                 {% endif %}
 
@@ -254,11 +263,133 @@
                   {% endif %}
                 </div>
                 {% endif %}
+
+                {# ── Release bug button (owner + admin only) ──────────── #}
+                {% if current_user.is_authenticated and (current_user.id == bug.user_id or current_user.role in ['ADMIN', 'OWNER']) %}
+                <div class="mt-3 pt-2 border-top">
+                  <button type="button" class="btn btn-sm btn-outline-danger w-100"
+                          data-bs-toggle="modal" data-bs-target="#releaseBugModal">
+                    Release Into the Wild
+                  </button>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
 
+    {# ── Release confirmation modal ───────────────────────────────────────── #}
+    {% if current_user.is_authenticated and (current_user.id == bug.user_id or current_user.role in ['ADMIN', 'OWNER']) %}
+    <div class="modal fade" id="releaseBugModal" tabindex="-1" aria-labelledby="releaseBugModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header border-danger">
+            <h5 class="modal-title" id="releaseBugModalLabel">Release {{ bug.nickname }} Into the Wild?</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p>This will permanently delete <strong>{{ bug.nickname }}</strong> and all of its battle history, lore, and achievements.</p>
+            <p class="text-danger mb-0"><strong>This cannot be undone.</strong></p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Keep Bug</button>
+            <form method="POST" action="{{ url_for('bugs.release_bug', bug_id=bug.id) }}" class="d-inline"
+                  id="releaseBugForm">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-danger" id="releaseBugSubmit">
+                Yes, Release It
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     <div class="col-md-8">
+        {# ── Tier tile ──────────────────────────────────────────────────── #}
+        {% if bug.tier %}
+        {%- set _tier_colors = {'uber': 'danger', 'ou': 'warning', 'uu': 'primary', 'ru': 'info', 'nu': 'secondary', 'zu': 'dark'} -%}
+        {%- set _tier_labels = {'uber': 'Über', 'ou': 'Overused', 'uu': 'Underused', 'ru': 'Rarely Used', 'nu': 'Never Used', 'zu': 'Zero Used'} -%}
+        {%- set _tc = _tier_colors.get(bug.tier, 'secondary') -%}
+        <div class="card mb-3 border-{{ _tc }} shadow-sm">
+          <div class="card-body py-2 px-3 d-flex align-items-center gap-3"
+               style="background: var(--bs-{{ _tc }}-bg-subtle, rgba(0,0,0,.04));">
+            <span class="badge bg-{{ _tc }} fs-3 px-3 py-2 fw-bold">{{ bug.tier.upper() }}</span>
+            <div>
+              <div class="fw-semibold fs-5">{{ _tier_labels.get(bug.tier, bug.tier.upper()) }} Tier</div>
+              <small class="text-muted">Power: {{ (bug.attack or 0) + (bug.defense or 0) + (bug.speed or 0) }}</small>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        {# ── MMA Championship status / enroll button ──────────────── #}
+        {% if bug.bug_track == 'mma' %}
+        <div class="card mb-3 border-warning shadow-sm">
+          <div class="card-header bg-warning text-dark fw-bold d-flex justify-content-between align-items-center">
+            <span>🥊 MMA Championship Track</span>
+            <a href="{{ url_for('championship.tier_detail', tier=bug.tier) }}" class="btn btn-sm btn-dark">View Belt →</a>
+          </div>
+          <div class="card-body py-2">
+            {% set ranking = bug.tier_ranking_entry %}
+            {% if ranking and ranking.rank %}
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge bg-dark fs-6">#{{ ranking.rank }}</span>
+                <span class="fw-semibold">Contender Ranking</span>
+                <span class="text-muted small ms-auto">{{ "%.0f"|format(ranking.ranking_score or 0) }} pts</span>
+              </div>
+            {% elif bug.championship_held and bug.championship_held.status == 'active' %}
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge bg-warning text-dark fs-5">🏆</span>
+                <span class="fw-semibold">Current Champion</span>
+                <span class="badge bg-secondary ms-auto">{{ bug.championship_held.defense_count }} defense{{ 's' if bug.championship_held.defense_count != 1 else '' }}</span>
+              </div>
+            {% else %}
+              <div class="text-muted small">Not yet ranked — earn {{ 5 }} wins to enter the contender rankings.</div>
+            {% endif %}
+          </div>
+        </div>
+        {% elif not bug.is_retired and current_user.is_authenticated and current_user.id == bug.user_id %}
+        {# Bug is approved but not yet enrolled in any track — offer both options #}
+        <div class="card mb-3 border-secondary">
+          <div class="card-header fw-semibold text-muted small">Choose a Competition Track</div>
+          <div class="card-body py-2">
+            <div class="row g-2">
+              <div class="col-6">
+                <div class="border rounded p-2 h-100 text-center">
+                  <div class="fw-bold small mb-1">🏆 Season Circuit</div>
+                  <div class="text-muted" style="font-size:.75rem;">Quarterly tier seasons with standings and championships.</div>
+                  <form method="post" action="{{ url_for('bugs.enter_season', bug_id=bug.id) }}" class="mt-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-outline-success btn-sm w-100">Join Season</button>
+                  </form>
+                </div>
+              </div>
+              <div class="col-6">
+                <div class="border rounded p-2 h-100 text-center">
+                  <div class="fw-bold small mb-1">🥊 MMA Circuit</div>
+                  <div class="text-muted" style="font-size:.75rem;">Contender rankings and title shots. Max 2 per tier.</div>
+                  <form method="post" action="{{ url_for('bugs.enter_mma', bug_id=bug.id) }}" class="mt-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-outline-warning btn-sm w-100">Enter Circuit</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        {% elif bug.is_retired and bug.bug_track != 'mma' and current_user.is_authenticated and current_user.id == bug.user_id %}
+        <div class="card mb-3 border-secondary">
+          <div class="card-body py-2 text-center">
+            <p class="mb-2 small text-muted">This bug is retired from season competition but eligible for the MMA Championship Circuit.</p>
+            <form method="post" action="{{ url_for('bugs.enter_mma', bug_id=bug.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-outline-warning btn-sm">🥊 Enter MMA Circuit</button>
+            </form>
+          </div>
+        </div>
+        {% endif %}
+
         {% if bug.description %}
         <div class="card mb-3">
             <div class="card-body">
@@ -282,6 +413,38 @@
                     {% endfor %}
                 </div>
             </div>
+        </div>
+        {% endif %}
+
+        {# ── Species facts ──────────────────────────────────────────────── #}
+        {% if bug.species_info %}
+        {%- set _si = bug.species_info -%}
+        <div class="card mb-3 border-0 shadow-sm">
+          <div class="card-header bg-transparent border-bottom fw-semibold">
+            Field Notes: {{ _si.common_name or bug.common_name or 'Unknown Species' }}
+            {% if _si.scientific_name %}<span class="text-muted fw-normal fst-italic small ms-2">{{ _si.scientific_name }}</span>{% endif %}
+          </div>
+          <div class="card-body py-2">
+            <div class="row g-2 mb-2">
+              {% if _si.order %}<div class="col-auto"><span class="badge bg-secondary-subtle text-secondary border">Order: {{ _si.order }}</span></div>{% endif %}
+              {% if _si.family %}<div class="col-auto"><span class="badge bg-secondary-subtle text-secondary border">Family: {{ _si.family }}</span></div>{% endif %}
+              {% if _si.average_size_mm %}<div class="col-auto"><span class="badge bg-secondary-subtle text-secondary border">~{{ _si.average_size_mm }}mm</span></div>{% endif %}
+              {% if _si.conservation_status %}<div class="col-auto"><span class="badge bg-info-subtle text-info border">{{ _si.conservation_status }}</span></div>{% endif %}
+              {% if _si.observation_count %}<div class="col-auto"><span class="badge bg-success-subtle text-success border">{{ "{:,}".format(_si.observation_count) }} iNat observations</span></div>{% endif %}
+            </div>
+            {% if _si.habitat %}<p class="small mb-1"><strong>Habitat:</strong> {{ _si.habitat }}</p>{% endif %}
+            {% if _si.diet %}<p class="small mb-1"><strong>Diet:</strong> {{ _si.diet }}</p>{% endif %}
+            {% if _si.interesting_facts %}
+              {%- set _facts = _si.interesting_facts | fromjson if _si.interesting_facts is string else _si.interesting_facts -%}
+              {% if _facts %}
+              <ul class="small mb-0 ps-3">
+                {% for fact in _facts[:5] %}<li>{{ fact }}</li>{% endfor %}
+              </ul>
+              {% endif %}
+            {% elif _si.description %}
+              <p class="small mb-0 text-muted">{{ _si.description[:300] }}{% if _si.description|length > 300 %}…{% endif %}</p>
+            {% endif %}
+          </div>
         </div>
         {% endif %}
 
@@ -456,9 +619,28 @@ function adminSelectSpecies(spec){
     document.getElementById('admin_species_id').value = spec.id || '';
     document.getElementById('admin_common_name').value = spec.common_name || '';
     document.getElementById('admin_scientific_name').value = spec.scientific_name || '';
-    // Highlight selected
-    // Close results
-    document.getElementById('adminSpeciesResults').innerHTML = '<div class="alert alert-success">Selected: '+(spec.common_name||spec.scientific_name)+'</div>';
+    // Highlight selected — show confirmation using DOM (not innerHTML)
+    var res = document.getElementById('adminSpeciesResults');
+    if (res) {
+      var msg = document.createElement('div');
+      msg.className = 'alert alert-success';
+      msg.textContent = 'Selected: ' + (spec.common_name || spec.scientific_name);
+      res.replaceChildren(msg);
+    }
 }
+
+// Release bug loading state
+(function() {
+  var form = document.getElementById('releaseBugForm');
+  if (!form) return;
+  form.addEventListener('submit', function() {
+    var btn = document.getElementById('releaseBugSubmit');
+    btn.disabled = true;
+    var spinner = document.createElement('span');
+    spinner.className = 'spinner-border spinner-border-sm me-1';
+    spinner.setAttribute('role', 'status');
+    btn.replaceChildren(spinner, document.createTextNode('Releasing…'));
+  });
+})();
 </script>
 {% endblock %}

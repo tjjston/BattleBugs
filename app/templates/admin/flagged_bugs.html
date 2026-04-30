@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}Admin — Flagged Bugs{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1>Flagged Bugs <span class="badge bg-warning text-dark">{{ bugs|length }}</span></h1>
+  <a href="{{ url_for('admin.dashboard') }}" class="btn btn-sm btn-outline-secondary">← Dashboard</a>
+</div>
+
+{% if not bugs %}
+<div class="alert alert-success">No bugs currently flagged for manual review.</div>
+{% else %}
+<div class="table-responsive">
+<table class="table table-hover align-middle">
+  <thead class="table-dark">
+    <tr>
+      <th style="width:48px;"></th>
+      <th>Bug</th>
+      <th>Owner</th>
+      <th>Tier</th>
+      <th>Submitted</th>
+      <th>Review Notes</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for bug in bugs %}
+  <tr>
+    <td>
+      {% if bug.image_path %}
+      <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}"
+           alt="{{ bug.nickname }}" style="width:40px;height:40px;object-fit:cover;border-radius:6px;">
+      {% endif %}
+    </td>
+    <td>
+      <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="fw-semibold">{{ bug.nickname }}</a>
+      {% if bug.common_name %}<div class="text-muted small">{{ bug.common_name }}</div>{% endif %}
+    </td>
+    <td class="text-muted small">{{ bug.owner.username if bug.owner else '—' }}</td>
+    <td>
+      {% if bug.tier %}<span class="badge bg-dark">{{ bug.tier|upper }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+    </td>
+    <td class="text-muted small">{{ bug.submission_date.strftime('%b %d, %Y') if bug.submission_date else '—' }}</td>
+    <td class="small text-muted">{{ bug.review_notes or '—' }}</td>
+    <td>
+      <form method="post" action="{{ url_for('admin.approve_bug_review', bug_id=bug.id) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="notes" value="Approved by {{ current_user.username }}">
+        <button type="submit" class="btn btn-sm btn-success">Approve</button>
+      </form>
+      <a href="{{ url_for('admin.edit_bug', bug_id=bug.id) }}" class="btn btn-sm btn-outline-secondary ms-1">Edit</a>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

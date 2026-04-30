@@ -505,7 +505,7 @@ def dismiss_classification_flag(flag_id):
     flag.status = 'dismissed'
     flag.reviewer_id = current_user.id
     flag.reviewer_notes = (request.form.get('notes') or '').strip() or None
-    flag.reviewed_at = _dt.utcnow()
+    flag.reviewed_at = datetime.now(timezone.utc)
 
     user_message = (request.form.get('user_message') or '').strip()
     if user_message:
@@ -559,7 +559,7 @@ def correct_from_flag(flag_id):
     flag.status = 'reviewed'
     flag.reviewer_id = current_user.id
     flag.reviewer_notes = notes
-    flag.reviewed_at = _dt.utcnow()
+    flag.reviewed_at = datetime.now(timezone.utc)
 
     msg = user_message or f'Your dispute was accepted — "{bug.nickname}" has been reclassified as {new_common or new_scientific or "corrected"}.'
     notif = Notification(
@@ -571,6 +571,56 @@ def correct_from_flag(flag_id):
     db.session.commit()
     flash(f'Classification updated for {bug.nickname} and user notified.', 'success')
     return redirect(url_for('admin.classification_flags'))
+
+
+@bp.route('/llm-test', methods=['POST'])
+@login_required
+@require_role(UserRole.ADMIN)
+def llm_test():
+    """Fire a minimal prompt at the currently-configured LLM and return the result.
+
+    Accepts optional JSON body: {"provider": "ollama"|"anthropic"|"openai", "task": "quick_tasks"}
+    Used by the settings page to verify the connection is live before saving.
+    """
+    import time
+    from app.services.llm_manager import LLMService, LLMModel, LLMConfig
+
+    body = request.get_json(silent=True) or {}
+    task = body.get('task', 'quick_tasks')
+    provider_override = body.get('provider')
+
+    model = None
+    if provider_override == 'anthropic':
+        model = LLMModel.CLAUDE_SONNET_4
+    elif provider_override == 'openai':
+        model = LLMModel.GPT_4
+    elif provider_override == 'ollama':
+        model = LLMConfig.TASK_MODELS.get(task, LLMConfig.DEFAULT_MODEL)
+    else:
+        model = LLMConfig.get_model_for_task(task)
+
+    test_prompt = "Reply with only the number 42 and nothing else."
+    llm = LLMService()
+    start = time.monotonic()
+    try:
+        response = llm.generate(test_prompt, model=model, max_tokens=32, temperature=0)
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return jsonify({
+            'ok': True,
+            'response': response.strip(),
+            'model': model.name,
+            'provider': model.provider,
+            'elapsed_ms': elapsed_ms,
+        })
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        return jsonify({
+            'ok': False,
+            'error': str(exc),
+            'model': model.name if model else None,
+            'provider': model.provider if model else None,
+            'elapsed_ms': elapsed_ms,
+        }), 502
 
 
 @bp.route('/settings', methods=['GET', 'POST'])
@@ -604,7 +654,22 @@ def system_settings():
 
     settings = {row.key: row.value for row in SystemSetting.query.all()}
     llm_models = [m.name for m in LLMModel]
-    return render_template('admin/settings.html', settings=settings, llm_models=llm_models)
+    from app.services.news_service import _read_cache as _news_read_cache
+    cached_text, cached_at = _news_read_cache()
+    import time as _time
+    news_age_min = int((_time.time() - cached_at) / 60) if cached_at else None
+    return render_template('admin/settings.html', settings=settings, llm_models=llm_models,
+                           news_briefing=cached_text, news_age_min=news_age_min)
+
+
+@bp.route('/news/refresh', methods=['POST'])
+@login_required
+@require_role(UserRole.ADMIN)
+def refresh_news():
+    from app.services.news_service import invalidate_news_cache
+    invalidate_news_cache()
+    flash('News cache cleared — briefing will regenerate on next homepage load.', 'success')
+    return redirect(url_for('admin.system_settings'))
 
 
 # ── Bug management ────────────────────────────────────────────────────────────
@@ -887,7 +952,7 @@ def create_season():
     name = request.form.get('name', '').strip()
     reg_weeks = int(request.form.get('reg_weeks') or 2)
 
-    now = _dt.utcnow()
+    now = datetime.now(timezone.utc)
     reg_opens = now
     reg_closes = now + _td(weeks=reg_weeks)
     rs_start = reg_closes
@@ -933,7 +998,7 @@ def create_season_cohort():
     from datetime import datetime as _dt
 
     target = request.form.get('target_season', 'current')
-    now = _dt.utcnow()
+    now = datetime.now(timezone.utc)
 
     if target == 'next':
         from app.services.seasonal_tournament import _SEASONS

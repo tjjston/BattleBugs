@@ -3,41 +3,106 @@
 {% block title %}Bug List - Bug Arena{% endblock %}
 
 {% block content %}
+{% if active_filters.species_id and species_filter_name %}
+<div class="d-flex align-items-center gap-2 mb-3">
+  <h1 class="mb-0">{{ species_filter_name }}</h1>
+  <a href="{{ url_for('bugs.insectidex') }}" class="btn btn-outline-secondary btn-sm">← Insectidex</a>
+</div>
+{% else %}
 <h1 class="text-center mb-4">Bug Arena Gladiators</h1>
+{% endif %}
 
 <!-- Filter bar -->
-<form method="get" class="row g-2 mb-3">
-    <div class="col-md-4">
-        <input type="search" name="search" class="form-control" placeholder="Search name or species" value="{{ active_filters.search or '' }}">
-    </div>
-    <div class="col-md-3">
-        <select name="tier" class="form-select">
-            <option value="">All Tiers</option>
-            {% for t in tiers %}
-            <option value="{{ t }}" {% if active_filters.tier == t %}selected{% endif %}>{{ t.upper() }}</option>
-            {% endfor %}
-        </select>
-    </div>
-    <div class="col-md-2 d-flex align-items-center">
-        <div class="form-check">
-            <input class="form-check-input" type="checkbox" name="mine" value="1" id="mineCheck" {% if active_filters.mine %}checked{% endif %}>
-            <label class="form-check-label small" for="mineCheck">My bugs</label>
+<form method="get" class="mb-3">
+    <div class="row g-2 mb-2">
+        <div class="col-md-4">
+            <input type="search" name="search" class="form-control" placeholder="Search name or species" value="{{ active_filters.search or '' }}">
+        </div>
+        <div class="col-md-2">
+            <select name="tier" class="form-select">
+                <option value="">All Tiers</option>
+                {% for t in tiers %}
+                <option value="{{ t }}" {% if active_filters.tier == t %}selected{% endif %}>{{ t.upper() }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <select name="condition" class="form-select">
+                <option value="">Any Condition</option>
+                <option value="alive"   {% if active_filters.condition == 'alive'   %}selected{% endif %}>Alive</option>
+                <option value="dead"    {% if active_filters.condition == 'dead'    %}selected{% endif %}>Zombug (Dead)</option>
+                <option value="damaged" {% if active_filters.condition == 'damaged' %}selected{% endif %}>Damaged</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <select name="sort_by" class="form-select">
+                <option value="newest"  {% if active_filters.sort_by == 'newest'  %}selected{% endif %}>Newest</option>
+                <option value="wins"    {% if active_filters.sort_by == 'wins'    %}selected{% endif %}>Most Wins</option>
+                <option value="power"   {% if active_filters.sort_by == 'power'   %}selected{% endif %}>Highest Power</option>
+                <option value="winrate" {% if active_filters.sort_by == 'winrate' %}selected{% endif %}>Best Win Rate</option>
+            </select>
+        </div>
+        <div class="col-md-2 d-flex align-items-center gap-3">
+            <div class="form-check mb-0">
+                <input class="form-check-input" type="checkbox" name="mine" value="1" id="mineCheck" {% if active_filters.mine %}checked{% endif %}>
+                <label class="form-check-label small" for="mineCheck">Mine only</label>
+            </div>
+            <div class="form-check mb-0">
+                <input class="form-check-input" type="checkbox" name="active_only" value="1" id="activeCheck" {% if active_filters.active_only %}checked{% endif %}>
+                <label class="form-check-label small" for="activeCheck">Active</label>
+            </div>
         </div>
     </div>
-    <div class="col-md-3">
-        <button type="submit" class="btn btn-primary">Filter</button>
-        <a href="{{ url_for('bugs.list_bugs') }}" class="btn btn-outline-secondary">Reset</a>
+    <div class="row g-2 mb-2">
+        <div class="col-md-3">
+            <select name="attack_type" class="form-select">
+                <option value="">Any Attack Type</option>
+                <option value="piercing"  {% if active_filters.attack_type == 'piercing'  %}selected{% endif %}>⚔️ Piercer</option>
+                <option value="crushing"  {% if active_filters.attack_type == 'crushing'  %}selected{% endif %}>💥 Crusher</option>
+                <option value="slashing"  {% if active_filters.attack_type == 'slashing'  %}selected{% endif %}>🔪 Slasher</option>
+                <option value="venom"     {% if active_filters.attack_type == 'venom'     %}selected{% endif %}>☠️ Venomous</option>
+                <option value="chemical"  {% if active_filters.attack_type == 'chemical'  %}selected{% endif %}>⚗️ Chemical</option>
+                <option value="grappling" {% if active_filters.attack_type == 'grappling' %}selected{% endif %}>🤼 Grappler</option>
+                <option value="sonic"     {% if active_filters.attack_type == 'sonic'     %}selected{% endif %}>🔊 Sonar</option>
+                <option value="electric"  {% if active_filters.attack_type == 'electric'  %}selected{% endif %}>⚡ Electric</option>
+                <option value="neutral"   {% if active_filters.attack_type == 'neutral'   %}selected{% endif %}>⚪ Balanced</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <select name="defense_type" class="form-select">
+                <option value="">Any Defense Type</option>
+                <option value="hard_shell"      {% if active_filters.defense_type == 'hard_shell'      %}selected{% endif %}>🛡️ Armored</option>
+                <option value="segmented_armor" {% if active_filters.defense_type == 'segmented_armor' %}selected{% endif %}>🔗 Segmented</option>
+                <option value="evasive"         {% if active_filters.defense_type == 'evasive'         %}selected{% endif %}>💨 Elusive</option>
+                <option value="hairy_spiny"     {% if active_filters.defense_type == 'hairy_spiny'     %}selected{% endif %}>🦔 Spiny</option>
+                <option value="toxic_skin"      {% if active_filters.defense_type == 'toxic_skin'      %}selected{% endif %}>☢️ Toxic</option>
+                <option value="thick_hide"      {% if active_filters.defense_type == 'thick_hide'      %}selected{% endif %}>🦏 Thick Hide</option>
+                <option value="unarmored"       {% if active_filters.defense_type == 'unarmored'       %}selected{% endif %}>🫀 Resilient</option>
+                <option value="regenerative"    {% if active_filters.defense_type == 'regenerative'    %}selected{% endif %}>💚 Regenerative</option>
+                <option value="bioluminescent"  {% if active_filters.defense_type == 'bioluminescent'  %}selected{% endif %}>✨ Bioluminescent</option>
+            </select>
+        </div>
+    </div>
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm">Apply Filters</button>
+        <a href="{{ url_for('bugs.list_bugs') }}" class="btn btn-outline-secondary btn-sm">Reset</a>
     </div>
 </form>
 
 {% if bugs.items %}
 <div class="row">
     {% for bug in bugs.items %}
+    {%- set _is_champ = bug.championship_held and bug.championship_held.status == 'active' -%}
+    {%- set _rank_entry = bug.tier_ranking_entry -%}
+    {%- set _contender_rank = _rank_entry.rank if _rank_entry and _rank_entry.rank else 99 -%}
     <div class="col-md-4 mb-4">
-        <div class="card h-100 bug-card">
+        <div class="card h-100 bug-card
+          {%- if _is_champ %} border-warning shadow-warning{% elif _contender_rank == 1 %} border-secondary{% elif _contender_rank <= 3 %} border-secondary{% endif %}"
+          style="{% if _is_champ %}border: 3px solid #ffc107!important;box-shadow:0 0 14px rgba(255,193,7,0.35)!important;{% elif _contender_rank <= 3 %}border: 2px solid #6c757d!important;{% endif %}">
+          {%- if _is_champ %}<div style="position:absolute;top:8px;left:8px;z-index:2;font-size:1.2rem;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));">🏆</div>{% elif _contender_rank == 1 %}<div style="position:absolute;top:8px;left:8px;z-index:2;font-size:1rem;">🥇</div>{% elif _contender_rank == 2 %}<div style="position:absolute;top:8px;left:8px;z-index:2;font-size:1rem;">🥈</div>{% elif _contender_rank == 3 %}<div style="position:absolute;top:8px;left:8px;z-index:2;font-size:1rem;">🥉</div>{% endif %}
             <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">
-                 <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}" 
-                     class="card-img-top bug-image" 
+                 <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}"
+                     class="card-img-top bug-image"
                      alt="{{ bug.nickname }}"
                      style="height: 250px; object-fit: cover;">
             </a>
@@ -112,29 +177,40 @@
 
 <!-- Pagination -->
 {% if bugs.has_prev or bugs.has_next %}
+{# Build shared filter kwargs for pagination links #}
+{% set _pf = {} %}
+{% if active_filters.search %}{% set _ = _pf.update({'search': active_filters.search}) %}{% endif %}
+{% if active_filters.tier %}{% set _ = _pf.update({'tier': active_filters.tier}) %}{% endif %}
+{% if active_filters.mine %}{% set _ = _pf.update({'mine': active_filters.mine}) %}{% endif %}
+{% if active_filters.species_id %}{% set _ = _pf.update({'species_id': active_filters.species_id}) %}{% endif %}
+{% if active_filters.condition %}{% set _ = _pf.update({'condition': active_filters.condition}) %}{% endif %}
+{% if active_filters.sort_by and active_filters.sort_by != 'newest' %}{% set _ = _pf.update({'sort_by': active_filters.sort_by}) %}{% endif %}
+{% if active_filters.active_only %}{% set _ = _pf.update({'active_only': active_filters.active_only}) %}{% endif %}
+{% if active_filters.attack_type %}{% set _ = _pf.update({'attack_type': active_filters.attack_type}) %}{% endif %}
+{% if active_filters.defense_type %}{% set _ = _pf.update({'defense_type': active_filters.defense_type}) %}{% endif %}
 <nav aria-label="Bug pagination">
     <ul class="pagination justify-content-center">
         {% if bugs.has_prev %}
         <li class="page-item">
-            <a class="page-link" href="{{ url_for('bugs.list_bugs', page=bugs.prev_num) }}">Previous</a>
+            <a class="page-link" href="{{ url_for('bugs.list_bugs', page=bugs.prev_num, **_pf) }}">Previous</a>
         </li>
         {% endif %}
-        
+
         {% for page_num in bugs.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=2) %}
             {% if page_num %}
                 {% if page_num == bugs.page %}
                 <li class="page-item active"><a class="page-link" href="#">{{ page_num }}</a></li>
                 {% else %}
-                <li class="page-item"><a class="page-link" href="{{ url_for('bugs.list_bugs', page=page_num) }}">{{ page_num }}</a></li>
+                <li class="page-item"><a class="page-link" href="{{ url_for('bugs.list_bugs', page=page_num, **_pf) }}">{{ page_num }}</a></li>
                 {% endif %}
             {% else %}
                 <li class="page-item disabled"><a class="page-link" href="#">...</a></li>
             {% endif %}
         {% endfor %}
-        
+
         {% if bugs.has_next %}
         <li class="page-item">
-            <a class="page-link" href="{{ url_for('bugs.list_bugs', page=bugs.next_num) }}">Next</a>
+            <a class="page-link" href="{{ url_for('bugs.list_bugs', page=bugs.next_num, **_pf) }}">Next</a>
         </li>
         {% endif %}
     </ul>

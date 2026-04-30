@@ -28,9 +28,13 @@ class LLMModel(Enum):
     GPT_35_TURBO = ("openai", "gpt-3.5-turbo")
     
     # Ollama (local)
-    QWEN36_35B = ("ollama", "qwen3.6:35b")
+    QWEN36_35B = ("ollama", "qwen3.6:35b")    # thinking-only via /v1 (broken for text output)
+    QWEN36_UC  = ("ollama", "qwen3.6-uc:latest")  # thinking model that outputs via native endpoint
     QWEN35_35B = ("ollama", "qwen3.6:35b")  # Backward-compatible config alias
-    GEMMA4_31B = ("ollama", "gemma4:31b")   # Multimodal vision model
+    GEMMA4_E2B = ("ollama", "gemma4:e2b")   # Multimodal vision model (2B, fastest)
+    GEMMA4_E4B = ("ollama", "gemma4:e4b")   # Multimodal vision model (4B, fast)
+    GEMMA4_31B = ("ollama", "gemma4:31b")   # Large text model
+    GEMMA_UC_E4B = ("ollama", "gemma-uc:e4b")  # Creative writing / fast tasks
     LLAMA3 = ("ollama", "gpt-oss:120b")
     MISTRAL = ("ollama", "kimi-k2-thinking:cloud")
     CODELLAMA = ("ollama", "qwen3vl")
@@ -45,14 +49,14 @@ class LLMConfig:
     Centralized LLM configuration
     Set your preferred model here or via environment variable
     """
-    DEFAULT_MODEL = LLMModel.QWEN36_35B
+    DEFAULT_MODEL = LLMModel.QWEN36_UC
 
     TASK_MODELS = {
-        'battle_narrative': LLMModel.QWEN36_35B,
-        'stat_generation': LLMModel.QWEN36_35B,
-        'vision_analysis': LLMModel.GEMMA4_31B,
-        'species_identification': LLMModel.GEMMA4_31B,
-        'quick_tasks': LLMModel.QWEN36_35B,
+        'battle_narrative': LLMModel.GEMMA_UC_E4B,
+        'stat_generation': LLMModel.QWEN36_UC,
+        'vision_analysis': LLMModel.GEMMA4_E4B,
+        'species_identification': LLMModel.GEMMA4_E4B,
+        'quick_tasks': LLMModel.GEMMA4_E2B,
     }
     
     @classmethod
@@ -98,11 +102,33 @@ class LLMService:
         llm = LLMService()
         response = llm.generate("Your prompt", task='battle_narrative')
     """
-    
+
     def __init__(self):
         self._anthropic_client = None
         self._openai_client = None
         self._ollama_base_url = None
+
+    @staticmethod
+    def _clean_response(text: str, json_mode: bool = False) -> str:
+        """Strip chain-of-thought blocks and markdown fences from LLM output.
+
+        Ollama models (Qwen, Gemma, DeepSeek) emit <think>…</think> before the
+        actual answer. If we try to JSON-parse the raw output we get
+        "Expecting value: line 1 column 1 (char 0)" because the parser hits the
+        tag, not the opening brace.
+        """
+        if not text:
+            return ''
+        import re
+        # Remove <think>…</think> (and <thinking>…</thinking>) blocks entirely
+        text = re.sub(r'<think(?:ing)?>.*?</think(?:ing)?>', '', text, flags=re.DOTALL)
+        text = text.strip()
+        if json_mode:
+            # Strip ```json … ``` or plain ``` … ``` fences
+            text = re.sub(r'^```(?:json)?\s*\n?', '', text)
+            text = re.sub(r'\n?```\s*$', '', text)
+            text = text.strip()
+        return text
     
     def _get_anthropic_client(self):
         """Lazy load Anthropic client"""
@@ -168,13 +194,27 @@ class LLMService:
         
         # Route to appropriate provider
         if model.provider == "anthropic":
-            return self._generate_anthropic(prompt, model, max_tokens, temperature, system_prompt, image_data, json_mode)
+            raw = self._generate_anthropic(prompt, model, max_tokens, temperature, system_prompt, image_data, json_mode)
         elif model.provider == "openai":
-            return self._generate_openai(prompt, model, max_tokens, temperature, system_prompt, json_mode)
+            raw = self._generate_openai(prompt, model, max_tokens, temperature, system_prompt, json_mode)
         elif model.provider == "ollama":
-            return self._generate_ollama(prompt, model, max_tokens, temperature, system_prompt, image_data)
+            raw = self._generate_ollama(prompt, model, max_tokens, temperature, system_prompt, image_data)
         else:
             raise ValueError(f"Unsupported provider: {model.provider}")
+
+        # Strip thinking blocks and (if JSON expected) markdown fences uniformly
+        cleaned = self._clean_response(raw, json_mode=json_mode)
+
+        # Qwen3 / DeepSeek thinking models sometimes emit ONLY a <think> block with
+        # nothing after.  If clean_response stripped everything, fall back to the raw
+        # content inside the last <think> block so at least something is returned.
+        if not cleaned and raw:
+            import re
+            think_match = re.search(r'<think(?:ing)?>(.*?)</think(?:ing)?>', raw, re.DOTALL)
+            if think_match:
+                cleaned = think_match.group(1).strip()
+
+        return cleaned
     
     def _generate_anthropic(
         self,
@@ -218,13 +258,7 @@ class LLMService:
             messages=[{"role": "user", "content": content}]
         )
         
-        response_text = message.content[0].text
-        
-        # Clean up JSON if needed
-        if json_mode:
-            response_text = response_text.replace('```json\n', '').replace('\n```', '').strip()
-        
-        return response_text
+        return message.content[0].text
     
     def _generate_openai(
         self,
@@ -260,6 +294,34 @@ class LLMService:
         
         return response.choices[0].message.content
     
+    # Per-model capability registry.
+    # 'thinking': model emits <think> blocks; /no_think suppresses them.
+    # 'native_vision': model requires Ollama's /api/chat images[] instead of
+    #                  the OpenAI-compat image_url wrapper (which returns 500).
+    # Keys are matched as prefixes/substrings against the lowercase model name.
+    _OLLAMA_MODEL_CAPS: Dict[str, Dict[str, bool]] = {
+        'qwen3':            {'thinking': True,  'native_vision': False},
+        'qwq':              {'thinking': True,  'native_vision': False},
+        'deepseek-r1':      {'thinking': True,  'native_vision': False},
+        'kimi-k2-thinking': {'thinking': True,  'native_vision': False},
+        'gemma4':           {'thinking': False, 'native_vision': True},
+        'gemma3':           {'thinking': False, 'native_vision': True},
+        'gemma-uc':         {'thinking': False, 'native_vision': False},
+        'gemma':            {'thinking': False, 'native_vision': True},
+        'llava':            {'thinking': False, 'native_vision': True},
+        'minicpm-v':        {'thinking': False, 'native_vision': True},
+        'qwen3vl':          {'thinking': False, 'native_vision': True},
+        'llama3':           {'thinking': False, 'native_vision': False},
+        'mistral':          {'thinking': False, 'native_vision': False},
+    }
+
+    def _get_model_caps(self, model_name: str) -> Dict[str, bool]:
+        name = model_name.lower()
+        for prefix, caps in self._OLLAMA_MODEL_CAPS.items():
+            if name.startswith(prefix) or prefix in name:
+                return caps
+        return {'thinking': False, 'native_vision': False}
+
     def _generate_ollama(
         self,
         prompt: str,
@@ -269,31 +331,48 @@ class LLMService:
         system_prompt: Optional[str],
         image_data: Optional[Dict[str, str]] = None,
     ) -> str:
-        """Generate using local Ollama via its OpenAI-compatible /v1 endpoint."""
-        from openai import OpenAI
+        """Generate using Ollama.
 
+        Vision requests go to the native /api/chat endpoint (images[] array)
+        because the OpenAI-compat /v1 endpoint fails for many multimodal models.
+        Thinking models (Qwen3/DeepSeek) also use the native endpoint for text
+        because /v1 returns empty content — the answer lands in a separate
+        `thinking` field that the OpenAI SDK never exposes.
+        """
+        caps = self._get_model_caps(model.model_name)
+        base_system = (system_prompt or "You are a helpful assistant.")
+
+        # /no_think suppresses thinking-only output on Qwen3/DeepSeek models.
+        # Do NOT inject it for non-thinking models — they return empty responses.
+        if caps.get('thinking') and '/no_think' not in base_system:
+            base_system = '/no_think\n' + base_system
+
+        has_image = bool(image_data and image_data.get("base64"))
+
+        # Use native /api/chat for: vision models with images, OR any thinking model.
+        # The OpenAI-compat /v1 endpoint silently drops content for thinking models.
+        if (has_image and caps.get('native_vision')) or caps.get('thinking'):
+            return self._generate_ollama_native(
+                prompt, model, max_tokens, temperature, base_system,
+                image_data if has_image else None,
+            )
+
+        # ── OpenAI-compat path (non-thinking text-only models) ──
+        from openai import OpenAI
         base_url = self._get_ollama_url().rstrip('/')
         if not base_url.endswith('/v1'):
             base_url = f"{base_url}/v1"
+        client = OpenAI(base_url=base_url, api_key="ollama", timeout=240.0)
 
-        client = OpenAI(base_url=base_url, api_key="ollama")
-
-        messages: list = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-
-        if image_data and image_data.get("base64"):
+        messages: list = [{"role": "system", "content": base_system}]
+        if has_image:
             media_type = image_data.get("media_type", "image/jpeg")
-            content: list = [
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:{media_type};base64,{image_data['base64']}"
-                    },
-                },
+            messages.append({"role": "user", "content": [
+                {"type": "image_url", "image_url": {
+                    "url": f"data:{media_type};base64,{image_data['base64']}"
+                }},
                 {"type": "text", "text": prompt},
-            ]
-            messages.append({"role": "user", "content": content})
+            ]})
         else:
             messages.append({"role": "user", "content": prompt})
 
@@ -303,7 +382,61 @@ class LLMService:
             max_tokens=max_tokens,
             temperature=temperature,
         )
-        return response.choices[0].message.content
+        return response.choices[0].message.content or ''
+
+    def _generate_ollama_native(
+        self,
+        prompt: str,
+        model: LLMModel,
+        max_tokens: int,
+        temperature: float,
+        system_prompt: str,
+        image_data: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Native /api/chat endpoint for Ollama.
+
+        Used for:
+        - Multimodal models (images[] field, raw base64)
+        - Thinking models (Qwen3/DeepSeek) — /v1 silently drops content for these
+        """
+        import urllib.request as _urllib
+        import urllib.error as _urlerr
+
+        base_url = self._get_ollama_url().rstrip('/')
+        if base_url.endswith('/v1'):
+            base_url = base_url[:-3]
+
+        user_msg: Dict = {"role": "user", "content": prompt}
+        if image_data and image_data.get("base64"):
+            user_msg["images"] = [image_data["base64"]]
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            user_msg,
+        ]
+        payload = json.dumps({
+            "model": model.model_name,
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "num_predict": max_tokens,
+                "temperature": temperature,
+            },
+        }).encode()
+
+        req = _urllib.Request(
+            f"{base_url}/api/chat",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with _urllib.urlopen(req, timeout=300) as resp:
+                result = json.loads(resp.read())
+            return result.get("message", {}).get("content", "") or ""
+        except _urlerr.HTTPError as exc:
+            body = exc.read().decode(errors='replace')
+            raise RuntimeError(f"Ollama /api/chat {exc.code}: {body}") from exc
     
     def generate_json(
         self,
@@ -322,6 +455,8 @@ class LLMService:
             json_mode=True,
             image_data=image_data,
         )
+        if not response:
+            raise ValueError("LLM returned an empty response")
         return json.loads(response)
 
 

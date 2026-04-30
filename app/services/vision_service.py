@@ -14,7 +14,7 @@ from app.models import Species, Bug
 from app.services import llm_manager
 from app.services.taxonomy import TaxonomyService
 import imagehash
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 class VisionService:
     """Computer vision service for bug identification and verification"""
@@ -120,19 +120,27 @@ IMPORTANT:
                 - similarity_score: float (0-1)
         """
         new_hash = self._generate_image_hash(image_path)
-        
-        recent_cutoff = datetime.utcnow() - timedelta(days=30)
+        if new_hash is None:
+            return {"is_duplicate": False, "duplicate_bug_id": None, "similarity_score": 0.0}
+
+        recent_cutoff = datetime.now(timezone.utc) - timedelta(days=30)
         user_bugs = Bug.query.filter(
             Bug.user_id == user_id,
             Bug.submission_date >= recent_cutoff
         ).all()
         
         for bug in user_bugs:
-            bug_image_path = f"uploads/{bug.image_path}"
-            
+            import os
+            bug_image_path = os.path.join(current_app.config['UPLOAD_FOLDER'], bug.image_path)
+            if not os.path.exists(bug_image_path):
+                current_app.logger.debug("Duplicate check: image missing for bug %s, skipping", bug.id)
+                continue
+
             try:
                 bug_hash = self._generate_image_hash(bug_image_path)
-                
+                if bug_hash is None:
+                    continue
+
                 # Calculate Hamming distance (lower = more similar)
                 hamming_distance = new_hash - bug_hash
                 
@@ -214,7 +222,7 @@ IMPORTANT:
                 common_name=vision_result.get('common_name'),
                 order=vision_result.get('order'),
                 data_source='claude_vision',
-                last_updated=datetime.utcnow()
+                last_updated=datetime.now(timezone.utc)
             )
             db.session.add(new_species)
             db.session.commit()

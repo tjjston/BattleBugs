@@ -3,7 +3,7 @@ Enhanced Battle Engine with XFactor Integration
 Uses visible stats + hidden xfactor for more interesting battles
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from flask import current_app
 from app import db
@@ -151,6 +151,47 @@ SIZE_BASE_MODIFIER = {
 # Size-agnostic attacks ignore size in their effect (e.g., venom, chemical)
 SIZE_DEPENDENT_ATTACKS = {'crushing', 'grappling', 'piercing', 'slashing'}
 SIZE_AGNOSTIC_ATTACKS = {'venom', 'chemical', 'sonic', 'electric', 'neutral'}
+
+# ── Battle Venues ─────────────────────────────────────────────────────────────
+# Each venue slightly favors one combat type (attack OR defense).
+# The bonus is small (5-9%) so it adds flavor without overriding stat depth.
+BATTLE_VENUES = [
+    {'name': 'The Flower Bed',      'emoji': '🌸', 'desc': 'Dense pollen and soft petals coat everything.',        'bonus_attack': 'chemical',      'bonus_defense': None,           'bonus': 0.07},
+    {'name': 'The Compost Heap',    'emoji': '♻️', 'desc': 'Rich rot and moisture — wounds close faster here.',   'bonus_attack': None,            'bonus_defense': 'regenerative', 'bonus': 0.09},
+    {'name': 'The Garage Floor',    'emoji': '🏭', 'desc': 'Cold concrete amplifies every impact.',               'bonus_attack': 'crushing',      'bonus_defense': None,           'bonus': 0.07},
+    {'name': 'The Garden Stone',    'emoji': '🪨', 'desc': 'Rough basalt with crevices for cover.',               'bonus_attack': None,            'bonus_defense': 'hard_shell',   'bonus': 0.08},
+    {'name': 'The Porch Light',     'emoji': '💡', 'desc': 'Harsh glare and moth wings in the air.',             'bonus_attack': None,            'bonus_defense': 'bioluminescent','bonus': 0.10},
+    {'name': 'The Leaf Pile',       'emoji': '🍂', 'desc': 'Shifting cover and rustling ambush spots.',           'bonus_attack': None,            'bonus_defense': 'evasive',      'bonus': 0.07},
+    {'name': 'The Mud Flat',        'emoji': '💧', 'desc': 'Slow going — raw endurance rules.',                  'bonus_attack': None,            'bonus_defense': 'thick_hide',   'bonus': 0.06},
+    {'name': 'The Fence Post',      'emoji': '🪵', 'desc': 'Vertical timber — climbers dominate here.',          'bonus_attack': 'grappling',     'bonus_defense': None,           'bonus': 0.07},
+    {'name': 'The Rain Barrel',     'emoji': '🌧️', 'desc': 'Humidity and splashing water carry toxins far.',     'bonus_attack': 'venom',         'bonus_defense': None,           'bonus': 0.07},
+    {'name': 'The Rotting Log',     'emoji': '🪵', 'desc': 'Ancient wood pulp — small joints find every gap.',   'bonus_attack': 'piercing',      'bonus_defense': None,           'bonus': 0.06},
+    {'name': 'The Sunny Flagstone', 'emoji': '☀️', 'desc': 'Blistering heat — speed is everything.',            'bonus_attack': 'slashing',      'bonus_defense': None,           'bonus': 0.07},
+    {'name': 'The Night Garden',    'emoji': '🌙', 'desc': 'Darkness where light-tricks shine brightest.',       'bonus_attack': None,            'bonus_defense': 'bioluminescent','bonus': 0.09},
+    {'name': 'The Woodpile',        'emoji': '🪚', 'desc': 'Tight corridors — no room to run.',                 'bonus_attack': 'sonic',         'bonus_defense': None,           'bonus': 0.08},
+    {'name': 'The Windowsill',      'emoji': '🪟', 'desc': 'Glass and grime — hairy coats catch sunbeams.',     'bonus_attack': None,            'bonus_defense': 'hairy_spiny',  'bonus': 0.07},
+    {'name': 'The Vegetable Patch', 'emoji': '🥦', 'desc': 'Thick foliage everywhere — armor is king.',         'bonus_attack': None,            'bonus_defense': 'segmented_armor','bonus': 0.07},
+    {'name': 'The Birdbath Edge',   'emoji': '🐦', 'desc': 'Stone rim with open sightlines — nerve gas drifts.','bonus_attack': 'chemical',      'bonus_defense': None,           'bonus': 0.08},
+    {'name': 'The Storm Drain',     'emoji': '🌊', 'desc': 'Damp concrete channels that carry electric charge.', 'bonus_attack': 'electric',      'bonus_defense': None,           'bonus': 0.08},
+    {'name': 'The Woodchip Trail',  'emoji': '🌿', 'desc': 'Soft mulch muffles sound and cushions blows.',      'bonus_attack': None,            'bonus_defense': 'thick_hide',   'bonus': 0.06},
+]
+
+
+def get_venue_for_battle(seed: int) -> dict:
+    """Pick a deterministic venue for a battle using a seed (e.g., from random state)."""
+    return BATTLE_VENUES[seed % len(BATTLE_VENUES)]
+
+
+def _venue_modifier(venue: dict, bug: 'Bug') -> float:
+    """Return the venue bonus multiplier for a bug (1.0 if no match)."""
+    b = venue.get('bonus', 0.0)
+    atk = (getattr(bug, 'attack_type', '') or '').lower()
+    dfn = (getattr(bug, 'defense_type', '') or '').lower()
+    if venue.get('bonus_attack') and atk == venue['bonus_attack']:
+        return 1.0 + b
+    if venue.get('bonus_defense') and dfn == venue['bonus_defense']:
+        return 1.0 + b
+    return 1.0
 def get_matchup_multiplier(attack_type: str, defense_type: str) -> float:
     """Return multiplier for attack_type vs defense_type using MATCHUP_MATRIX.
     Falls back to 1.0 for unknown types."""
@@ -243,14 +284,18 @@ def get_size_multipliers(size_a: str, size_b: str, attack_type_a: Optional[str] 
 def simulate_battle(bug1: Bug, bug2: Bug, tournament_id: Optional[int] = None, round_number: int = 0) -> Battle:
     """
     Run a battle simulation with xfactor integration
-    
+
     The xfactor is SECRET - users never know it exists!
     It subtly influences who wins, making battles more interesting.
     """
-    winner = determine_winner_with_xfactor(bug1, bug2)
-    
+    # Pick a venue deterministically (random seed from current RNG state)
+    venue_seed = random.randint(0, len(BATTLE_VENUES) - 1)
+    venue = get_venue_for_battle(venue_seed)
+
+    winner, battle_rating = _determine_winner_and_rating(bug1, bug2, venue)
+
     # Generate lore-enhanced narrative
-    narrative = generate_lore_enhanced_battle_narrative(bug1, bug2, winner)
+    narrative = generate_lore_enhanced_battle_narrative(bug1, bug2, winner, venue=venue)
 
     battle = Battle(
         bug1_id=bug1.id,
@@ -260,6 +305,8 @@ def simulate_battle(bug1: Bug, bug2: Bug, tournament_id: Optional[int] = None, r
         narrative=narrative,
         tournament_id=tournament_id,
         round_number=round_number,
+        venue=venue['name'],
+        battle_rating=battle_rating,
     )
     
     # Track if xfactor was significant
@@ -319,7 +366,7 @@ def _track_rival_encounter(bug1: Bug, bug2: Bug, winner: Optional[Bug] = None) -
     rival = BugRival.query.filter_by(bug1_id=b1_id, bug2_id=b2_id).first()
     if rival:
         rival.encounter_count += 1
-        rival.last_encounter_at = datetime.utcnow()
+        rival.last_encounter_at = datetime.now(timezone.utc)
         if winner:
             if winner.id == b1_id:
                 rival.bug1_wins = (rival.bug1_wins or 0) + 1
@@ -332,7 +379,32 @@ def _track_rival_encounter(bug1: Bug, bug2: Bug, winner: Optional[Bug] = None) -
         db.session.add(rival)
 
 
-def determine_winner_with_xfactor(bug1: Bug, bug2: Bug) -> Optional[Bug]:
+def _determine_winner_and_rating(bug1: Bug, bug2: Bug, venue: Optional[dict] = None) -> tuple:
+    """Wrapper that returns (winner, battle_rating) including venue bonus."""
+    winner = determine_winner_with_xfactor(bug1, bug2, venue=venue)
+    rating = _compute_battle_rating(bug1, bug2, winner)
+    return winner, rating
+
+
+def _compute_battle_rating(bug1: Bug, bug2: Bug, winner: Optional['Bug']) -> str:
+    """Classify the battle result for display purposes."""
+    if winner is None:
+        return 'contested'
+    from app.services.tier_system import TierSystem
+    p1 = TierSystem.calculate_power_rating(bug1)
+    p2 = TierSystem.calculate_power_rating(bug2)
+    stronger, weaker = (bug1, bug2) if p1 >= p2 else (bug2, bug1)
+    gap_pct = abs(p1 - p2) / max(p1, p2, 1) * 100
+    if winner.id == weaker.id:
+        return 'upset'
+    if gap_pct > 30:
+        return 'dominant'
+    if gap_pct < 8:
+        return 'nail_biter'
+    return 'contested'
+
+
+def determine_winner_with_xfactor(bug1: Bug, bug2: Bug, venue: Optional[dict] = None) -> Optional[Bug]:
     """Determine winner using the full 6-stat system + xfactor (hidden).
 
     Stat roles:
@@ -463,9 +535,7 @@ def get_matchup_notes(bug1: Bug, bug2: Bug):
 
 
 def calculate_battle_stats(bug1: Bug, bug2: Bug) -> dict:
-    """
-    Return display-friendly stats (DOES NOT reveal xfactor to users)
-    """
+    """Return display-friendly stats. Does NOT reveal xfactor or exact modifiers."""
     def _display_power(b):
         return (
             (b.attack or 0) + (b.defense or 0) + (b.speed or 0)
@@ -475,8 +545,7 @@ def calculate_battle_stats(bug1: Bug, bug2: Bug) -> dict:
         )
     bug1_power = _display_power(bug1)
     bug2_power = _display_power(bug2)
-    
-    # Compute matchup and size modifiers (visible to users as 'expected advantage')
+
     atk_mult_1 = get_matchup_multiplier(getattr(bug1, 'attack_type', None), getattr(bug2, 'defense_type', None))
     atk_mult_2 = get_matchup_multiplier(getattr(bug2, 'attack_type', None), getattr(bug1, 'defense_type', None))
     size_mult_1, size_mult_2 = get_size_multipliers(
@@ -486,46 +555,37 @@ def calculate_battle_stats(bug1: Bug, bug2: Bug) -> dict:
         attack_type_b=getattr(bug2, 'attack_type', None),
     )
 
-    bug1_modifier = atk_mult_1 * size_mult_1
-    bug2_modifier = atk_mult_2 * size_mult_2
-
-    stats = {
+    return {
         'bug1_power': bug1_power,
         'bug2_power': bug2_power,
-        'bug1_advantage': None,
-        'bug2_advantage': None,
-        'bug1_modifier': round(bug1_modifier, 3),
-        'bug2_modifier': round(bug2_modifier, 3),
+        'bug1_has_type_advantage': atk_mult_1 > 1.05,
+        'bug2_has_type_advantage': atk_mult_2 > 1.05,
+        'bug1_has_size_advantage': size_mult_1 > 1.05,
+        'bug2_has_size_advantage': size_mult_2 > 1.05,
         'matchup_notes': get_matchup_notes(bug1, bug2),
     }
-    
-    if bug1.speed > bug2.speed:
-        stats['bug1_advantage'] = 'Speed'
-    if bug2.attack > bug1.attack:
-        stats['bug2_advantage'] = 'Attack'
-
-    # Predicted effective power (before secret xfactor/randomness)
-    stats['predicted_bug1_effective'] = round(bug1_power * bug1_modifier, 2)
-    stats['predicted_bug2_effective'] = round(bug2_power * bug2_modifier, 2)
-    
-    return stats
 
 
 def visible_win_summary(battle: Battle) -> str:
-    """Explain the visible battle outcome without exposing hidden xfactor."""
+    """Explain the visible battle outcome without exposing hidden xfactor or modifiers."""
     if not battle.winner:
         return "The visible matchup was too close to call, ending in a draw."
 
     stats = calculate_battle_stats(battle.bug1, battle.bug2)
     winner = battle.winner
     loser = battle.bug2 if winner.id == battle.bug1_id else battle.bug1
-    winner_effective = stats['predicted_bug1_effective'] if winner.id == battle.bug1_id else stats['predicted_bug2_effective']
-    loser_effective = stats['predicted_bug2_effective'] if winner.id == battle.bug1_id else stats['predicted_bug1_effective']
+    winner_is_bug1 = winner.id == battle.bug1_id
 
-    if winner_effective > loser_effective:
-        return f"{winner.nickname} had the stronger visible matchup profile, edging out {loser.nickname} on stats and type advantages."
+    if winner_is_bug1 and stats['bug1_has_type_advantage']:
+        return f"{winner.nickname}'s attack type proved effective against {loser.nickname}'s defenses."
+    if not winner_is_bug1 and stats['bug2_has_type_advantage']:
+        return f"{winner.nickname}'s attack type proved effective against {loser.nickname}'s defenses."
+    if winner_is_bug1 and stats['bug1_has_size_advantage']:
+        return f"{winner.nickname} used its size advantage to overpower {loser.nickname}."
+    if not winner_is_bug1 and stats['bug2_has_size_advantage']:
+        return f"{winner.nickname} used its size advantage to overpower {loser.nickname}."
     if winner.speed > loser.speed:
-        return f"{winner.nickname} appears to have won through speed and initiative despite a close visible matchup."
+        return f"{winner.nickname} appears to have won through speed and initiative."
     if winner.attack > loser.attack:
         return f"{winner.nickname} appears to have won by applying stronger offensive pressure."
     if winner.defense > loser.defense:

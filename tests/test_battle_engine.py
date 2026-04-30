@@ -10,9 +10,13 @@ def test_matchup_and_size_modifiers_are_visible(app, user):
 
     stats = calculate_battle_stats(big, small)
 
-    assert stats['bug1_modifier'] > 1
-    assert stats['bug2_modifier'] >= 1
-    assert stats['predicted_bug1_effective'] > stats['bug1_power']
+    # Crushing vs thick_hide is a 1.5x matchup → type advantage shown
+    assert stats['bug1_has_type_advantage'] is True
+    # Venom is size-agnostic but large vs tiny should still show size advantage for big
+    assert stats['bug1_has_size_advantage'] is True
+    # Exact multipliers are hidden — only direction is exposed
+    assert 'bug1_modifier' not in stats
+    assert 'predicted_bug1_effective' not in stats
 
 
 def test_determine_winner_uses_visible_stats_with_xfactor(monkeypatch, user):
@@ -27,7 +31,7 @@ def test_simulate_battle_awards_win_and_achievement(monkeypatch, user):
     winner = create_bug(user, nickname='Winner', attack=20, defense=20, speed=20, xfactor=0)
     loser = create_bug(user, nickname='Loser', attack=1, defense=1, speed=1, xfactor=0)
     monkeypatch.setattr('app.services.battle_engine.random.uniform', lambda _a, _b: 1.0)
-    monkeypatch.setattr('app.services.battle_engine.generate_lore_enhanced_battle_narrative', lambda *_args: 'battle')
+    monkeypatch.setattr('app.services.battle_engine.generate_lore_enhanced_battle_narrative', lambda *_args, **_kw: 'battle')
 
     battle = simulate_battle(winner, loser)
 

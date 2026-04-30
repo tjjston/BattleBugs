@@ -5,7 +5,7 @@ Called once per day by the APScheduler; idempotent — safe to call at any time.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, date
+from datetime import datetime, timezone, timedelta, date
 from typing import Optional
 
 # Season definitions: name → (months, icon, label, start_month_of_season)
@@ -25,7 +25,7 @@ def get_season_for_date(dt: Optional[datetime] = None) -> tuple[str, int]:
     so winter that starts Dec 2025 has season_year=2025.
     """
     if dt is None:
-        dt = datetime.utcnow()
+        dt = datetime.now(timezone.utc)
     month = dt.month
     year = dt.year
     for name, meta in _SEASONS.items():
@@ -89,8 +89,9 @@ def ensure_seasonal_tournament() -> Optional[object]:
     from app import db
     from app.models import Tournament
 
-    now = datetime.utcnow()
-    season_name, season_year = get_season_for_date(now)
+    _now_aware = datetime.now(timezone.utc)
+    now = _now_aware.replace(tzinfo=None)  # naive for DB comparisons
+    season_name, season_year = get_season_for_date(_now_aware)
     key = f'{season_name}_{season_year}'
 
     existing = Tournament.query.filter_by(season_key=key).first()
@@ -156,8 +157,9 @@ def auto_create_seasonal_cohort(dt: Optional[datetime] = None) -> list:
     from app import db
     from app.models import Season
 
-    now = dt or datetime.utcnow()
-    season_name, season_year = get_season_for_date(now)
+    _now_aware = dt or datetime.now(timezone.utc)
+    now = _now_aware.replace(tzinfo=None) if getattr(_now_aware, 'tzinfo', None) else _now_aware
+    season_name, season_year = get_season_for_date(_now_aware)
     season_start, _ = get_season_date_range(season_name, season_year)
 
     # Use the actual season start, but never in the past by more than we want

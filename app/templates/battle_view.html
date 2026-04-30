@@ -3,20 +3,40 @@
 {% block title %}Battle: {{ battle.bug1.name }} vs {{ battle.bug2.name }}{% endblock %}
 
 {% block content %}
-<div class="text-center mb-4">
+<script>
+window._battleStats = {
+  b1: { atk: {{ (battle.bug1.attack or 1)|int }}, def: {{ (battle.bug1.defense or 1)|int }}, spd: {{ (battle.bug1.speed or 1)|int }}, lth: {{ (battle.bug1.lethality or 50)|int }}, grp: {{ (battle.bug1.grip or 50)|int }}, cun: {{ (battle.bug1.cunning or 50)|int }} },
+  b2: { atk: {{ (battle.bug2.attack or 1)|int }}, def: {{ (battle.bug2.defense or 1)|int }}, spd: {{ (battle.bug2.speed or 1)|int }}, lth: {{ (battle.bug2.lethality or 50)|int }}, grp: {{ (battle.bug2.grip or 50)|int }}, cun: {{ (battle.bug2.cunning or 50)|int }} },
+};
+</script>
+<div class="text-center mb-3">
     <h1>⚔️ Epic Battle ⚔️</h1>
-    <p class="text-muted">{{ battle.battle_date.strftime('%B %d, %Y at %I:%M %p') }}</p>
+    <p class="text-muted mb-1">{{ battle.battle_date.strftime('%B %d, %Y at %I:%M %p') }}</p>
+    {% if battle.venue %}
+    <span class="badge bg-secondary fs-6">📍 {{ battle.venue }}</span>
+    {% endif %}
+    {% if battle.battle_rating %}
+    {%- set _rating_map = {
+      'dominant':  ('Dominant Victory', 'danger'),
+      'contested': ('Contested Match',  'warning text-dark'),
+      'nail_biter':('Nail-Biter!',      'info text-dark'),
+      'upset':     ('UPSET!',           'success'),
+    } -%}
+    {%- set _r = _rating_map.get(battle.battle_rating, ('', 'secondary')) %}
+    {% if _r[0] %}<span class="badge bg-{{ _r[1] }} fs-6 ms-2">{{ _r[0] }}</span>{% endif %}
+    {% endif %}
 </div>
 
 <div class="row mb-4">
     <div class="col-md-5">
         <div class="card text-center">
-                <img src="{{ url_for('main.uploaded_file', filename=battle.bug1.image_path) }}" 
+                <img src="{{ url_for('main.uploaded_file', filename=battle.bug1.image_path) }}"
                  class="card-img-top" alt="{{ battle.bug1.name }}" style="max-height: 300px; object-fit: cover;">
             <div class="card-body">
                 <h3>{{ battle.bug1.name }}</h3>
                 <p class="text-muted">{{ battle.bug1.species or 'Unknown Species' }}</p>
-                <p><strong>{{ battle.bug1.wins }}W - {{ battle.bug1.losses }}L</strong></p>
+                <canvas id="radarB1" style="max-height:180px;"></canvas>
+                <p class="mt-2"><strong>{{ battle.bug1.wins }}W - {{ battle.bug1.losses }}L</strong></p>
                 <a href="{{ url_for('bugs.view_bug', bug_id=battle.bug1.id) }}" class="btn btn-sm btn-primary">
                     View Profile
                 </a>
@@ -30,12 +50,13 @@
 
     <div class="col-md-5">
         <div class="card text-center">
-                <img src="{{ url_for('main.uploaded_file', filename=battle.bug2.image_path) }}" 
+                <img src="{{ url_for('main.uploaded_file', filename=battle.bug2.image_path) }}"
                  class="card-img-top" alt="{{ battle.bug2.name }}" style="max-height: 300px; object-fit: cover;">
             <div class="card-body">
                 <h3>{{ battle.bug2.name }}</h3>
                 <p class="text-muted">{{ battle.bug2.species or 'Unknown Species' }}</p>
-                <p><strong>{{ battle.bug2.wins }}W - {{ battle.bug2.losses }}L</strong></p>
+                <canvas id="radarB2" style="max-height:180px;"></canvas>
+                <p class="mt-2"><strong>{{ battle.bug2.wins }}W - {{ battle.bug2.losses }}L</strong></p>
                 <a href="{{ url_for('bugs.view_bug', bug_id=battle.bug2.id) }}" class="btn btn-sm btn-primary">
                     View Profile
                 </a>
@@ -61,17 +82,32 @@
     </div>
     <div class="card-body">
         <div class="row text-center mb-3">
-            <div class="col-md-6">
+            <div class="col-md-5">
                 <h5>{{ battle.bug1.name }}</h5>
-                <p class="mb-1">Base Power: {{ battle_stats.bug1_power }}</p>
-                <p class="mb-1">Visible Modifier: {{ battle_stats.bug1_modifier }}</p>
-                <p class="mb-0">Expected Effective Power: {{ battle_stats.predicted_bug1_effective }}</p>
+                <p class="mb-2 fs-5">Base Power: <strong>{{ battle_stats.bug1_power }}</strong></p>
+                <div class="d-flex gap-2 justify-content-center flex-wrap">
+                    {% if battle_stats.bug1_has_type_advantage %}
+                    <span class="badge bg-success">Type Advantage</span>
+                    {% endif %}
+                    {% if battle_stats.bug1_has_size_advantage %}
+                    <span class="badge bg-info text-dark">Size Advantage</span>
+                    {% endif %}
+                </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-2 d-flex align-items-center justify-content-center">
+                <span class="text-muted fw-bold">vs</span>
+            </div>
+            <div class="col-md-5">
                 <h5>{{ battle.bug2.name }}</h5>
-                <p class="mb-1">Base Power: {{ battle_stats.bug2_power }}</p>
-                <p class="mb-1">Visible Modifier: {{ battle_stats.bug2_modifier }}</p>
-                <p class="mb-0">Expected Effective Power: {{ battle_stats.predicted_bug2_effective }}</p>
+                <p class="mb-2 fs-5">Base Power: <strong>{{ battle_stats.bug2_power }}</strong></p>
+                <div class="d-flex gap-2 justify-content-center flex-wrap">
+                    {% if battle_stats.bug2_has_type_advantage %}
+                    <span class="badge bg-success">Type Advantage</span>
+                    {% endif %}
+                    {% if battle_stats.bug2_has_size_advantage %}
+                    <span class="badge bg-info text-dark">Size Advantage</span>
+                    {% endif %}
+                </div>
             </div>
         </div>
         {% if battle_stats.matchup_notes %}
@@ -81,7 +117,7 @@
             {% endfor %}
         </ul>
         {% endif %}
-        <p class="mb-0"><strong>Visible read:</strong> {{ win_summary }}</p>
+        <p class="mb-0"><strong>Outcome read:</strong> {{ win_summary }}</p>
     </div>
 </div>
 
@@ -94,10 +130,54 @@
 
 {% if battle.tournament_id %}
 <div class="text-center">
-    <a href="{{ url_for('tournaments.view_tournament', tournament_id=battle.tournament_id) }}" 
+    <a href="{{ url_for('tournaments.view_tournament', tournament_id=battle.tournament_id) }}"
        class="btn btn-info">
         View Tournament
     </a>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var s = window._battleStats;
+  if (!s) return;
+  var labels = ['Attack', 'Defense', 'Speed', 'Lethality', 'Grip', 'Cunning'];
+  function makeRadar(id, stats, color) {
+    var ctx = document.getElementById(id);
+    if (!ctx) return;
+    new Chart(ctx, {
+      type: 'radar',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Stats',
+          data: [stats.atk, stats.def, stats.spd, stats.lth, stats.grp, stats.cun],
+          backgroundColor: color + '26',
+          borderColor: color,
+          pointBackgroundColor: color,
+          borderWidth: 2,
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          r: {
+            min: 0, max: 100,
+            ticks: { display: false, stepSize: 20 },
+            grid: { color: 'rgba(200,200,200,0.2)' },
+            angleLines: { color: 'rgba(200,200,200,0.2)' },
+            pointLabels: { font: { size: 10 } },
+          }
+        }
+      }
+    });
+  }
+  makeRadar('radarB1', s.b1, '#3b82f6');
+  makeRadar('radarB2', s.b2, '#ef4444');
+});
+</script>
 {% endblock %}

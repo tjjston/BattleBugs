@@ -17,9 +17,9 @@ RUN mkdir -p uploads logs database
 EXPOSE 5000
 
 ENV FLASK_APP=run.py
-ENV FLASK_ENV=development
+ENV FLASK_ENV=production
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:5000')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000')" || exit 1
 
-CMD ["python", "run.py"]
+CMD ["gunicorn", "--workers", "2", "--bind", "0.0.0.0:5000", "--timeout", "300", "run:app"]

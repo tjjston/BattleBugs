@@ -3,7 +3,7 @@ from flask_login import login_required, current_user
 from app import db
 from app.models import Tournament, Bug, Battle, TournamentApplication, TournamentMatch, Season, SeasonRegistration, SeasonMatch
 from app.services.permission_system import require_role, UserRole
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from app.services.tournament_system import TournamentManager, TournamentEligibilityChecker
 from app.services.seasonal_tournament import ensure_seasonal_tournament
 import random
@@ -328,8 +328,8 @@ def view_season(season_id):
         SeasonRegistration.season_losses.asc()
     ).all()
     today_matches = season.matches.filter(
-        SeasonMatch.scheduled_at >= datetime.utcnow().replace(hour=0, minute=0, second=0),
-        SeasonMatch.scheduled_at < datetime.utcnow().replace(hour=23, minute=59, second=59),
+        SeasonMatch.scheduled_at >= datetime.now(timezone.utc).replace(hour=0, minute=0, second=0),
+        SeasonMatch.scheduled_at < datetime.now(timezone.utc).replace(hour=23, minute=59, second=59),
     ).all()
     my_reg = None
     if current_user.is_authenticated:
