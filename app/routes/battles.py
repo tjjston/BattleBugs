@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_required, current_user
 from app import db
-from app.models import Bug, Battle, TournamentMatch, Tournament, Season, BugAchievement
+from app.models import Bug, Battle, TournamentMatch, Tournament
 from app.services.battle_engine import simulate_battle, calculate_battle_stats, visible_win_summary
 
 bp = Blueprint('battles', __name__)
@@ -142,30 +142,6 @@ def _maybe_complete_tournament(tournament_id: int) -> None:
 
         tournament.winner_id = final.winner_id
         tournament.status = 'completed'
-
-        # Award season champion achievement and retire all participants if this is a season playoff
-        season = Season.query.filter_by(tournament_id=tournament_id).first()
-        if season:
-            season.phase = 'completed'
-            winner_bug = db.session.get(Bug, final.winner_id)
-            if winner_bug:
-                existing = BugAchievement.query.filter_by(
-                    bug_id=winner_bug.id, achievement_type='season_champion'
-                ).first()
-                if not existing:
-                    from app.services.achievements import award_achievement
-                    award_achievement(
-                        winner_bug,
-                        'season_champion',
-                        'Season Champion',
-                        '🏆',
-                        f'Won the season-ending playoff tournament.',
-                        rarity='legendary',
-                    )
-                    if winner_bug.owner:
-                        winner_bug.owner.tournaments_won = (winner_bug.owner.tournaments_won or 0) + 1
-            from app.services.job_queue import _retire_season_participants
-            _retire_season_participants(season)
 
         db.session.commit()
     except Exception:

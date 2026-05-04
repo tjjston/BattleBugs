@@ -1,32 +1,15 @@
 {% extends "base.html" %}
 
-{% block title %}Bug Arena — Home{% endblock %}
+{% block title %}Battle Bugs - Home{% endblock %}
 
 {% block content %}
 
-{# ── Season banner ─────────────────────────────────────────────── #}
 <div class="card mb-4 border-0" style="background: linear-gradient(135deg, #0f2027, #203a43, #2c5364); color: #fff;">
     <div class="card-body py-3">
         <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
             <div>
-                <h4 class="mb-1">{{ season.label }} — Bug Arena</h4>
-                {% if seasonal_tournament %}
-                <span class="text-warning fw-bold">
-                    🏆 {{ seasonal_tournament.name }}
-                    <span class="badge bg-{{ 'success' if seasonal_tournament.status == 'active' else 'warning text-dark' }} ms-1">{{ seasonal_tournament.status }}</span>
-                </span>
-                <span class="text-white-50 small ms-2">
-                    Starts {{ seasonal_tournament.start_date.strftime('%b %d') }}
-                    {% if seasonal_tournament.registration_deadline %}
-                    · Reg. closes {{ seasonal_tournament.registration_deadline.strftime('%b %d') }}
-                    {% endif %}
-                </span>
-                {% if current_user.is_authenticated %}
-                <a href="{{ url_for('tournaments.apply_tournament', tournament_id=seasonal_tournament.id) }}" class="btn btn-sm btn-warning ms-2">Apply Now</a>
-                {% endif %}
-                {% else %}
-                <span class="text-white-50 small">No seasonal championship yet this quarter.</span>
-                {% endif %}
+                <h4 class="mb-1">Battle Bugs Arena</h4>
+                <span class="text-white-50 small">Submit real bugs, build their combat stats, and test them in battle.</span>
             </div>
             <div class="d-flex gap-2">
                 {% if not current_user.is_authenticated %}
@@ -41,10 +24,9 @@
     </div>
 </div>
 
-{# ── News briefing ─────────────────────────────────────────────── #}
 <div class="card mb-4 border-0 shadow-sm">
     <div class="card-header d-flex align-items-center gap-2" style="background: linear-gradient(135deg, #1a1a2e, #16213e); color: #fff;">
-        <span class="fs-5">📰</span>
+        <span class="fs-5">News</span>
         <h5 class="mb-0">Arena News</h5>
         <span class="badge bg-danger ms-auto blink">LIVE</span>
     </div>
@@ -52,19 +34,16 @@
         {% if news_briefing %}
             {{ news_briefing }}
         {% else %}
-            The arena scoreboard is being updated — check back soon!
+            The arena scoreboard is being updated. Check back soon.
         {% endif %}
     </div>
 </div>
 
-{# ── Main 3-column grid ────────────────────────────────────────── #}
 <div class="row g-4">
-
-    {# Left: Season standings #}
     <div class="col-lg-5">
         <div class="card h-100">
             <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">{{ season.icon }} {{ season.name }} Standings</h5>
+                <h5 class="mb-0">Arena Standings</h5>
                 <a href="{{ url_for('main.hall_of_fame') }}" class="btn btn-sm btn-outline-dark">Full HoF</a>
             </div>
             <div class="card-body p-0">
@@ -96,13 +75,10 @@
         </div>
     </div>
 
-    {# Middle: Active events + recent battles #}
     <div class="col-lg-4">
-
-        {# Active / upcoming tournaments #}
         <div class="card mb-4">
             <div class="card-header bg-primary text-white">
-                <h5 class="mb-0">🏆 Current Events</h5>
+                <h5 class="mb-0">Current Events</h5>
             </div>
             <div class="card-body p-0">
                 {% if active_tournaments %}
@@ -136,10 +112,9 @@
             </div>
         </div>
 
-        {# Recent battles #}
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0">⚔️ Recent Battles</h5>
+                <h5 class="mb-0">Recent Battles</h5>
             </div>
             <div class="card-body p-0">
                 {% if recent_battles %}
@@ -162,7 +137,7 @@
                     {% endfor %}
                 </div>
                 <div class="p-2 text-end">
-                    <a href="{{ url_for('battles.list_battles') }}" class="btn btn-sm btn-outline-secondary">All battles →</a>
+                    <a href="{{ url_for('battles.list_battles') }}" class="btn btn-sm btn-outline-secondary">All battles</a>
                 </div>
                 {% else %}
                 <div class="text-center py-3 text-muted"><small>No battles yet.</small></div>
@@ -171,11 +146,10 @@
         </div>
     </div>
 
-    {# Right: Arena stats #}
     <div class="col-lg-3">
         <div class="card mb-4">
             <div class="card-header bg-dark text-white">
-                <h5 class="mb-0">📊 Arena Stats</h5>
+                <h5 class="mb-0">Arena Stats</h5>
             </div>
             <ul class="list-group list-group-flush">
                 <li class="list-group-item d-flex justify-content-between">
@@ -190,10 +164,6 @@
                     <span class="text-muted">Battles fought</span>
                     <strong>{{ total_battles }}</strong>
                 </li>
-                <li class="list-group-item d-flex justify-content-between">
-                    <span class="text-muted">Season</span>
-                    <strong>{{ season.label }}</strong>
-                </li>
             </ul>
         </div>
 
@@ -202,67 +172,18 @@
                 <h6 class="mb-0">How it works</h6>
             </div>
             <div class="card-body small text-muted p-3">
-                <div class="mb-2">📸 <strong>Capture</strong> — Find bugs in the wild and photograph them.</div>
-                <div class="mb-2">✍️ <strong>Submit</strong> — Upload and give your bug a name and backstory.</div>
-                <div class="mb-2">⚔️ <strong>Battle</strong> — AI-narrated fights determine rank.</div>
-                <div>🏆 <strong>Retire</strong> — Ten wins earns immortal legend status.</div>
+                <div class="mb-2"><strong>Capture</strong> - Find bugs in the wild and photograph them.</div>
+                <div class="mb-2"><strong>Submit</strong> - Upload and give your bug a name and backstory.</div>
+                <div class="mb-2"><strong>Battle</strong> - AI-narrated fights determine rank.</div>
+                <div><strong>Retire</strong> - Ten wins earns immortal legend status.</div>
             </div>
         </div>
     </div>
-
 </div>
-
-{# ── Championship Circuit ───────────────────────────────────── #}
-{% if circuit_champions %}
-<div class="mt-4">
-  <div class="d-flex align-items-center justify-content-between mb-3">
-    <div>
-      <h4 class="mb-0">🥊 Championship Circuit</h4>
-      <small class="text-muted">Current belt holders across all tiers</small>
-    </div>
-    <a href="{{ url_for('championship.overview') }}" class="btn btn-outline-warning btn-sm">All Belts →</a>
-  </div>
-  <div class="row g-3">
-    {% for c in circuit_champions %}
-    <div class="col-md-4 col-lg-2">
-      <a href="{{ url_for('championship.tier_detail', tier=c.tier) }}" class="text-decoration-none">
-        <div class="card h-100 border-0 shadow-sm circuit-tile
-          {% if c.belt and c.belt.champion %}border-warning{% endif %}"
-          style="{% if c.belt and c.belt.champion %}border: 2px solid #ffc107!important;{% else %}border: 2px solid #6c757d!important;{% endif %}">
-          <div class="card-body p-2 text-center">
-            <div class="fw-bold small text-muted mb-1">{{ c.label }}</div>
-            {% if c.belt and c.belt.champion %}
-              {% set champ = c.belt.champion %}
-              {% if champ.image_path %}
-              <div class="circuit-champ-img mx-auto mb-1">
-                <img src="{{ url_for('main.uploaded_file', filename=champ.image_path) }}"
-                     alt="{{ champ.nickname }}"
-                     style="width:56px;height:56px;object-fit:cover;border-radius:50%;border:2px solid #ffc107;">
-              </div>
-              {% else %}
-              <div class="fs-2 mb-1">🏆</div>
-              {% endif %}
-              <div class="fw-bold small text-dark" style="font-size:0.8rem;line-height:1.2;">{{ champ.nickname }}</div>
-              <div class="text-muted" style="font-size:0.7rem;">{{ champ.wins }}W–{{ champ.losses }}L</div>
-              <div class="badge bg-warning text-dark mt-1" style="font-size:0.65rem;">{{ c.belt.defense_count }} def.</div>
-            {% else %}
-              <div class="fs-2 mb-1 text-muted">🔓</div>
-              <div class="text-muted small">Vacant</div>
-            {% endif %}
-          </div>
-        </div>
-      </a>
-    </div>
-    {% endfor %}
-  </div>
-</div>
-{% endif %}
 
 <style>
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
 .blink { animation: blink 1.5s infinite; }
-.circuit-tile { transition: transform 0.15s, box-shadow 0.15s; cursor: pointer; }
-.circuit-tile:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,0.15)!important; }
 </style>
 
 {% endblock %}

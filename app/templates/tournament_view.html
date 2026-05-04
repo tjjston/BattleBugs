@@ -17,7 +17,7 @@
     </div>
     {% if tournament.retirement_event %}
     <div class="alert alert-secondary text-center mb-3 py-2">
-      <strong>🎖️ Retirement Event</strong> — Only season veterans (retired bugs) may compete here.
+      <strong>🎖️ Retirement Event</strong> — Only retired bugs may compete here.
     </div>
     {% endif %}
 
@@ -31,7 +31,7 @@
           {% if w.tier %}<span class="badge bg-warning text-dark ms-1">{{ w.tier|upper }}</span>{% endif %}
         </p>
         <div class="d-flex justify-content-center gap-4 mt-3 flex-wrap">
-          <div><div class="h5 mb-0">{{ w.wins }}</div><small class="text-muted">Season Wins</small></div>
+          <div><div class="h5 mb-0">{{ w.wins }}</div><small class="text-muted">Wins</small></div>
           <div><div class="h5 mb-0">{{ w.losses }}</div><small class="text-muted">Losses</small></div>
           <div><div class="h5 mb-0">{{ "%.0f"|format(w.win_rate) }}%</div><small class="text-muted">Win Rate</small></div>
           {% set badges = w.combat_badges %}{% if badges %}

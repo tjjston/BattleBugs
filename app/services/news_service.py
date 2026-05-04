@@ -108,24 +108,6 @@ def get_recent_activity(days: int = 7) -> dict:
         .order_by(Comment.created_at.desc())
         .limit(5).all()
     )
-    # Championship Circuit — recent title fights and callouts
-    circuit_events = []
-    try:
-        from app.models import TitleFight, ContenderCallout
-        recent_fights = TitleFight.query.filter(
-            TitleFight.status == 'completed',
-            TitleFight.scheduled_date >= cutoff,
-        ).order_by(TitleFight.scheduled_date.desc()).limit(5).all()
-        circuit_events.extend(recent_fights)
-
-        recent_callouts = ContenderCallout.query.filter(
-            ContenderCallout.status == 'completed',
-            ContenderCallout.created_at >= cutoff,
-        ).order_by(ContenderCallout.created_at.desc()).limit(5).all()
-        circuit_events.extend(recent_callouts)
-    except Exception:
-        pass
-
     return {
         'battles': recent_battles,
         'new_bugs': new_bugs,
@@ -135,7 +117,6 @@ def get_recent_activity(days: int = 7) -> dict:
         'completed_tournaments': completed_tournaments,
         'new_lore': new_lore,
         'new_comments': new_comments,
-        'circuit_events': circuit_events,
         'days': days,
     }
 
@@ -180,21 +161,6 @@ def _build_activity_summary(activity: dict) -> str:
     if activity['new_lore']:
         lines.append(f"\nCOMMUNITY LORE ADDED: {len(activity['new_lore'])} new entries")
 
-    circuit = activity.get('circuit_events', [])
-    if circuit:
-        lines.append(f"\nCHAMPIONSHIP CIRCUIT:")
-        from app.models import TitleFight, ContenderCallout
-        for ev in circuit[:4]:
-            if isinstance(ev, TitleFight) and ev.battle:
-                winner = ev.battle.winner.nickname if ev.battle.winner else 'Unknown'
-                lines.append(f"  TITLE FIGHT ({ev.tier.upper()}): {winner} is the new champion!")
-            elif isinstance(ev, ContenderCallout) and ev.battle:
-                winner = ev.battle.winner.nickname if ev.battle.winner else 'Unknown'
-                loser_id = ev.target_bug_id if ev.battle.winner_bug_id == ev.challenger_bug_id else ev.challenger_bug_id
-                from app.models import Bug as _Bug
-                loser = _Bug.query.get(loser_id)
-                lines.append(f"  CALLOUT RESULT: {winner} defeated {loser.nickname if loser else 'opponent'} in a Circuit callout!")
-
     return '\n'.join(lines)
 
 
@@ -203,7 +169,7 @@ def generate_news_briefing(activity: dict) -> str:
 
     context = _build_activity_summary(activity)
     if not any([activity['battles'], activity['new_bugs'], activity['new_retirements'],
-                activity['completed_tournaments'], activity.get('circuit_events')]):
+                activity['completed_tournaments']]):
         return "The arena is quiet… but the bugs are always training. Stay tuned for the next bout!"
 
     try:
@@ -211,9 +177,7 @@ def generate_news_briefing(activity: dict) -> str:
         llm = LLMService()
         system = (
             "You are the official announcer of the Bug Arena — a gladiatorial combat league for insects. "
-            "The arena runs two tracks: the quarterly Season circuit and the Championship Circuit (per-tier belt titles). "
             "Write a punchy, exciting news briefing in the style of a sports highlight reel. "
-            "Highlight Championship Circuit title fights and callouts as major events when they occur. "
             "Use dramatic language, give bugs personality, celebrate victories and retirements. "
             "Keep it under 200 words. No headers, just flowing prose. No markdown."
         )

@@ -5,21 +5,7 @@
 {% block content %}
 <div class="row">
     <div class="col-md-4">
-        {%- set _bp_is_champ = bug.championship_held and bug.championship_held.status == 'active' -%}
-        {%- set _bp_rank = bug.tier_ranking_entry.rank if bug.tier_ranking_entry and bug.tier_ranking_entry.rank else 99 -%}
-        <div class="card"
-          style="{% if _bp_is_champ %}border: 3px solid #ffc107!important;box-shadow:0 0 18px rgba(255,193,7,0.4)!important;{% elif _bp_rank <= 3 %}border: 2px solid #6c757d!important;{% endif %}">
-          {%- if _bp_is_champ %}
-          <div class="text-center py-1" style="background:#ffc107;font-size:0.8rem;font-weight:700;color:#000;">
-            🏆 CIRCUIT CHAMPION · {{ bug.championship_held.defense_count }} defense{{ 's' if bug.championship_held.defense_count != 1 else '' }}
-          </div>
-          {%- elif _bp_rank == 1 %}
-          <div class="text-center py-1" style="background:#6c757d;font-size:0.75rem;font-weight:700;color:#fff;">🥇 CIRCUIT CONTENDER #1</div>
-          {%- elif _bp_rank == 2 %}
-          <div class="text-center py-1" style="background:#6c757d;font-size:0.75rem;font-weight:700;color:#fff;">🥈 CIRCUIT CONTENDER #2</div>
-          {%- elif _bp_rank == 3 %}
-          <div class="text-center py-1" style="background:#6c757d;font-size:0.75rem;font-weight:700;color:#fff;">🥉 CIRCUIT CONTENDER #3</div>
-          {%- endif %}
+        <div class="card">
                   <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}"
                  class="card-img-top bug-image" alt="{{ bug.name }}">
             <div class="card-body">
@@ -31,17 +17,9 @@
 
                 {# ── Retirement banner ──────────────────────────── #}
                 {% if bug.is_retired %}
-                {%- set _vet_ach = bug.achievements.filter_by(achievement_type='season_veteran').first() -%}
-                {%- set _champ_ach = bug.achievements.filter_by(achievement_type='season_champion').first() -%}
                 <div class="alert alert-warning py-2 px-3 mb-2 small">
-                  {% if _champ_ach %}
-                  🏆 <strong>Season Champion</strong> — Retired after winning the season playoffs.
-                  {% elif _vet_ach %}
-                  🎖️ <strong>Season Veteran</strong> — Retired after completing a competitive season.
-                  {% else %}
-                  🏅 <strong>Retired</strong> — This bug has been put out to pasture.
-                  {% endif %}
-                  <div class="text-muted mt-1">Now eligible for <strong>Retirement Events</strong> only.</div>
+                  <strong>Retired</strong> - This bug has been put out to pasture.
+                  <div class="text-muted mt-1">Retired bugs can appear in retirement events only.</div>
                 </div>
                 {% endif %}
 
@@ -319,73 +297,6 @@
               <div class="fw-semibold fs-5">{{ _tier_labels.get(bug.tier, bug.tier.upper()) }} Tier</div>
               <small class="text-muted">Power: {{ (bug.attack or 0) + (bug.defense or 0) + (bug.speed or 0) }}</small>
             </div>
-          </div>
-        </div>
-        {% endif %}
-
-        {# ── MMA Championship status / enroll button ──────────────── #}
-        {% if bug.bug_track == 'mma' %}
-        <div class="card mb-3 border-warning shadow-sm">
-          <div class="card-header bg-warning text-dark fw-bold d-flex justify-content-between align-items-center">
-            <span>🥊 MMA Championship Track</span>
-            <a href="{{ url_for('championship.tier_detail', tier=bug.tier) }}" class="btn btn-sm btn-dark">View Belt →</a>
-          </div>
-          <div class="card-body py-2">
-            {% set ranking = bug.tier_ranking_entry %}
-            {% if ranking and ranking.rank %}
-              <div class="d-flex align-items-center gap-2 mb-1">
-                <span class="badge bg-dark fs-6">#{{ ranking.rank }}</span>
-                <span class="fw-semibold">Contender Ranking</span>
-                <span class="text-muted small ms-auto">{{ "%.0f"|format(ranking.ranking_score or 0) }} pts</span>
-              </div>
-            {% elif bug.championship_held and bug.championship_held.status == 'active' %}
-              <div class="d-flex align-items-center gap-2 mb-1">
-                <span class="badge bg-warning text-dark fs-5">🏆</span>
-                <span class="fw-semibold">Current Champion</span>
-                <span class="badge bg-secondary ms-auto">{{ bug.championship_held.defense_count }} defense{{ 's' if bug.championship_held.defense_count != 1 else '' }}</span>
-              </div>
-            {% else %}
-              <div class="text-muted small">Not yet ranked — earn {{ 5 }} wins to enter the contender rankings.</div>
-            {% endif %}
-          </div>
-        </div>
-        {% elif not bug.is_retired and current_user.is_authenticated and current_user.id == bug.user_id %}
-        {# Bug is approved but not yet enrolled in any track — offer both options #}
-        <div class="card mb-3 border-secondary">
-          <div class="card-header fw-semibold text-muted small">Choose a Competition Track</div>
-          <div class="card-body py-2">
-            <div class="row g-2">
-              <div class="col-6">
-                <div class="border rounded p-2 h-100 text-center">
-                  <div class="fw-bold small mb-1">🏆 Season Circuit</div>
-                  <div class="text-muted" style="font-size:.75rem;">Quarterly tier seasons with standings and championships.</div>
-                  <form method="post" action="{{ url_for('bugs.enter_season', bug_id=bug.id) }}" class="mt-2">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-outline-success btn-sm w-100">Join Season</button>
-                  </form>
-                </div>
-              </div>
-              <div class="col-6">
-                <div class="border rounded p-2 h-100 text-center">
-                  <div class="fw-bold small mb-1">🥊 MMA Circuit</div>
-                  <div class="text-muted" style="font-size:.75rem;">Contender rankings and title shots. Max 2 per tier.</div>
-                  <form method="post" action="{{ url_for('bugs.enter_mma', bug_id=bug.id) }}" class="mt-2">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-outline-warning btn-sm w-100">Enter Circuit</button>
-                  </form>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        {% elif bug.is_retired and bug.bug_track != 'mma' and current_user.is_authenticated and current_user.id == bug.user_id %}
-        <div class="card mb-3 border-secondary">
-          <div class="card-body py-2 text-center">
-            <p class="mb-2 small text-muted">This bug is retired from season competition but eligible for the MMA Championship Circuit.</p>
-            <form method="post" action="{{ url_for('bugs.enter_mma', bug_id=bug.id) }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn btn-outline-warning btn-sm">🥊 Enter MMA Circuit</button>
-            </form>
           </div>
         </div>
         {% endif %}

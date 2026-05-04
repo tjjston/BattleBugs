@@ -7,7 +7,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
-from app.models import Bug, Species, Comment, BugLore, CommentVote, BugLoreVote, Job, BugRival, ClassificationFlag, BlockedImageHash, RejectedSubmission, Season, SeasonRegistration, User
+from app.models import Bug, Species, Comment, BugLore, CommentVote, BugLoreVote, Job, BugRival, ClassificationFlag, BlockedImageHash, RejectedSubmission, User
 from sqlalchemy import func
 from app.services.vision_service import comprehensive_bug_verification
 from app.services.tier_system import LLMStatGenerator, TierSystem, assign_tier_and_generate_stats
@@ -447,28 +447,6 @@ def handle_submission():
                         pass
                 _threading.Thread(target=_enrich_bg, args=(_app, _species_id), daemon=True).start()
 
-        # --- Season/species uniqueness check ---
-        if species_info and getattr(species_info, 'id', None):
-            from app.services.seasonal_tournament import get_season_for_date, get_season_date_range
-            _sn, _sy = get_season_for_date()
-            _ss, _se = get_season_date_range(_sn, _sy)
-            existing_this_season = Bug.query.filter(
-                Bug.user_id == current_user.id,
-                Bug.species_id == species_info.id,
-                Bug.is_retired.isnot(True),
-                Bug.submission_date.between(_ss, _se),
-            ).first()
-            if existing_this_season:
-                os.remove(final_path)
-                db.session.rollback()
-                species_label = classification.common_name or species_info.common_name or 'this species'
-                flash(
-                    f'You already have an active {species_label} this season. '
-                    'Each user can only enter one bug per species per season.',
-                    'danger',
-                )
-                return redirect(url_for('bugs.submit_bug'))
-
         # Second hash check: re-validate uniqueness immediately before writing,
         # narrowing the race window that exists between the pre-LLM check and now.
         for (existing_h,) in db.session.query(Bug.image_hash).filter(Bug.image_hash.isnot(None)).all():
@@ -516,14 +494,10 @@ def handle_submission():
         db.session.add(bug)
         db.session.flush()  # Get bug.id before proceeding
         
-        # Generate stats using LLM
-        from app.services.tier_system import LLMStatGenerator, TierSystem, TIER_DEFINITIONS
+        # Assign fast fallback stats immediately so submission never blocks on the LLM.
+        # A STAT_RECALC_JOB queued below will upgrade these to LLM-generated values.
+        from app.services.tier_system import _fallback_stats, TierSystem, TIER_DEFINITIONS
 
-        current_app.logger.info(
-            "SUBMIT [user=%s] generating stats for bug#%s (%s / %s)",
-            current_user.id, bug.id, bug.common_name, bug.scientific_name,
-        )
-        stat_generator = LLMStatGenerator()
         bug_info = {
             'scientific_name': bug.scientific_name,
             'common_name': bug.common_name,
@@ -532,11 +506,10 @@ def handle_submission():
             'species_info': bug.species_info.to_dict() if bug.species_info else None
         }
 
-        stats = stat_generator.generate_stats_with_llm(bug_info)
+        stats = _fallback_stats(bug_info)
         current_app.logger.info(
-            "SUBMIT [user=%s] stats — ATK=%s DEF=%s SPD=%s tier_rec=%s",
-            current_user.id, stats.get('attack'), stats.get('defense'),
-            stats.get('speed'), stats.get('tier_recommendation'),
+            "SUBMIT [user=%s] fallback stats — ATK=%s DEF=%s SPD=%s (LLM recalc queued)",
+            current_user.id, stats.get('attack'), stats.get('defense'), stats.get('speed'),
         )
         bug.attack = stats['attack']
         bug.defense = stats['defense']
@@ -545,7 +518,7 @@ def handle_submission():
         bug.grip = stats.get('grip', 50)
         bug.cunning = stats.get('cunning', 50)
         bug.special_ability = stats.get('special_ability')
-        bug.stats_generation_method = 'llm_contextual'
+        bug.stats_generation_method = 'fallback_pending_llm'
         bug.stats_generated = True
 
         # Apply condition modifiers (dead, squashed, damaged, etc.)
@@ -1238,39 +1211,6 @@ def approve_rejected_submission(submission_id):
     return redirect(url_for('bugs.review_rejected_submissions'))
 
 
-@bp.route('/bug/<int:bug_id>/enter-season', methods=['POST'])
-@login_required
-def enter_season(bug_id):
-    """Enroll an approved bug in the active Season for its tier."""
-    bug = db.get_or_404(Bug, bug_id)
-    if bug.user_id != current_user.id:
-        flash('Only the owner can enroll this bug.', 'danger')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-    if not bug.tier:
-        flash('Bug must have a tier assigned before joining a season.', 'warning')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-    if bug.bug_track == 'mma':
-        flash('This bug is already in the MMA Championship Circuit. It cannot also join a season.', 'warning')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-
-    active_season = Season.query.filter_by(tier=bug.tier, phase='registration').first()
-    if not active_season:
-        flash(f'No season is currently open for registration in the {bug.tier.upper()} tier.', 'warning')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-
-    existing = SeasonRegistration.query.filter_by(season_id=active_season.id, bug_id=bug.id).first()
-    if existing:
-        flash('This bug is already registered for the active season.', 'info')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-
-    reg = SeasonRegistration(season_id=active_season.id, bug_id=bug.id, user_id=current_user.id)
-    bug.bug_track = 'season'
-    db.session.add(reg)
-    db.session.commit()
-    flash(f'{bug.nickname} registered for {active_season.name}!', 'success')
-    return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-
-
 @bp.route('/bug/<int:bug_id>/release', methods=['POST'])
 @login_required
 def release_bug(bug_id):
@@ -1384,43 +1324,3 @@ def _do_release_bug(bug):
     db.session.delete(bug)  # cascade: comments, lore, achievements
     db.session.commit()
 
-
-@bp.route('/bug/<int:bug_id>/enter-mma', methods=['POST'])
-@login_required
-def enter_mma(bug_id):
-    """Enroll an approved bug in the MMA Championship Circuit."""
-    bug = db.get_or_404(Bug, bug_id)
-    if bug.user_id != current_user.id:
-        flash('Only the owner can enroll this bug.', 'danger')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-    if not bug.tier:
-        flash('Bug must have a tier assigned before entering the Circuit.', 'warning')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-    if bug.bug_track == 'mma':
-        flash('This bug is already in the MMA Championship Circuit.', 'info')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-
-    # 2-active-per-tier limit
-    active_count = Bug.query.filter(
-        Bug.user_id == current_user.id,
-        Bug.bug_track == 'mma',
-        Bug.tier == bug.tier,
-        Bug.is_retired == False,
-    ).count()
-    if active_count >= 2:
-        flash(
-            f'You already have 2 active MMA bugs in the {(bug.tier or "").upper()} tier. '
-            'Retire one before entering another.',
-            'danger',
-        )
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-
-    bug.bug_track = 'mma'
-    db.session.commit()
-    try:
-        from app.services.championship_service import recalculate_tier_rankings
-        recalculate_tier_rankings(bug.tier)
-    except Exception:
-        pass
-    flash(f'{bug.nickname} has entered the MMA Championship Circuit!', 'success')
-    return redirect(url_for('bugs.view_bug', bug_id=bug_id))

@@ -21,6 +21,21 @@ def create_app(config_class=Config):
 
     db.init_app(app)
     migrate = Migrate(app, db)
+
+    # Enable WAL mode + busy timeout on SQLite so web requests aren't blocked
+    # when the job-queue thread holds a write lock during long LLM calls.
+    from sqlalchemy import event, text as _sa_text
+    from sqlalchemy.engine import Engine as _Engine
+    import sqlite3 as _sqlite3
+
+    @event.listens_for(_Engine, "connect")
+    def _set_sqlite_pragmas(dbapi_conn, _conn_record):
+        if isinstance(dbapi_conn, _sqlite3.Connection):
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA busy_timeout=10000")   # 10 s — fail fast, not hang
+            cur.close()
+
     login_manager.init_app(app)
     csrf.init_app(app)
     limiter.init_app(app)
@@ -50,7 +65,7 @@ def create_app(config_class=Config):
         from app import models
     
     # Register blueprints
-    from app.routes import main, auth, bugs, battles, tournaments, api, admin, championship
+    from app.routes import main, auth, bugs, battles, tournaments, api, admin
     app.register_blueprint(main.bp)
     app.register_blueprint(auth.bp)
     app.register_blueprint(bugs.bp)
@@ -58,7 +73,6 @@ def create_app(config_class=Config):
     app.register_blueprint(tournaments.bp)
     app.register_blueprint(api.bp)
     app.register_blueprint(admin.bp)
-    app.register_blueprint(championship.bp)
 
     # Custom Jinja2 filters
     import json as _json
@@ -85,4 +99,3 @@ def create_app(config_class=Config):
         start_scheduler(app)
 
     return app
-

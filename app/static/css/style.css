@@ -696,7 +696,7 @@ pre {
     padding: 1rem;
 }
 
-/* ── Glow effect: season banner, arena news ──────────────────────── */
+/* ── Glow effect: arena news ──────────────────────── */
 
 .card.border-0[style*="gradient"] {
     border: 1px solid var(--border-dim) !important;

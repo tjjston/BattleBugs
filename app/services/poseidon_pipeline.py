@@ -88,7 +88,7 @@ class PipelineResult:
 
     @property
     def approved(self) -> bool:
-        return self.best_confidence >= 0.45
+        return self.best_confidence >= 0.80
 
     @property
     def primary_prediction(self) -> Optional[SpeciesPrediction]:
@@ -134,10 +134,12 @@ class PoseidonPipeline:
                     'detect':   data.get('detect_loaded',   False) if is_poseidon else False,
                     'classify': data.get('classify_loaded', False) if is_poseidon else False,
                     'embed':    data.get('bioclip_loaded',  False) if is_poseidon else False,
-                    # /predict available on Poseidon whenever classify is up,
-                    # and also on legacy HF servers
-                    'predict':  (data.get('classify_loaded', False) if is_poseidon
-                                 else data.get('ready', False)),
+                    # Legacy /predict is optional on Poseidon and absent on the
+                    # current server; legacy HF servers advertise it as ready.
+                    'predict':  (
+                        bool(data.get('predict_loaded') or data.get('legacy_predict_loaded') or data.get('predict'))
+                        if is_poseidon else data.get('ready', False)
+                    ),
                 }
                 current_app.logger.info(
                     "POSEIDON caps: detect=%s classify=%s embed=%s predict=%s (faiss=%s vectors)",
@@ -158,7 +160,7 @@ class PoseidonPipeline:
         YOLOv8m / RT-DETR: locate and crop the bug in the image.
 
         Server endpoint: POST /detect
-          Request:  multipart/form-data  file=<image>
+          Request:  multipart/form-data  image=<image>
           Response: [{"x1":0.1,"y1":0.2,"x2":0.8,"y2":0.9,"confidence":0.92,"label":"arthropod"}, ...]
 
         When unavailable: returns a single full-image pseudo-box (confidence 1.0).
@@ -171,16 +173,36 @@ class PoseidonPipeline:
         try:
             with open(image_path, 'rb') as fh:
                 r = requests.post(f"{self.base_url}/detect",
-                                  files={'file': fh}, timeout=self.timeout_detect)
+                                  files={'image': fh}, timeout=self.timeout_detect)
             r.raise_for_status()
             data = r.json()
             img_w = data.get('width') or 1
             img_h = data.get('height') or 1
             boxes = []
             for item in data.get('detections', []):
+                coords = None
+                if all(k in item for k in ('x1', 'y1', 'x2', 'y2')):
+                    coords = (item['x1'], item['y1'], item['x2'], item['y2'])
+                elif isinstance(item.get('bbox'), (list, tuple)) and len(item['bbox']) >= 4:
+                    coords = tuple(item['bbox'][:4])
+                elif isinstance(item.get('box'), (list, tuple)) and len(item['box']) >= 4:
+                    coords = tuple(item['box'][:4])
+
+                if not coords:
+                    current_app.logger.debug("POSEIDON /detect ignored unrecognized detection shape: %s", item)
+                    continue
+
+                x1, y1, x2, y2 = [float(v) for v in coords]
+                # Some detectors return normalized coordinates, others pixels.
+                if max(abs(x1), abs(y1), abs(x2), abs(y2)) > 1.0:
+                    x1, x2 = x1 / img_w, x2 / img_w
+                    y1, y2 = y1 / img_h, y2 / img_h
+
                 boxes.append(BoundingBox(
-                    x1=item['x1'] / img_w, y1=item['y1'] / img_h,
-                    x2=item['x2'] / img_w, y2=item['y2'] / img_h,
+                    x1=max(0.0, min(1.0, x1)),
+                    y1=max(0.0, min(1.0, y1)),
+                    x2=max(0.0, min(1.0, x2)),
+                    y2=max(0.0, min(1.0, y2)),
                     confidence=float(item.get('confidence', 0)),
                     label=item.get('label', 'arthropod'),
                 ))
@@ -196,7 +218,7 @@ class PoseidonPipeline:
         ConvNeXt-Base / ViT-B/16 species classifier.
 
         Server endpoint: POST /classify
-          Request:  multipart/form-data  file=<image>
+          Request:  multipart/form-data  image=<image>
           Response: [{"scientific_name":"Apis mellifera","common_name":"Western honey bee",
                       "confidence":0.87,"rank":"species","taxon_id":47219}, ...]
 
@@ -211,49 +233,67 @@ class PoseidonPipeline:
             try:
                 with open(image_path, 'rb') as fh:
                     r = requests.post(f"{self.base_url}/classify",
-                                      files={'file': fh}, timeout=self.timeout_classify)
+                                      files={'image': fh}, timeout=self.timeout_classify)
                 r.raise_for_status()
+                payload = r.json()
+                raw_predictions = payload.get('predictions', []) if isinstance(payload, dict) else payload
                 preds = []
-                for p in r.json().get('predictions', []):
+                for p in raw_predictions or []:
                     label = p.get('label', '')
-                    # Packed label: "{id}_{Kingdom}_{Phylum}_{Class}_{Order}_{Family}_{Genus}_{epithet}"
-                    parts = label.split('_')
-                    if len(parts) >= 8:
-                        scientific_name = f"{parts[6]} {parts[7]}"
-                    elif len(parts) >= 7:
-                        scientific_name = parts[6]
-                    else:
-                        scientific_name = label
+                    rank = p.get('rank') or 'species'
+                    scientific_name = (
+                        p.get('scientific_name') or
+                        p.get('taxon_name') or
+                        p.get('name')
+                    )
+                    if not scientific_name:
+                        # Packed label: "{id}_{Kingdom}_{Phylum}_{Class}_{Order}_{Family}_{Genus}_{epithet}"
+                        parts = label.split('_')
+                        if len(parts) >= 8:
+                            scientific_name = f"{parts[6]} {parts[7]}"
+                            if parts[2] != 'Arthropoda':
+                                rank = 'non_arthropod'
+                        elif len(parts) >= 7:
+                            scientific_name = parts[6]
+                            if parts[2] != 'Arthropoda':
+                                rank = 'non_arthropod'
+                        else:
+                            scientific_name = label
                     preds.append(SpeciesPrediction(
                         scientific_name=scientific_name,
-                        common_name=None,
+                        common_name=p.get('common_name') or p.get('preferred_common_name'),
                         confidence=float(p.get('score', 0)),
-                        rank='species',
+                        rank=rank,
+                        taxon_id=p.get('taxon_id') or p.get('id'),
                     ))
+                preds.sort(key=lambda pred: pred.confidence, reverse=True)
                 return preds, 'convnext'
             except Exception as exc:
                 current_app.logger.warning("POSEIDON /classify failed: %s", exc)
 
-        # Fallback: legacy HF genus-level /predict endpoint
+        # Fallback: legacy HF genus-level /predict endpoint. Modern Poseidon
+        # servers often omit this route, so this path should be quiet when absent.
         if caps.get('predict'):
             try:
                 with open(image_path, 'rb') as fh:
                     r = requests.post(f"{self.base_url}/predict",
-                                      files={'file': fh}, timeout=self.timeout_classify)
+                                      files={'image': fh}, timeout=self.timeout_classify)
                 r.raise_for_status()
                 raw = r.json()
                 preds = [
                     SpeciesPrediction(
                         scientific_name=p.get('label', 'Unknown'),
-                        common_name=None,
+                        common_name=p.get('common_name') or p.get('preferred_common_name'),
                         confidence=float(p.get('score', 0)),
-                        rank='genus',   # HF model predicts genus, not species
+                        rank=p.get('rank') or 'genus',   # HF model usually predicts genus, not species
+                        taxon_id=p.get('taxon_id') or p.get('id'),
                     )
                     for p in raw
                 ]
+                preds.sort(key=lambda pred: pred.confidence, reverse=True)
                 return preds, 'hf_predict'
             except Exception as exc:
-                current_app.logger.warning("POSEIDON /predict failed: %s", exc)
+                current_app.logger.info("POSEIDON /predict unavailable or failed: %s", exc)
 
         return [], 'none'
 
@@ -264,7 +304,7 @@ class PoseidonPipeline:
         BioCLIP embedding → FAISS nearest-neighbour search.
 
         Server endpoint: POST /embed
-          Request:  multipart/form-data  file=<image>
+          Request:  multipart/form-data  image=<image>
           Response: {"embedding": [...512 floats...],
                      "similar": [{"scientific_name":"...","distance":0.12,"photo_url":"..."}, ...]}
 
@@ -277,7 +317,7 @@ class PoseidonPipeline:
         try:
             with open(image_path, 'rb') as fh:
                 r = requests.post(f"{self.base_url}/embed",
-                                  files={'file': fh},
+                                  files={'image': fh},
                                   params={'top_k': top_k},
                                   timeout=self.timeout_embed)
             r.raise_for_status()

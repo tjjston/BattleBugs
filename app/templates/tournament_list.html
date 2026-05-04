@@ -3,41 +3,13 @@
 {% block title %}Tournaments - Bug Arena{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">🏆 Tournaments</h1>
+<h1 class="mb-4">Tournaments</h1>
 
 {% if current_user.is_authenticated %}
 <div class="mb-4">
     <a href="{{ url_for('tournaments.create_tournament') }}" class="btn btn-primary">
         Create Tournament
     </a>
-</div>
-{% endif %}
-
-{# Seasonal championship highlight #}
-{% set seasonal = (upcoming + active) | selectattr('season_key') | list | first %}
-{% if seasonal %}
-<div class="card mb-4 border-warning">
-    <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
-        <h4 class="mb-0">🏆 {{ seasonal.name }}</h4>
-        <span class="badge bg-dark">Season Championship</span>
-    </div>
-    <div class="card-body">
-        <div class="row align-items-center">
-            <div class="col">
-                <p class="mb-1"><strong>Starts:</strong> {{ seasonal.start_date.strftime('%B %d, %Y') }}</p>
-                {% if seasonal.registration_deadline %}
-                <p class="mb-1"><strong>Registration closes:</strong> {{ seasonal.registration_deadline.strftime('%B %d, %Y') }}</p>
-                {% endif %}
-                <p class="mb-0"><strong>Max participants:</strong> {{ seasonal.max_participants or 'Unlimited' }}</p>
-            </div>
-            <div class="col-auto">
-                <a href="{{ url_for('tournaments.view_tournament', tournament_id=seasonal.id) }}" class="btn btn-warning me-2">View Bracket</a>
-                {% if current_user.is_authenticated %}
-                <a href="{{ url_for('tournaments.apply_tournament', tournament_id=seasonal.id) }}" class="btn btn-dark">Apply Now</a>
-                {% endif %}
-            </div>
-        </div>
-    </div>
 </div>
 {% endif %}
 

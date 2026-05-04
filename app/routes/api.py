@@ -281,7 +281,7 @@ def generate_bug_suggestion():
     llm = LLMService()
 
     if field == 'nickname':
-        return jsonify({'field': 'nickname', 'suggestions': _fallback_nicknames(context)}), 200
+        return jsonify({'field': 'nickname', 'suggestions': _fallback_nicknames(context), 'fallback': True}), 200
 
     if field == 'lore':
         hint = context.get('hint', '')
@@ -386,30 +386,39 @@ def validate_photo():
     except Exception:
         pass
 
-    # Optional: lightweight HuggingFace classifier pre-check
-    # Save the bytes to a temp file because HuggingFaceBugClassifier.classify() takes a path.
+    # Optional: lightweight Poseidon classifier pre-check.
+    # Save the bytes to a temp file because PoseidonPipeline.classify() takes a path.
     try:
-        hf_enabled = current_app.config.get('HF_BUG_CLASSIFIER_ENABLED', True)
-        hf_required = current_app.config.get('HF_BUG_CLASSIFIER_REQUIRED', False)
-        if hf_enabled and current_app.config.get('BUG_CLASSIFIER_URL'):
+        classifier_enabled = current_app.config.get('HF_BUG_CLASSIFIER_ENABLED', True)
+        classifier_required = current_app.config.get('HF_BUG_CLASSIFIER_REQUIRED', False)
+        if classifier_enabled and current_app.config.get('BUG_CLASSIFIER_URL'):
             import tempfile, os as _os
-            from app.services.huggingface_bug_classifier import HuggingFaceBugClassifier
+            from app.services.poseidon_pipeline import PoseidonPipeline
             suffix = '.' + (file.filename.rsplit('.', 1)[-1] if file.filename and '.' in file.filename else 'jpg')
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 tmp.write(raw)
                 tmp_path = tmp.name
             try:
-                clf = HuggingFaceBugClassifier()
-                prediction = clf.classify(tmp_path)
-                if prediction.available:
-                    min_conf = current_app.config.get('HF_BUG_CLASSIFIER_MIN_CONFIDENCE', 0.45)
-                    info['classifier_label'] = prediction.label or ''
+                pipeline = PoseidonPipeline()
+                predictions, source = pipeline.classify(tmp_path)
+                if predictions:
+                    prediction = predictions[0]
+                    min_conf = current_app.config.get('HF_BUG_CLASSIFIER_MIN_CONFIDENCE', 0.80)
+                    info['classifier_label'] = prediction.scientific_name or ''
                     info['classifier_confidence'] = round(prediction.confidence, 3)
-                    if not prediction.approved:
-                        msg = (f'The classifier is not confident this is a bug '
-                               f'({prediction.label}, {prediction.confidence:.0%}). '
-                               f'Submissions below {min_conf:.0%} confidence may be rejected.')
-                        if hf_required:
+                    info['classifier_source'] = source
+
+                    if prediction.rank == 'non_arthropod':
+                        msg = f'The classifier thinks this may not be an arthropod ({prediction.scientific_name}, {prediction.confidence:.0%}).'
+                        if classifier_required:
+                            errors.append(msg)
+                        else:
+                            warnings.append(msg)
+                    elif prediction.confidence < min_conf:
+                        msg = (f'The classifier is not confident about this image '
+                               f'({prediction.scientific_name}, {prediction.confidence:.0%}). '
+                               f'Submissions below {min_conf:.0%} confidence may need review.')
+                        if classifier_required:
                             errors.append(msg)
                         else:
                             warnings.append(msg)

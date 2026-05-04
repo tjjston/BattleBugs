@@ -1,23 +1,16 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify
 from flask_login import login_required, current_user
 from app import db
-from app.models import Tournament, Bug, Battle, TournamentApplication, TournamentMatch, Season, SeasonRegistration, SeasonMatch
+from app.models import Tournament, Bug, Battle, TournamentApplication, TournamentMatch
 from app.services.permission_system import require_role, UserRole
 from datetime import datetime, timezone, timedelta
 from app.services.tournament_system import TournamentManager, TournamentEligibilityChecker
-from app.services.seasonal_tournament import ensure_seasonal_tournament
 import random
 
 bp = Blueprint('tournaments', __name__)
 
 @bp.route('/tournaments')
 def list_tournaments():
-    # Create this season's championship if it doesn't exist yet
-    try:
-        ensure_seasonal_tournament()
-    except Exception:
-        pass
-
     upcoming = Tournament.query.filter(
         Tournament.status.in_(['upcoming', 'registration'])
     ).all()
@@ -297,121 +290,3 @@ def start_tournament(tournament_id):
 
     flash(f'Tournament "{tournament.name}" has begun! Generated {len(matches)} matches.', 'success')
     return redirect(url_for('tournaments.view_tournament', tournament_id=tournament_id))
-
-
-# ── Season routes ─────────────────────────────────────────────────────────────
-
-@bp.route('/seasons')
-def list_seasons():
-    active_seasons = (
-        Season.query
-        .filter(Season.phase.notin_(['completed']))
-        .order_by(Season.registration_opens.desc())
-        .all()
-    )
-    archived_seasons = (
-        Season.query
-        .filter_by(phase='completed')
-        .order_by(Season.regular_season_end.desc())
-        .all()
-    )
-    return render_template('season_list.html',
-                           active_seasons=active_seasons,
-                           archived_seasons=archived_seasons)
-
-
-@bp.route('/season/<int:season_id>')
-def view_season(season_id):
-    season = db.get_or_404(Season, season_id)
-    registrations = season.registrations.order_by(
-        SeasonRegistration.season_wins.desc(),
-        SeasonRegistration.season_losses.asc()
-    ).all()
-    today_matches = season.matches.filter(
-        SeasonMatch.scheduled_at >= datetime.now(timezone.utc).replace(hour=0, minute=0, second=0),
-        SeasonMatch.scheduled_at < datetime.now(timezone.utc).replace(hour=23, minute=59, second=59),
-    ).all()
-    my_reg = None
-    if current_user.is_authenticated:
-        my_reg = season.registrations.filter_by(user_id=current_user.id).first()
-
-    # Schedule: group all matches by day_number for the schedule tab
-    all_matches = season.matches.order_by(SeasonMatch.day_number, SeasonMatch.scheduled_at).all()
-    schedule_by_day = {}
-    for m in all_matches:
-        schedule_by_day.setdefault(m.day_number, []).append(m)
-
-    return render_template('season_detail.html', season=season, registrations=registrations,
-                           today_matches=today_matches, my_reg=my_reg,
-                           schedule_by_day=schedule_by_day)
-
-
-@bp.route('/season/<int:season_id>/register', methods=['POST'])
-@login_required
-def register_for_season(season_id):
-    season = db.get_or_404(Season, season_id)
-    if season.phase != 'registration':
-        flash('Registration is closed for this season.', 'danger')
-        return redirect(url_for('tournaments.view_season', season_id=season_id))
-    bug_id = request.form.get('bug_id', type=int)
-    if not bug_id:
-        flash('Select a bug to register.', 'danger')
-        return redirect(url_for('tournaments.view_season', season_id=season_id))
-    bug = db.session.get(Bug, bug_id)
-    if not bug or bug.user_id != current_user.id:
-        flash('Invalid bug selection.', 'danger')
-        return redirect(url_for('tournaments.view_season', season_id=season_id))
-    if season.tier and bug.tier != season.tier:
-        flash(f'This season is restricted to {season.tier.upper()} tier bugs.', 'danger')
-        return redirect(url_for('tournaments.view_season', season_id=season_id))
-    existing = season.registrations.filter_by(bug_id=bug_id).first()
-    if existing:
-        flash(f'{bug.nickname} is already registered.', 'warning')
-        return redirect(url_for('tournaments.view_season', season_id=season_id))
-    count = season.registrations.count()
-    if season.max_registrations and count >= season.max_registrations:
-        flash('Season is full.', 'danger')
-        return redirect(url_for('tournaments.view_season', season_id=season_id))
-    reg = SeasonRegistration(season_id=season.id, bug_id=bug_id, user_id=current_user.id)
-    db.session.add(reg)
-    db.session.commit()
-    flash(f'{bug.nickname} registered for {season.name}!', 'success')
-    return redirect(url_for('tournaments.view_season', season_id=season_id))
-
-
-@bp.route('/season/boost/<int:reg_id>/assign', methods=['POST'])
-@login_required
-def assign_boost_points(reg_id):
-    """Manually assign pending boost points to a chosen stat."""
-    reg = db.get_or_404(SeasonRegistration, reg_id)
-    if reg.user_id != current_user.id:
-        flash('Not your registration.', 'danger')
-        return redirect(url_for('tournaments.list_seasons'))
-    stat = request.form.get('stat', '').strip()
-    pts = reg.apply_pending_boost(stat)
-    if pts:
-        db.session.commit()
-        flash(f'+{pts} boost points applied to {stat} for {reg.bug.nickname}!', 'success')
-    else:
-        flash('No pending points or invalid stat.', 'warning')
-    return redirect(url_for('tournaments.view_season', season_id=reg.season_id))
-
-
-@bp.route('/season/boost/<int:reg_id>/auto', methods=['POST'])
-@login_required
-def set_boost_auto(reg_id):
-    """Set or clear the auto-assign stat for a registration."""
-    reg = db.get_or_404(SeasonRegistration, reg_id)
-    if reg.user_id != current_user.id:
-        flash('Not your registration.', 'danger')
-        return redirect(url_for('tournaments.list_seasons'))
-    stat = request.form.get('stat', '').strip() or None
-    valid = ('attack', 'defense', 'speed', 'lethality', 'grip', 'cunning')
-    if stat and stat not in valid:
-        flash('Invalid stat.', 'danger')
-        return redirect(url_for('tournaments.view_season', season_id=reg.season_id))
-    reg.boost_auto_stat = stat
-    db.session.commit()
-    msg = f'Auto-boost set to {stat}.' if stat else 'Auto-boost cleared — you\'ll assign manually.'
-    flash(msg, 'success')
-    return redirect(url_for('tournaments.view_season', season_id=reg.season_id))

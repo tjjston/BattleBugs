@@ -23,6 +23,7 @@ class LLMModel(Enum):
     CLAUDE_OPUS_4 = ("anthropic", "claude-opus-4-7")
     
     # OpenAI
+    GPT_4O = ("openai", "gpt-4o")
     GPT_4 = ("openai", "gpt-4")
     GPT_4_TURBO = ("openai", "gpt-4-turbo-preview")
     GPT_35_TURBO = ("openai", "gpt-3.5-turbo")
@@ -79,6 +80,8 @@ class LLMConfig:
             if db_provider == 'anthropic':
                 return LLMModel.CLAUDE_SONNET_4
             elif db_provider == 'openai':
+                if task == 'vision_analysis':
+                    return LLMModel.GPT_4O
                 return LLMModel.GPT_4
             elif db_provider == 'ollama':
                 pass  # fall through to default Ollama config
@@ -196,7 +199,7 @@ class LLMService:
         if model.provider == "anthropic":
             raw = self._generate_anthropic(prompt, model, max_tokens, temperature, system_prompt, image_data, json_mode)
         elif model.provider == "openai":
-            raw = self._generate_openai(prompt, model, max_tokens, temperature, system_prompt, json_mode)
+            raw = self._generate_openai(prompt, model, max_tokens, temperature, system_prompt, image_data, json_mode)
         elif model.provider == "ollama":
             raw = self._generate_ollama(prompt, model, max_tokens, temperature, system_prompt, image_data)
         else:
@@ -267,6 +270,7 @@ class LLMService:
         max_tokens: int,
         temperature: float,
         system_prompt: Optional[str],
+        image_data: Optional[Dict[str, str]],
         json_mode: bool
     ) -> str:
         """Generate using OpenAI"""
@@ -275,7 +279,17 @@ class LLMService:
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
+
+        if image_data and image_data.get('base64'):
+            media_type = image_data.get("media_type", "image/jpeg")
+            messages.append({"role": "user", "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {
+                    "url": f"data:{media_type};base64,{image_data['base64']}"
+                }},
+            ]})
+        else:
+            messages.append({"role": "user", "content": prompt})
         
         kwargs = {
             "model": model.model_name,

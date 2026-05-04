@@ -19,7 +19,7 @@ class HuggingFaceBugClassifier:
 
     def __init__(self):
         self.base_url = current_app.config.get("BUG_CLASSIFIER_URL", "http://192.168.0.99:8877").rstrip("/")
-        self.min_confidence = float(current_app.config.get("HF_BUG_CLASSIFIER_MIN_CONFIDENCE", 0.45))
+        self.min_confidence = float(current_app.config.get("HF_BUG_CLASSIFIER_MIN_CONFIDENCE", 0.80))
 
     def _check_health(self) -> bool:
         import requests

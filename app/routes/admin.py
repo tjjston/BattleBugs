@@ -6,7 +6,7 @@ Access to secret bug stats, xfactors, matchup predictions
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, current_app
 from flask_login import login_required, current_user
 from app import db
-from app.models import Bug, Battle, Tournament, User, Job, ClassificationFlag, Notification, SystemSetting, Season, RejectedSubmission
+from app.models import Bug, Battle, Tournament, User, Job, ClassificationFlag, Notification, SystemSetting, RejectedSubmission
 from app.services.permission_system import (
     require_role, UserRole, AdminBugAnalyzer, AdminUserManager,
     can_view_secrets
@@ -454,17 +454,6 @@ def jobs():
         query = query.filter_by(status=status)
     jobs = query.order_by(Job.created_at.desc()).limit(100).all()
     return render_template('admin/jobs.html', jobs=jobs, status=status)
-
-
-@bp.route('/create-seasonal-tournaments', methods=['POST'])
-@login_required
-@require_role(UserRole.ADMIN)
-def trigger_seasonal_tournaments():
-    """Queue a job to create this season's per-tier tournaments."""
-    from app.services.job_queue import enqueue_seasonal_tournaments
-    enqueue_seasonal_tournaments()
-    flash('Seasonal tournament creation job queued.', 'success')
-    return redirect(url_for('admin.jobs'))
 
 
 @bp.route('/jobs/<int:job_id>/retry', methods=['POST'])
@@ -939,80 +928,6 @@ def delete_tournament(tournament_id):
     db.session.commit()
     flash(f'Tournament "{name}" deleted.', 'warning')
     return redirect(url_for('admin.tournament_list'))
-
-
-@bp.route('/seasons/create', methods=['POST'])
-@login_required
-@require_role(UserRole.ADMIN)
-def create_season():
-    """Create a new season. Registration opens now, closes in N weeks per form input."""
-    from app.models import Season
-    from datetime import datetime as _dt, timedelta as _td
-    tier = request.form.get('tier', '').strip() or None
-    name = request.form.get('name', '').strip()
-    reg_weeks = int(request.form.get('reg_weeks') or 2)
-
-    now = datetime.now(timezone.utc)
-    reg_opens = now
-    reg_closes = now + _td(weeks=reg_weeks)
-    rs_start = reg_closes
-    rs_end = rs_start + _td(days=7)
-    t_start = rs_end
-    t_end = t_start + _td(days=7)
-
-    key_tier = tier or 'open'
-    from app.services.seasonal_tournament import get_season_key
-    season_key = f"{get_season_key(now)}_{key_tier}"
-    # Make key unique if it already exists
-    counter = 1
-    base_key = season_key
-    while Season.query.filter_by(season_key=season_key).first():
-        season_key = f"{base_key}_{counter}"
-        counter += 1
-
-    season = Season(
-        name=name or f"{get_season_key(now).replace('_',' ').title()} — {key_tier.upper()}",
-        tier=tier or '',
-        season_key=season_key,
-        phase='registration',
-        registration_opens=reg_opens,
-        registration_closes=reg_closes,
-        regular_season_start=rs_start,
-        regular_season_end=rs_end,
-        tournament_start=t_start,
-        tournament_end=t_end,
-    )
-    db.session.add(season)
-    db.session.commit()
-    flash(f'Season "{season.name}" created. Registration closes {reg_closes.strftime("%b %d")}.', 'success')
-    from flask import url_for as _url_for
-    return redirect(_url_for('tournaments.view_season', season_id=season.id))
-
-
-@bp.route('/seasons/create-cohort', methods=['POST'])
-@login_required
-@require_role(UserRole.ADMIN)
-def create_season_cohort():
-    """Mass-create one Season per competitive tier for the current (or a chosen) calendar season."""
-    from app.services.seasonal_tournament import auto_create_seasonal_cohort, get_season_for_date
-    from datetime import datetime as _dt
-
-    target = request.form.get('target_season', 'current')
-    now = datetime.now(timezone.utc)
-
-    if target == 'next':
-        from app.services.seasonal_tournament import _SEASONS
-        # Advance by ~13 weeks to land in the next calendar season
-        from datetime import timedelta as _td
-        now = now + _td(weeks=13)
-
-    created = auto_create_seasonal_cohort(dt=now)
-    if created:
-        flash(f'Created {len(created)} seasons: {", ".join(s.name for s in created)}.', 'success')
-    else:
-        sn, sy = get_season_for_date(now)
-        flash(f'All tiers for {sn.capitalize()} {sy} already exist.', 'info')
-    return redirect(url_for('admin.dashboard'))
 
 
 # Context processor to make admin checks available in templates

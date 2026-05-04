@@ -30,7 +30,7 @@
   <div class="card mb-4">
     <div class="card-header"><strong>Per-Task Model Overrides</strong></div>
     <div class="card-body">
-      <p class="text-muted small">Only takes effect when Global Provider Override is blank. Select a model enum name or leave blank for default (QWEN36_35B).</p>
+      <p class="text-muted small">Only takes effect when Global Provider Override is blank. Select a model enum name or leave blank for task defaults. Vision Analysis must use a vision-capable model such as GEMMA4_E4B, GPT_4O, or Claude.</p>
       {% set tasks = [
         ('llm_model_battle_narrative', 'Battle Narrative'),
         ('llm_model_stat_generation', 'Stat Generation'),
