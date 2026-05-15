@@ -893,6 +893,14 @@ Analyze the image now and respond with your classification decision."""
             )
             return LLMModel.GPT_4O
 
+        if model.provider == 'deepseek':
+            # DeepSeek V4 chat models are text-only — fall back to local vision.
+            log.warning(
+                "Vision analysis was configured for DeepSeek text model %s; using %s instead.",
+                model.model_name, LLMModel.GEMMA4_E4B.model_name,
+            )
+            return LLMModel.GEMMA4_E4B
+
         return model
     
     def _get_preferred_model(self) -> 'LLMModel':
@@ -904,9 +912,11 @@ Analyze the image now and respond with your classification decision."""
                 return LLMModel.CLAUDE_SONNET_4
             elif self.preferred_provider == 'openai':
                 return LLMModel.GPT_4O
+            elif self.preferred_provider == 'deepseek':
+                return LLMModel.DEEPSEEK_V4_FLASH
             elif self.preferred_provider == 'ollama':
                 return LLMModel.GEMMA4_E4B
-        
+
         return LLMConfig.get_model_for_task('vision_analysis')
     
     def _check_for_duplicates(self, image_path: str, user_id: int) -> Dict[str, Any]:

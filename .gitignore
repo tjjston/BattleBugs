@@ -37,6 +37,13 @@ instance/
 *.sqlite
 *.sqlite3
 database/*.db
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
+
+# Runtime caches
+database/news_cache.json
 
 # Uploads
 uploads/*

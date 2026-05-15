@@ -1,6 +1,6 @@
 """
 Unified LLM Service Manager
-Supports: Anthropic Claude, OpenAI, and Ollama (local models)
+Supports: Anthropic Claude, OpenAI, DeepSeek, and Ollama (local models)
 """
 
 from enum import Enum
@@ -13,6 +13,7 @@ class LLMProvider(Enum):
     """Supported LLM providers"""
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
+    DEEPSEEK = "deepseek"
     OLLAMA = "ollama"
 
 
@@ -21,13 +22,17 @@ class LLMModel(Enum):
     # Anthropic
     CLAUDE_SONNET_4 = ("anthropic", "claude-sonnet-4-6")
     CLAUDE_OPUS_4 = ("anthropic", "claude-opus-4-7")
-    
+
     # OpenAI
     GPT_4O = ("openai", "gpt-4o")
     GPT_4 = ("openai", "gpt-4")
     GPT_4_TURBO = ("openai", "gpt-4-turbo-preview")
     GPT_35_TURBO = ("openai", "gpt-3.5-turbo")
-    
+
+    # DeepSeek (OpenAI-compatible API; text-only)
+    DEEPSEEK_V4_FLASH = ("deepseek", "deepseek-v4-flash")
+    DEEPSEEK_V4_PRO = ("deepseek", "deepseek-v4-pro")
+
     # Ollama (local)
     QWEN36_35B = ("ollama", "qwen3.6:35b")    # thinking-only via /v1 (broken for text output)
     QWEN36_UC  = ("ollama", "qwen3.6-uc:latest")  # thinking model that outputs via native endpoint
@@ -83,6 +88,10 @@ class LLMConfig:
                 if task == 'vision_analysis':
                     return LLMModel.GPT_4O
                 return LLMModel.GPT_4
+            elif db_provider == 'deepseek':
+                # Text-only — vision tasks fall through to default vision model.
+                if task != 'vision_analysis':
+                    return LLMModel.DEEPSEEK_V4_FLASH
             elif db_provider == 'ollama':
                 pass  # fall through to default Ollama config
         except Exception:
@@ -109,6 +118,7 @@ class LLMService:
     def __init__(self):
         self._anthropic_client = None
         self._openai_client = None
+        self._deepseek_client = None
         self._ollama_base_url = None
 
     @staticmethod
@@ -153,6 +163,17 @@ class LLMService:
             self._openai_client = OpenAI(api_key=api_key)
         return self._openai_client
     
+    def _get_deepseek_client(self):
+        """Lazy load DeepSeek client (OpenAI-compatible)."""
+        if not self._deepseek_client:
+            api_key = current_app.config.get('DEEPSEEK_API_KEY')
+            if not api_key:
+                raise ValueError("DEEPSEEK_API_KEY not configured")
+            base_url = current_app.config.get('DEEPSEEK_API_URL', 'https://api.deepseek.com')
+            from openai import OpenAI
+            self._deepseek_client = OpenAI(api_key=api_key, base_url=base_url, timeout=240.0)
+        return self._deepseek_client
+
     def _get_ollama_url(self):
         """Get Ollama base URL"""
         if not self._ollama_base_url:
@@ -200,6 +221,8 @@ class LLMService:
             raw = self._generate_anthropic(prompt, model, max_tokens, temperature, system_prompt, image_data, json_mode)
         elif model.provider == "openai":
             raw = self._generate_openai(prompt, model, max_tokens, temperature, system_prompt, image_data, json_mode)
+        elif model.provider == "deepseek":
+            raw = self._generate_deepseek(prompt, model, max_tokens, temperature, system_prompt, image_data, json_mode)
         elif model.provider == "ollama":
             raw = self._generate_ollama(prompt, model, max_tokens, temperature, system_prompt, image_data)
         else:
@@ -308,6 +331,51 @@ class LLMService:
         
         return response.choices[0].message.content
     
+    def _generate_deepseek(
+        self,
+        prompt: str,
+        model: LLMModel,
+        max_tokens: int,
+        temperature: float,
+        system_prompt: Optional[str],
+        image_data: Optional[Dict[str, str]],
+        json_mode: bool,
+    ) -> str:
+        """Generate using DeepSeek (OpenAI-compatible chat completions).
+
+        DeepSeek V4 chat models are text-only. Image data is ignored with a
+        logged warning — callers should route vision tasks elsewhere.
+        """
+        if image_data and image_data.get('base64'):
+            current_app.logger.warning(
+                "DeepSeek model %s is text-only; ignoring image_data. "
+                "Use a vision-capable provider for image classification.",
+                model.model_name,
+            )
+
+        client = self._get_deepseek_client()
+
+        messages: list = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        if json_mode and system_prompt and "json" not in system_prompt.lower():
+            messages[0]["content"] += "\n\nRespond with valid JSON only."
+        elif json_mode and not system_prompt:
+            messages.append({"role": "system", "content": "Respond with valid JSON only."})
+        messages.append({"role": "user", "content": prompt})
+
+        kwargs: Dict[str, Any] = {
+            "model": model.model_name,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        response = client.chat.completions.create(**kwargs)
+        return response.choices[0].message.content or ''
+
     # Per-model capability registry.
     # 'thinking': model emits <think> blocks; /no_think suppresses them.
     # 'native_vision': model requires Ollama's /api/chat images[] instead of

@@ -30,6 +30,10 @@ class Config:
     # OpenAI API
     OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 
+    # DeepSeek API (OpenAI-compatible)
+    DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY')
+    DEEPSEEK_API_URL = os.environ.get('DEEPSEEK_API_URL', 'https://api.deepseek.com')
+
     # Ollama API
     OLLAMA_API_URL = os.environ.get('OLLAMA_API_URL', 'http://192.168.0.99:11434')
     LLM_DEFAULT_PROVIDER = os.environ.get('LLM_DEFAULT_PROVIDER', 'ollama')
