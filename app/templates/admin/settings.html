@@ -9,7 +9,7 @@
   <div class="card mb-4">
     <div class="card-header"><strong>LLM Provider</strong></div>
     <div class="card-body">
-      <p class="text-muted small">Set to <code>ollama</code>, <code>anthropic</code>, or <code>openai</code> to override the provider for all tasks. Leave blank to use per-task settings below.</p>
+      <p class="text-muted small">Set to <code>ollama</code>, <code>anthropic</code>, <code>openai</code>, or <code>deepseek</code> to override the provider for all tasks. Leave blank to use per-task settings below. DeepSeek is text-only — vision_analysis falls back to the local default for that one task.</p>
       <div class="mb-3">
         <label class="form-label">Global Provider Override</label>
         <select name="llm_provider" class="form-select" style="max-width:280px">
@@ -17,6 +17,7 @@
           <option value="ollama" {% if settings.get('llm_provider') == 'ollama' %}selected{% endif %}>Ollama (local)</option>
           <option value="anthropic" {% if settings.get('llm_provider') == 'anthropic' %}selected{% endif %}>Anthropic Claude</option>
           <option value="openai" {% if settings.get('llm_provider') == 'openai' %}selected{% endif %}>OpenAI GPT</option>
+          <option value="deepseek" {% if settings.get('llm_provider') == 'deepseek' %}selected{% endif %}>DeepSeek V4 Flash (text only)</option>
         </select>
       </div>
       <div class="mb-3">
@@ -115,6 +116,7 @@
           <option value="ollama">Ollama (local)</option>
           <option value="anthropic">Anthropic Claude</option>
           <option value="openai">OpenAI GPT</option>
+          <option value="deepseek">DeepSeek V4 Flash</option>
         </select>
       </div>
       <div class="col-auto">

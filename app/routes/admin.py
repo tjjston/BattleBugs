@@ -583,6 +583,8 @@ def llm_test():
         model = LLMModel.CLAUDE_SONNET_4
     elif provider_override == 'openai':
         model = LLMModel.GPT_4
+    elif provider_override == 'deepseek':
+        model = LLMModel.DEEPSEEK_V4_FLASH
     elif provider_override == 'ollama':
         model = LLMConfig.TASK_MODELS.get(task, LLMConfig.DEFAULT_MODEL)
     else:
