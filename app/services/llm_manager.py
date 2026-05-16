@@ -528,6 +528,104 @@ class LLMService:
             body = exc.read().decode(errors='replace')
             raise RuntimeError(f"Ollama /api/chat {exc.code}: {body}") from exc
     
+    def generate_stream(
+        self,
+        prompt: str,
+        task: Optional[str] = None,
+        model: Optional[LLMModel] = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+        system_prompt: Optional[str] = None,
+    ):
+        """Yield text chunks as the model produces them.
+
+        Currently implemented for Ollama (native /api/chat with stream=True).
+        Other providers fall back to a single-chunk yield of the full response
+        so callers can use one consumer pattern everywhere.
+        """
+        if model is None:
+            if task:
+                model = LLMConfig.get_model_for_task(task)
+            else:
+                model = LLMConfig.DEFAULT_MODEL
+
+        if model.provider != 'ollama':
+            # Non-Ollama providers: degrade to single-chunk emission.
+            full = self.generate(prompt, task=task, model=model, max_tokens=max_tokens,
+                                 temperature=temperature, system_prompt=system_prompt)
+            if full:
+                yield full
+            return
+
+        import urllib.request as _urllib
+        base_url = self._get_ollama_url().rstrip('/')
+        if base_url.endswith('/v1'):
+            base_url = base_url[:-3]
+
+        base_system = system_prompt or "You are a helpful assistant."
+        # Mirror generate()'s /no_think prepend for Qwen3-style thinking models
+        # so streamed text isn't a chain-of-thought leak.
+        caps = self._get_model_caps(model.model_name)
+        if caps.get('thinking') and '/no_think' not in base_system:
+            base_system = '/no_think\n' + base_system
+
+        payload = json.dumps({
+            "model": model.model_name,
+            "messages": [
+                {"role": "system", "content": base_system},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": True,
+            "keep_alive": "30m",
+            "options": {
+                "num_predict": max_tokens,
+                "temperature": temperature,
+            },
+        }).encode()
+
+        req = _urllib.Request(
+            f"{base_url}/api/chat",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        in_think = False
+        with _urllib.urlopen(req, timeout=1200) as resp:
+            for line in resp:
+                if not line.strip():
+                    continue
+                try:
+                    obj = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                msg = obj.get('message') or {}
+                chunk = msg.get('content') or ''
+                if not chunk:
+                    if obj.get('done'):
+                        break
+                    continue
+                # Strip <think>…</think> from streamed output incrementally.
+                while chunk:
+                    if in_think:
+                        end = chunk.find('</think>')
+                        if end < 0:
+                            chunk = ''
+                            break
+                        chunk = chunk[end + len('</think>'):]
+                        in_think = False
+                    else:
+                        start = chunk.find('<think>')
+                        if start < 0:
+                            yield chunk
+                            chunk = ''
+                            break
+                        if start > 0:
+                            yield chunk[:start]
+                        chunk = chunk[start + len('<think>'):]
+                        in_think = True
+                if obj.get('done'):
+                    break
+
     def generate_json(
         self,
         prompt: str,

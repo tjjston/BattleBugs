@@ -182,6 +182,20 @@ class LLMBugClassifier:
             )
             return hf_result
 
+        # Step 2.5: iNaturalist Computer Vision — a real species-recognition
+        # model trained on millions of arthropod observations. When the
+        # INATURALIST_API_TOKEN env var is set, we let iNat CV take the
+        # primary classification call. The LLM is only used if iNat declines.
+        inat_cv_result = self._try_inaturalist_cv(image_path, user_species_guess)
+        if inat_cv_result is not None:
+            log.warning(
+                "CLASSIFY [step 2.5/5] iNat CV WON — approved=%s confidence=%.2f species=%r",
+                inat_cv_result.approved, inat_cv_result.confidence, inat_cv_result.scientific_name,
+            )
+            if inat_cv_result.approved:
+                inat_cv_result = self._normalize_species_via_backbone(inat_cv_result)
+            return inat_cv_result
+
         # Step 3: LLM vision analysis (Poseidon confidence too low or unavailable)
         poseidon_hint_str = (
             f"{self._poseidon_hint['scientific_name']} @ {self._poseidon_hint['confidence']:.0%} ({self._poseidon_hint['source']})"
@@ -805,6 +819,98 @@ class LLMBugClassifier:
                 'llm_provider': 'fallback',
                 'llm_model': 'manual_review',
             })
+
+    def _try_inaturalist_cv(self, image_path: str,
+                             user_species_guess: Optional[str]
+                             ) -> Optional[BugClassificationResult]:
+        """If INATURALIST_API_TOKEN is configured, score the image against
+        iNat's species-recognition model. Returns a BugClassificationResult
+        if the call succeeded (regardless of approval); returns None if iNat
+        is unconfigured / unreachable / returned no candidates, in which
+        case the caller falls through to the LLM path.
+        """
+        from app.services import inaturalist_cv
+
+        if inaturalist_cv.unavailable():
+            return None
+
+        log = current_app.logger
+        try:
+            with open(image_path, 'rb') as fh:
+                image_bytes = fh.read()
+        except Exception as exc:
+            log.warning("iNat CV could not read image %s: %s", image_path, exc)
+            return None
+
+        results = inaturalist_cv.score_image(image_bytes)
+        if not results:
+            return None
+
+        # Top candidate. iNat CV's combined_score is in [0,1] but skewed
+        # low even on confident IDs — we treat anything >= 0.65 as good.
+        top = results[0]
+        score = float(top.get('score') or 0)
+        sci = top.get('scientific_name')
+        if not sci:
+            return None
+
+        log.warning(
+            "iNat CV top result: %s (%s) rank=%s score=%.3f",
+            sci, top.get('common_name'), top.get('rank'), score,
+        )
+
+        # User guess match (loose: case-insensitive substring against any
+        # candidate, not just the top one).
+        guess_match = None
+        guess_feedback = None
+        if user_species_guess:
+            g = user_species_guess.strip().lower()
+            for c in results[:5]:
+                if g in (c.get('scientific_name') or '').lower() or \
+                   g in (c.get('common_name') or '').lower():
+                    guess_match = True
+                    guess_feedback = f"✅ Your guess '{user_species_guess}' matches iNat's top suggestions."
+                    break
+            if guess_match is None:
+                guess_match = False
+                guess_feedback = (
+                    f"iNat's top candidates are "
+                    f"{', '.join(c.get('scientific_name','?') for c in results[:3])} — "
+                    f"your guess was '{user_species_guess}'."
+                )
+
+        # Below the confidence floor → return as "needs review" but still
+        # populated, so we don't fall through to the LLM redundantly.
+        approved = score >= 0.55
+        data = {
+            'approved': approved,
+            'confidence': round(score, 3),
+            'is_arthropod': True,  # CV call was scoped to Arthropoda
+            'identified_species': sci,
+            'common_name': top.get('common_name'),
+            'scientific_name': sci,
+            'order': None,    # filled by _normalize_species_via_backbone
+            'family': None,
+            'user_guess_matches': guess_match,
+            'user_guess_feedback': guess_feedback,
+            'reasoning': (
+                f"iNaturalist Computer Vision matched this photo to {sci} "
+                f"(rank {top.get('rank')}) with combined score {score:.2f}. "
+                f"Top alternates: {', '.join(c.get('scientific_name','?') for c in results[1:4])}."
+            ),
+            'quality_assessment': 'Scored by iNat CV',
+            'rejection_reasons': [] if approved else [
+                f"iNat CV best match {sci} scored only {score:.2f} (need >= 0.55)."
+            ],
+            'warnings': [] if approved else [
+                "iNat CV confidence was below the auto-approval threshold; manual review recommended."
+            ],
+            'condition': 'alive',
+            'condition_notes': None,
+            'llm_provider': 'inaturalist',
+            'llm_model': 'computer_vision',
+        }
+        return BugClassificationResult(data)
 
     def _normalize_species_via_backbone(self, result: BugClassificationResult) -> BugClassificationResult:
         """

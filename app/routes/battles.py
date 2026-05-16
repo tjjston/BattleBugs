@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request
+from flask import Blueprint, render_template, redirect, url_for, flash, request, Response, current_app
 from flask_login import login_required, current_user
 from app import db
 from app.models import Bug, Battle, TournamentMatch, Tournament
@@ -20,6 +20,58 @@ def view_battle(battle_id):
     battle_stats = calculate_battle_stats(battle.bug1, battle.bug2)
     summary = visible_win_summary(battle)
     return render_template('battle_view.html', battle=battle, battle_stats=battle_stats, win_summary=summary)
+
+
+@bp.route('/battle/<int:battle_id>/narrative/stream')
+@login_required
+def stream_battle_narrative(battle_id):
+    """Server-Sent Events: stream a fresh battle narrative token by token.
+
+    Used by the "Re-narrate live" button on the battle view. Replaces the
+    stored narrative on the battle record when the stream ends so the
+    next page load shows the new one.
+    """
+    battle = db.get_or_404(Battle, battle_id)
+    bug1, bug2 = battle.bug1, battle.bug2
+    winner = bug1 if battle.winner_id == bug1.id else bug2
+
+    from app.services.visual_lore_generator import _build_battle_prompt  # see helper below
+    prompt = _build_battle_prompt(bug1, bug2, winner, venue=None)
+    app = current_app._get_current_object()
+
+    def _stream():
+        from app.services.llm_manager import LLMService
+        buf = []
+        try:
+            llm = LLMService()
+            for chunk in llm.generate_stream(prompt, task='battle_narrative',
+                                             max_tokens=900, temperature=0.85):
+                if not chunk:
+                    continue
+                buf.append(chunk)
+                # SSE frame: each "data:" line is one event payload. Replace
+                # newlines so the SSE format isn't broken by line content.
+                safe = chunk.replace('\r', '').replace('\n', '\\n')
+                yield f"data: {safe}\n\n"
+            full = "".join(buf).strip()
+            if full:
+                with app.app_context():
+                    fresh = db.session.get(Battle, battle_id)
+                    if fresh is not None:
+                        fresh.narrative = full
+                        db.session.commit()
+            yield "event: done\ndata: end\n\n"
+        except Exception as exc:
+            app.logger.warning("narrative stream failed: %s", exc)
+            yield f"event: error\ndata: {exc}\n\n"
+
+    headers = {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no',          # disable nginx buffering if present
+        'Connection': 'keep-alive',
+    }
+    return Response(_stream(), headers=headers)
 
 @bp.route('/battle/new', methods=['GET', 'POST'])
 @login_required

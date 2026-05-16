@@ -218,13 +218,8 @@ BE CREATIVE! Find interesting details. If the bug is near a twig, maybe it's a L
         return bug
 
 
-def generate_lore_enhanced_battle_narrative(bug1, bug2, winner, venue=None):
-    """
-    Enhanced battle narrative routed through LLMService (defaults to Ollama/Qwen).
-    Secretly incorporates visual lore without revealing it to users.
-    """
-    from app.services.llm_manager import LLMService
-
+def _build_battle_prompt(bug1, bug2, winner, venue=None) -> str:
+    """Compose the same prompt used by both the sync and streaming paths."""
     secret1 = bug1.get_secret_lore()
     secret2 = bug2.get_secret_lore()
     public1 = bug1.get_public_lore()
@@ -234,7 +229,7 @@ def generate_lore_enhanced_battle_narrative(bug1, bug2, winner, venue=None):
     if venue:
         venue_line = f"\n**Arena: {venue['name']}** — {venue['desc']}\n"
 
-    prompt = f"""Generate an epic 3-paragraph battle narrative between two bug gladiators.
+    return f"""Generate an epic 3-paragraph battle narrative between two bug gladiators.
 {venue_line}
 **{bug1.nickname}**
 Background: {public1.get('background') or 'Unknown origin'}
@@ -253,6 +248,15 @@ Secret edge: {secret2['items_weapons']} | {secret2['environment']} | xfactor {se
 Write a dramatic 3-paragraph battle (Opening / Mid-battle / Climax). Use the arena setting to
 establish atmosphere. Weave the secret edges SUBTLY — never name them literally. Use the lore
 and personality naturally. Keep under 300 words. End with a one-line declaration of the winner."""
+
+
+def generate_lore_enhanced_battle_narrative(bug1, bug2, winner, venue=None):
+    """
+    Enhanced battle narrative routed through LLMService (defaults to Ollama/Qwen).
+    Secretly incorporates visual lore without revealing it to users.
+    """
+    from app.services.llm_manager import LLMService
+    prompt = _build_battle_prompt(bug1, bug2, winner, venue=venue)
 
     try:
         llm = LLMService()

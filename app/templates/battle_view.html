@@ -66,15 +66,57 @@ window._battleStats = {
 </div>
 
 <div class="card mb-4">
-    <div class="card-header bg-dark text-white">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
         <h4 class="mb-0">🏟️ Battle Narrative</h4>
+        {% if current_user.is_authenticated %}
+        <button type="button" class="btn btn-sm btn-outline-light"
+                id="renarrateLiveBtn"
+                data-battle-id="{{ battle.id }}"
+                title="Re-narrate this battle live, tokens streamed as they generate">
+          ▶ Re-narrate live
+        </button>
+        {% endif %}
     </div>
     <div class="card-body">
-        <div style="white-space: pre-line; font-size: 1.1em; line-height: 1.8;">
-            {{ battle.narrative }}
-        </div>
+        <div id="battleNarrative" style="white-space: pre-line; font-size: 1.1em; line-height: 1.8;">{{ battle.narrative }}</div>
+        <div id="battleNarrativeStatus" class="small text-muted mt-2 d-none"></div>
     </div>
 </div>
+{% if current_user.is_authenticated %}
+<script>
+(function () {
+  const btn = document.getElementById('renarrateLiveBtn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    const battleId = btn.getAttribute('data-battle-id');
+    const target = document.getElementById('battleNarrative');
+    const status = document.getElementById('battleNarrativeStatus');
+    if (!target || !status) return;
+    target.textContent = '';
+    status.textContent = 'The lab is writing…';
+    status.classList.remove('d-none');
+    btn.disabled = true;
+
+    const es = new EventSource('/battle/' + encodeURIComponent(battleId) + '/narrative/stream');
+    es.onmessage = function (evt) {
+      // Each event payload is a raw text chunk; \n was escaped to \\n by the server.
+      const chunk = (evt.data || '').replace(/\\n/g, '\n');
+      target.appendChild(document.createTextNode(chunk));
+    };
+    es.addEventListener('done', function () {
+      es.close();
+      status.textContent = 'Done.';
+      btn.disabled = false;
+    });
+    es.onerror = function () {
+      es.close();
+      status.textContent = 'Stream ended (network or model error).';
+      btn.disabled = false;
+    };
+  });
+})();
+</script>
+{% endif %}
 
 <div class="card mb-4">
     <div class="card-header">

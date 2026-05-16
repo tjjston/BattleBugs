@@ -467,6 +467,60 @@ def get_species_stats():
     }), 200
 
 
+@bp.route('/bug/generate/stream', methods=['POST'])
+@login_required
+def generate_bug_suggestion_stream():
+    """SSE variant of /bug/generate for the lore field — streams text chunks
+    as the model produces them. The frontend shows a live preview, then on
+    'done' parses the accumulated text into the three lore textareas.
+    """
+    from flask import Response
+    import json as _json
+
+    data = request.get_json() or {}
+    field = data.get('field', 'lore')
+    context = data.get('context', {})
+
+    # Only lore is currently streamable. Other fields fall back via the
+    # regular /bug/generate JSON route.
+    if field != 'lore':
+        return jsonify({'error': 'Streaming only supported for field=lore'}), 400
+
+    hint = context.get('hint', '')
+    prompt = (
+        "Write punchy gladiator lore for a single bug.\n"
+        f"Context hint: {hint or '(none)'}\n\n"
+        "Return ONLY this JSON (no prose, no markdown fences):\n"
+        '{"background": "<one sentence, max 30 words>",'
+        ' "motivation": "<one sentence, max 25 words>",'
+        ' "personality": "<one sentence, max 20 words>"}'
+    )
+
+    app = current_app._get_current_object()
+
+    def _stream():
+        from app.services.llm_manager import LLMService
+        try:
+            llm = LLMService()
+            for chunk in llm.generate_stream(prompt, task='quick_tasks',
+                                             max_tokens=600, temperature=0.7):
+                if not chunk:
+                    continue
+                safe = chunk.replace('\r', '').replace('\n', '\\n')
+                yield f"data: {safe}\n\n"
+            yield "event: done\ndata: end\n\n"
+        except Exception as exc:
+            app.logger.warning("lore stream failed: %s", exc)
+            yield f"event: error\ndata: {exc}\n\n"
+
+    return Response(_stream(), headers={
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no',
+        'Connection': 'keep-alive',
+    })
+
+
 @bp.route('/bug/generate', methods=['POST'])
 @login_required
 def generate_bug_suggestion():
