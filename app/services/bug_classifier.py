@@ -519,6 +519,167 @@ class LLMBugClassifier:
 
         return result
     
+    # ── Feature-to-taxon sanity rules (used in Pass 2 cross-check) ──────
+    # Each rule: (feature substring, {allowed_orders}, {allowed_families})
+    # An empty set means "no constraint at that rank". If Pass 1 reports the
+    # feature and Pass 2's named taxon is outside BOTH the allowed order set
+    # AND (when supplied) the allowed family set, we know the LLM has likely
+    # hallucinated the wrong taxon. We downgrade and flag for review.
+    _FEATURE_TAXON_RULES = [
+        # Diagnostic for fireflies: a glowing abdomen is essentially unique to
+        # Lampyridae. Pass 2 calling this 'Carabidae' (ground beetle) is the
+        # exact failure mode that triggered this rewrite.
+        ('glowing abdomen',          {'coleoptera'},                                  {'lampyridae'}),
+        ('luminescent abdomen',      {'coleoptera'},                                  {'lampyridae'}),
+        ('bioluminescent',           {'coleoptera'},                                  {'lampyridae', 'elateridae'}),
+        ('light organ',              {'coleoptera'},                                  {'lampyridae', 'elateridae'}),
+        ('lantern',                  {'coleoptera'},                                  {'lampyridae'}),
+
+        # Mosquitoes vs other Diptera.
+        ('needle proboscis',         {'diptera', 'hemiptera'},                        set()),
+        ('long thin proboscis',      {'diptera', 'hemiptera', 'lepidoptera'},         set()),
+        ('mosquito',                 {'diptera'},                                     {'culicidae'}),
+
+        # Mantis vs other predators.
+        ('raptorial forelegs',       {'mantodea', 'hemiptera', 'neuroptera'},         set()),
+        ('praying posture',          {'mantodea'},                                    set()),
+
+        # Spiders / ticks / scorpions.
+        ('web spinning',             {'araneae'},                                     set()),
+        ('eight legs',               {'araneae', 'opiliones', 'scorpiones', 'acari', 'amblypygi', 'uropygi'}, set()),
+        ('two body segments fused',  {'acari'},                                       {'ixodidae', 'argasidae'}),
+        ('flattened tear-drop body', {'acari'},                                       {'ixodidae'}),
+        ('chelicerae',               {'araneae', 'scorpiones', 'acari', 'opiliones'}, set()),
+        ('pincers at rear',          {'scorpiones', 'pseudoscorpiones'},              set()),
+
+        # Lepidoptera markers.
+        ('clubbed antennae',         {'lepidoptera', 'coleoptera'},                   set()),
+        ('feathered antennae',       {'lepidoptera'},                                 set()),
+        ('coiled tongue',            {'lepidoptera'},                                 set()),
+        ('scaled wings',             {'lepidoptera'},                                 set()),
+
+        # Beetles / wasps / flies.
+        ('hard elytra',              {'coleoptera'},                                  set()),
+        ('two pairs of clear wings', {'hymenoptera', 'odonata', 'neuroptera'},        set()),
+        ('narrow waist',             {'hymenoptera'},                                 set()),
+        ('halteres',                 {'diptera'},                                     set()),
+    ]
+
+    def _llm_feature_extraction(self, image_data: str, media_type: str) -> dict:
+        """Pass 1: ask the vision model to describe what it SEES, no taxonomy.
+
+        Returns a small dict of structured visual observations. Used as
+        context for Pass 2 and as a sanity check against Pass 2's taxonomic
+        claim. Failure here is non-fatal — we just skip the cross-check.
+        """
+        log = current_app.logger
+        model = self._ensure_vision_model(self._get_preferred_model())
+
+        prompt = (
+            "You are an entomologist examining a bug photograph. DO NOT name a species yet.\n"
+            "Look at the image and report ONLY the visual features you can see. Stick to what is plainly visible.\n\n"
+            "Respond with this exact JSON shape (no markdown, no prose):\n"
+            "{\n"
+            '  "body_shape": "elongate / oval / hourglass / teardrop / cylindrical / spherical",\n'
+            '  "legs_visible": <integer count of legs you can see, or null>,\n'
+            '  "wings": "hard elytra (beetle wing covers) / two clear pairs / one pair clear / single small pair / scaled (butterfly/moth) / none visible / not visible",\n'
+            '  "antennae": "long thin filiform / short clubbed / feathered (plumose) / elbowed / none visible",\n'
+            '  "mouthparts": "long needle proboscis / chewing mandibles / pincers/forceps / coiled tongue / not visible",\n'
+            '  "eyes": "large compound eyes / small simple eyes / not visible",\n'
+            '  "abdomen": "segmented dark / glowing or luminescent tip / hairy / armored / striped / not visible",\n'
+            '  "limbs_special": "raptorial forelegs / jumping hind legs / suction pads / claws/hooks / web spinnerets / none",\n'
+            '  "colors": "short comma-separated palette",\n'
+            '  "size_estimate_mm": <integer or null>,\n'
+            '  "posture": "stationary / threat display / mid-flight / curled / extended",\n'
+            '  "habitat_visible": "leaf / soil / bark / web / water / human-made surface / unknown",\n'
+            '  "diagnostic_features": ["3-5 short phrases naming the most distinctive features visible"]\n'
+            "}"
+        )
+
+        try:
+            response = self.llm.generate(
+                prompt=prompt,
+                task='vision_analysis',
+                model=model,
+                image_data={'base64': image_data, 'media_type': media_type},
+                max_tokens=600,
+                temperature=0.1,
+                json_mode=True,
+            )
+        except Exception as exc:
+            log.warning("Pass 1 (feature extraction) failed: %s", exc)
+            return {}
+
+        if not response:
+            log.warning("Pass 1 (feature extraction) returned empty response")
+            return {}
+
+        log.warning("PASS1 raw features (%d chars): %s", len(response), response[:600])
+        try:
+            return _extract_json(response) or {}
+        except Exception as exc:
+            log.warning("Pass 1 JSON parse failed: %s", exc)
+            return {}
+
+    def _features_summary(self, features: dict) -> str:
+        """Render Pass-1 features as a compact bullet list for the Pass-2 prompt."""
+        if not features:
+            return "(no features available)"
+        keys = [
+            'body_shape', 'legs_visible', 'wings', 'antennae', 'mouthparts',
+            'eyes', 'abdomen', 'limbs_special', 'colors', 'size_estimate_mm',
+            'posture', 'habitat_visible',
+        ]
+        lines = []
+        for k in keys:
+            v = features.get(k)
+            if v in (None, '', [], {}):
+                continue
+            lines.append(f"- {k}: {v}")
+        diag = features.get('diagnostic_features') or []
+        if diag:
+            lines.append("- diagnostic_features: " + "; ".join(str(d) for d in diag))
+        return "\n".join(lines) if lines else "(no features available)"
+
+    def _consistency_warnings(self, features: dict, result_data: dict) -> list[str]:
+        """Cross-check Pass-1 visual features against Pass-2's named taxon."""
+        if not features:
+            return []
+        order = (result_data.get('order') or '').strip().lower()
+        family = (result_data.get('family') or '').strip().lower()
+        if not order and not family:
+            return []
+
+        haystack_parts = []
+        for v in features.values():
+            if isinstance(v, str):
+                haystack_parts.append(v.lower())
+            elif isinstance(v, list):
+                haystack_parts.extend(str(x).lower() for x in v)
+        haystack = " | ".join(haystack_parts)
+
+        warnings_out = []
+        for feature_phrase, allowed_orders, allowed_families in self._FEATURE_TAXON_RULES:
+            if feature_phrase not in haystack:
+                continue
+            order_ok = (not allowed_orders) or (order in allowed_orders)
+            family_ok = (not allowed_families) or (family in allowed_families)
+            # A rule trips if EITHER constraint exists and is violated.
+            if not order_ok or (allowed_families and not family_ok):
+                msg = f"Visual feature \"{feature_phrase}\" usually indicates "
+                if allowed_families:
+                    msg += f"family {sorted(allowed_families)} "
+                    if allowed_orders:
+                        msg += f"(order {sorted(allowed_orders)}) "
+                else:
+                    msg += f"order {sorted(allowed_orders)} "
+                msg += (
+                    f"— the lab named order {order!r} / family {family!r}. "
+                    "Flagging for manual review."
+                )
+                warnings_out.append(msg)
+        return warnings_out
+
     def _llm_comprehensive_analysis(
         self,
         image_path: str,
@@ -527,12 +688,32 @@ class LLMBugClassifier:
         user_species_guess: Optional[str],
         preflight_warnings: list
     ) -> BugClassificationResult:
-        """
-        Send image to LLM with user hint for validation
-        LLM has FINAL AUTHORITY - user guess is just a hint
-        """
+        """Two-pass vision classification.
 
-        # Build the prompt
+        Pass 1: describe visual features only (no taxonomy).
+        Pass 2: with those features in context, produce the taxonomic ID.
+        Cross-check: known feature->order rules catch obvious LLM mistakes
+                     like calling a glowing-abdomen firefly a 'ground beetle'.
+        """
+        log = current_app.logger
+
+        # Prepare image data once for both passes.
+        import base64
+        with open(image_path, 'rb') as f:
+            image_data = base64.standard_b64encode(f.read()).decode('utf-8')
+
+        ext = image_path.lower().split('.')[-1]
+        media_types = {
+            'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+            'png': 'image/png', 'gif': 'image/gif', 'webp': 'image/webp'
+        }
+        media_type = media_types.get(ext, 'image/jpeg')
+
+        # ── Pass 1: feature extraction ─────────────────────────────────
+        features = self._llm_feature_extraction(image_data, media_type)
+        features_block = self._features_summary(features)
+
+        # ── Pass 2: taxonomic classification with feature context ──────
         prompt = self._build_classification_prompt(
             nickname=nickname,
             description=description,
@@ -540,30 +721,21 @@ class LLMBugClassifier:
             preflight_warnings=preflight_warnings,
             classifier_prediction=self._poseidon_hint,
         )
-        
-        # Prepare image data
-        import base64
-        with open(image_path, 'rb') as f:
-            image_data = base64.standard_b64encode(f.read()).decode('utf-8')
-        
-        # Determine media type
-        ext = image_path.lower().split('.')[-1]
-        media_types = {
-            'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
-            'png': 'image/png', 'gif': 'image/gif', 'webp': 'image/webp'
-        }
-        media_type = media_types.get(ext, 'image/jpeg')
-        
-        # Get model preference
+        prompt = (
+            "**LAB OBSERVATION NOTES (extracted by a separate visual pass — treat as ground truth):**\n"
+            + features_block + "\n\n"
+            + prompt
+        )
+
         model = self._ensure_vision_model(self._get_preferred_model())
-        log = current_app.logger
-        log.info(
-            "LLM CLASSIFY — provider=%s model=%s media_type=%s "
-            "poseidon_hint=%s user_guess=%r",
+        log.warning(
+            "LLM CLASSIFY pass-2 — provider=%s model=%s media_type=%s "
+            "poseidon_hint=%s user_guess=%r features=%s",
             model.provider, model.model_name, media_type,
             (f"{self._poseidon_hint['scientific_name']} @ {self._poseidon_hint['confidence']:.0%}"
              if self._poseidon_hint else "none"),
             user_species_guess,
+            features_block.replace('\n', ' | '),
         )
 
         try:
@@ -574,10 +746,10 @@ class LLMBugClassifier:
                 image_data={'base64': image_data, 'media_type': media_type},
                 max_tokens=1500,
                 temperature=0.3,
-                json_mode=True
+                json_mode=True,
             )
 
-            log.info("LLM CLASSIFY raw response (%d chars): %s", len(response or ''), (response or '')[:500])
+            log.warning("PASS2 raw response (%d chars): %s", len(response or ''), (response or '')[:600])
 
             if not response:
                 raise ValueError("LLM returned empty response")
@@ -585,17 +757,34 @@ class LLMBugClassifier:
             result_data = _extract_json(response)
             result_data['llm_provider'] = model.provider
             result_data['llm_model'] = model.model_name
+
+            # Cross-check Pass-1 features against Pass-2's taxonomic claim.
+            mismatches = self._consistency_warnings(features, result_data)
+            if mismatches:
+                log.warning("LLM CLASSIFY feature-consistency mismatches: %s", mismatches)
+                existing = list(result_data.get('warnings') or [])
+                result_data['warnings'] = existing + mismatches
+                # Drop confidence so the bug enters manual review instead of
+                # being trusted at face value.
+                result_data['confidence'] = min(float(result_data.get('confidence') or 0), 0.45)
+                # Downgrade scientific_name to family/order if we know it,
+                # so we don't store a confidently-wrong species.
+                if result_data.get('family'):
+                    result_data['scientific_name'] = result_data['family']
+                elif result_data.get('order'):
+                    result_data['scientific_name'] = result_data['order']
+                else:
+                    result_data['scientific_name'] = None
+
             result_data = self._downgrade_uncertain_taxonomy(result_data)
-            log.info(
+            log.warning(
                 "LLM CLASSIFY parsed — approved=%s confidence=%.2f species=%r "
-                "common=%r order=%r condition=%r reasoning=%s",
+                "common=%r order=%r condition=%r mismatches=%d",
                 result_data.get('approved'), result_data.get('confidence', 0),
-                result_data.get('identified_species'), result_data.get('common_name'),
+                result_data.get('scientific_name'), result_data.get('common_name'),
                 result_data.get('order'), result_data.get('condition'),
-                (result_data.get('reasoning') or '')[:200],
+                len(mismatches),
             )
-            if result_data.get('rejection_reasons'):
-                log.info("LLM CLASSIFY rejection reasons: %s", result_data['rejection_reasons'])
             return BugClassificationResult(result_data)
 
         except Exception as e:
@@ -603,7 +792,6 @@ class LLMBugClassifier:
                 "LLM CLASSIFY failed (provider=%s model=%s) — %s: %s — falling back to manual review",
                 model.provider, model.model_name, type(e).__name__, e,
             )
-            # Don't hard-reject when the classifier itself fails; queue for human review instead.
             return BugClassificationResult({
                 'approved': True,
                 'confidence': 0.5,
@@ -612,7 +800,7 @@ class LLMBugClassifier:
                 'quality_assessment': 'Not assessed',
                 'rejection_reasons': [],
                 'warnings': [
-                    'The AI classifier could not process this image automatically. '
+                    'The lab could not process this image automatically. '
                     'An admin will review your submission shortly.'
                 ],
                 'llm_provider': 'fallback',
@@ -786,13 +974,33 @@ If user's guess is wrong by more than one taxonomic level:
 - Example: User says "beetle" but image shows "weevil" (both Coleoptera) → APPROVE + gentle correction
 - Example: User says "wasp" but image shows "bee" (both Hymenoptera) → APPROVE + note difference
 
-🔬 **TAXONOMY ACCURACY RULES:**
-- Do not invent an exact species when the image only supports genus, family, or order.
-- Use `scientific_name` only for a real binomial/trinomial scientific name, such as "Harmonia axyridis" or "Phidippus audax".
-- If you can only identify genus/family/order, set `scientific_name` to null, put the best human-readable ID in `common_name`, and explain the uncertainty in `reasoning`.
-- `confidence` should reflect how confident you are in the taxonomic level you report, not how strongly the user's guess nudged you.
-- Ticks are arachnids, not insects and not spiders. They usually have an oval flattened body, compact fused-looking body regions, no narrow spider waist, and legs clustered toward the front. Common hard ticks belong to order `Ixodida`, family `Ixodidae`.
-- Do not call a tick a ground spider. If the image shows a hard tick but you cannot identify species, set `scientific_name` to null and use a cautious common name such as "hard tick" or "unidentified tick".
+🔬 **TAXONOMY ACCURACY RULES (READ THIS — IT CONTROLS HOW SPECIFIC YOU MUST BE):**
+
+PUT THE MOST-SPECIFIC IDENTIFIABLE TAXON IN `scientific_name`. The pipeline accepts any of the following ranks and will look each up against GBIF, so do not return null when you can say something true:
+
+  • Best: binomial species, e.g. "Aedes aegypti", "Harmonia axyridis", "Phidippus audax"
+  • Next best: genus, e.g. "Aedes", "Photinus", "Vespula"
+  • Acceptable: family ending in -idae or -inae, e.g. "Culicidae", "Lampyridae"
+  • Last resort: order, e.g. "Diptera", "Hymenoptera"
+
+Only use `scientific_name: null` if you genuinely cannot place the bug at order rank.
+
+Walk down the ranks: if you cannot confidently call it a species, name the genus. If you cannot name the genus, name the family. Only fall back to order when nothing finer is supportable. **Order alone (just "Diptera" or "Hymenoptera") is a coarse last-resort, NOT the preferred answer for a clear photo.**
+
+`confidence` should reflect how confident you are in the taxonomic level you report. A confident family-level ID is better than a guessed binomial.
+
+🪰 **MOSQUITO vs. OTHER DIPTERA — a common miss:**
+A bug is a mosquito (family Culicidae) and NOT a generic "fly" if it shows the mosquito signature:
+- A long, needle-like proboscis projecting forward of the head
+- Slender, elongate body with narrow wings carrying scales along the veins
+- Long, thin legs, often held angled away from the body
+- Wings folded over the abdomen at rest, with a characteristic scaled wing pattern
+
+If you see those features, return at least `scientific_name: "Culicidae"`. If you can read the body coloration (e.g. black-and-white striped legs for Aedes aegypti, drab brown for Culex), return the genus or species.
+
+🕷️ **TICK vs. SPIDER — another common miss:**
+Ticks are arachnids, not insects and not spiders. They have an oval flattened body, compact fused-looking body regions, no narrow spider waist, and legs clustered toward the front. Common hard ticks belong to order `Ixodida`, family `Ixodidae`.
+Do not call a tick a ground spider. If the image shows a hard tick but you cannot identify species, return at least `scientific_name: "Ixodidae"`.
 
 **YOUR RESPONSE FORMAT (JSON only, no markdown):**
 {{
@@ -842,34 +1050,39 @@ Analyze the image now and respond with your classification decision."""
         return prompt
 
     def _downgrade_uncertain_taxonomy(self, result_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Keep partial taxonomic IDs (genus or family) instead of nuking them.
+        """Keep partial taxonomic IDs (genus, family, or order) instead of nuking them.
 
-        Field-photo identification often only resolves to family or genus rank
-        — both are valid GBIF/iNaturalist ranks. We only fully downgrade to
-        "Unidentified arthropod" when the model returns prose, an order name,
-        or nothing at all.
+        Field-photo identification often only resolves above species rank, and
+        all of binomial / genus / family / order are valid GBIF ranks. We only
+        downgrade to "Unidentified arthropod" when nothing taxonomic can be
+        salvaged. Logs the input the LLM produced so we can diagnose misses.
         """
         if not result_data.get('approved'):
             return result_data
+
+        log = current_app.logger
         scientific = (result_data.get('scientific_name') or '').strip()
+        # Normalize case — LLMs sometimes drop capitalization on genus names.
+        normalized = scientific
+        if normalized and not normalized[0].isupper() and ' ' not in normalized:
+            normalized = normalized[0].upper() + normalized[1:]
 
         # Strict binomial — accept and return as-is.
         if re.match(r'^[A-Z][a-zA-Z-]+\s+[a-z][a-zA-Z-]+(?:\s+[a-z][a-zA-Z-]+)?$', scientific):
             return result_data
 
         # Genus only ("Photinus", "Vespula") — strip optional "sp." / "spp.".
-        genus_match = re.match(r'^([A-Z][a-zA-Z-]+)(?:\s+(?:sp\.?|spp\.?))?$', scientific)
+        genus_match = re.match(r'^([A-Z][a-zA-Z-]+)(?:\s+(?:sp\.?|spp\.?))?$', normalized)
         if genus_match:
             genus = genus_match.group(1)
             result_data['scientific_name'] = f"{genus} sp."
             if not result_data.get('genus'):
                 result_data['genus'] = genus
-            # Slight confidence shave because we're at genus rank, not species.
             result_data['confidence'] = min(float(result_data.get('confidence') or 0), 0.85)
             return result_data
 
         # Family-rank (-idae) or subfamily (-inae). Both valid GBIF taxa.
-        family_match = re.match(r'^([A-Z][a-zA-Z-]+(?:idae|inae))$', scientific)
+        family_match = re.match(r'^([A-Z][a-zA-Z-]+(?:idae|inae))$', normalized)
         if family_match:
             family = family_match.group(1)
             if not result_data.get('family'):
@@ -878,21 +1091,38 @@ Analyze the image now and respond with your classification decision."""
             result_data['confidence'] = min(float(result_data.get('confidence') or 0), 0.80)
             return result_data
 
+        # Order rank (-ptera, -aptera, -optera, -odea) — also resolvable in GBIF.
+        order_value = (result_data.get('order') or '').strip()
+        order_candidate = normalized if re.match(r'^[A-Z][a-z]+(?:ptera|optera|aptera|odea)$', normalized) else (
+            order_value if re.match(r'^[A-Z][a-z]+(?:ptera|optera|aptera|odea)$', order_value) else ''
+        )
+        if order_candidate:
+            result_data['scientific_name'] = order_candidate
+            if not result_data.get('order'):
+                result_data['order'] = order_candidate
+            result_data['confidence'] = min(float(result_data.get('confidence') or 0), 0.70)
+            return result_data
+
         previous = result_data.get('common_name') or result_data.get('identified_species') or result_data.get('order')
+        log.warning(
+            "CLASSIFY downgrade — LLM scientific_name=%r identified_species=%r common=%r order=%r family=%r — none matched binomial/genus/family/order patterns",
+            result_data.get('scientific_name'), result_data.get('identified_species'),
+            result_data.get('common_name'), result_data.get('order'), result_data.get('family'),
+        )
         result_data['scientific_name'] = None
         result_data['identified_species'] = None
         result_data['common_name'] = 'Unidentified arthropod'
         result_data['confidence'] = min(float(result_data.get('confidence') or 0), 0.55)
         warnings = list(result_data.get('warnings') or [])
         warnings.append(
-            "The vision model could not pin down even a family-level identification, so this submission needs manual review"
+            "The vision model could not pin down a genus, family, or order, so this submission needs manual review"
             f"{f' (tentative visual label was: {previous})' if previous else ''}."
         )
         result_data['warnings'] = warnings
         reasoning = result_data.get('reasoning') or ''
         result_data['reasoning'] = (
             reasoning.rstrip() + " "
-            "Because the model did not provide a recognizable genus or family, the taxonomic label was downgraded to unidentified arthropod for manual review."
+            "Because the model did not provide a recognizable genus, family, or order, the taxonomic label was downgraded to unidentified arthropod for manual review."
         ).strip()
         return result_data
 

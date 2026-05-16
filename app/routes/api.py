@@ -260,6 +260,120 @@ def get_bug_random_facts(bug_id):
     }), 200
 
 
+@bp.route('/bug/<int:bug_id>/suggest-species', methods=['POST'])
+@login_required
+def suggest_species_for_bug(bug_id):
+    """Have the lab re-examine this bug's photo and return top species candidates.
+
+    Returns a list of {scientific_name, common_name, image_url, reasoning,
+    confidence} for the admin Edit-Species panel. Each candidate is also looked
+    up against iNaturalist so the UI can show a known-good reference photo.
+    """
+    bug = db.session.get(Bug, bug_id)
+    if not bug:
+        return jsonify({'error': 'Bug not found'}), 404
+    if current_user.role not in ('MODERATOR', 'ADMIN', 'OWNER'):
+        return jsonify({'error': 'Forbidden'}), 403
+
+    import os as _os
+    import re as _re
+    from app.services.llm_manager import LLMService
+
+    image_path = _os.path.join(current_app.config['UPLOAD_FOLDER'], bug.image_path)
+    if not _os.path.exists(image_path):
+        return jsonify({'error': 'Image file not found on disk'}), 404
+
+    try:
+        with open(image_path, 'rb') as fh:
+            import base64 as _b64
+            image_b64 = _b64.b64encode(fh.read()).decode('ascii')
+    except Exception as exc:
+        return jsonify({'error': f'Could not read image: {exc}'}), 500
+
+    # Pick a media type from extension
+    ext = (image_path.rsplit('.', 1)[-1] or 'jpg').lower()
+    media_type = 'image/jpeg' if ext in ('jpg', 'jpeg') else (
+        'image/webp' if ext == 'webp' else f'image/{ext}'
+    )
+
+    prompt = (
+        "You are an expert entomologist. Look at this bug photo and suggest the 3 most likely "
+        "taxonomic identifications.\n\n"
+        "For each candidate, give the most specific name you can defend — binomial preferred, "
+        "then genus, then family. Order names are a last resort.\n\n"
+        "Respond with ONLY this JSON (no prose, no markdown):\n"
+        "{\"candidates\": [\n"
+        "  {\"scientific_name\": \"Genus species or Genus or Family\","
+        " \"common_name\": \"common name or null\","
+        " \"rank\": \"species|genus|family|order\","
+        " \"confidence\": 0.0-1.0,"
+        " \"reasoning\": \"one sentence on what visual features support this ID\"},\n"
+        "  ...two more candidates...\n"
+        "]}"
+    )
+
+    raw = ''
+    try:
+        raw = LLMService().generate(
+            prompt,
+            task='vision_analysis',
+            max_tokens=900,
+            image_data={'base64': image_b64, 'media_type': media_type},
+            json_mode=True,
+        )
+    except Exception as exc:
+        current_app.logger.warning("suggest_species LLM call failed: %s", exc)
+
+    parsed = None
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            m = _re.search(r'\{.*\}', raw, _re.DOTALL)
+            if m:
+                try:
+                    parsed = json.loads(m.group())
+                except Exception:
+                    parsed = None
+
+    candidates = []
+    if isinstance(parsed, dict) and isinstance(parsed.get('candidates'), list):
+        candidates = parsed['candidates'][:5]
+
+    if not candidates:
+        return jsonify({'bug_id': bug_id, 'candidates': [], 'message': 'The lab could not produce suggestions for this photo.'}), 200
+
+    from app.services.taxonomy import iNaturalistLayer
+    inat = iNaturalistLayer()
+    out = []
+    for c in candidates:
+        if not isinstance(c, dict):
+            continue
+        sci = (c.get('scientific_name') or '').strip()
+        if not sci:
+            continue
+        # Try to attach an iNat reference image for this candidate.
+        image_url = None
+        common_name = c.get('common_name')
+        try:
+            inat_data = inat.enrich_dict(sci)
+            image_url = inat_data.get('photo_url')
+            if not common_name:
+                common_name = inat_data.get('common_name')
+        except Exception:
+            pass
+        out.append({
+            'scientific_name': sci,
+            'common_name': common_name,
+            'rank': c.get('rank'),
+            'confidence': c.get('confidence'),
+            'reasoning': c.get('reasoning'),
+            'image_url': image_url,
+        })
+
+    return jsonify({'bug_id': bug_id, 'candidates': out}), 200
+
+
 @bp.route('/bug/<int:bug_id>/stats-reasoning')
 def get_bug_stats_reasoning(bug_id):
     """Return the LLM's per-stat explanation for a bug, if available."""
@@ -487,13 +601,22 @@ def validate_photo():
         info['dimensions'] = f'{w}x{h}'
         info['format'] = img.format or 'unknown'
 
-        if w < 100 or h < 100:
-            errors.append(f'Image is too small ({w}x{h} px). Minimum 100×100 px required.')
-        elif w < 300 or h < 300:
-            warnings.append(f'Image is quite small ({w}x{h} px). A larger photo will give the AI more detail.')
+        # These thresholds must match _preflight_checks in bug_classifier.py
+        # — anything that fails here will also fail at submit, so we surface
+        # it now instead of after the user clicks Submit.
+        MIN_W = MIN_H = 400
+        SOFT_W = SOFT_H = 600
+        if w < MIN_W or h < MIN_H:
+            errors.append(
+                f'Image is too small ({w}×{h} px). Minimum {MIN_W}×{MIN_H} px required for submission.'
+            )
+        elif w < SOFT_W or h < SOFT_H:
+            warnings.append(
+                f'Image is on the small side ({w}×{h} px). A photo at least {SOFT_W}×{SOFT_H} px gives the lab more detail.'
+            )
 
         if w > 6000 or h > 6000:
-            warnings.append(f'Very large image ({w}x{h} px) — it will be resized during processing.')
+            warnings.append(f'Very large image ({w}×{h} px) — it will be resized during processing.')
 
     except Exception:
         errors.append('Could not read the file as an image. Please upload a valid photo (JPEG, PNG, WebP, etc.).')

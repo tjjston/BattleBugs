@@ -10,6 +10,7 @@ Three-layer backbone architecture:
 import json
 import re
 import requests
+from typing import Optional
 from flask import current_app
 from app import db
 from app.models import Species
@@ -341,13 +342,19 @@ class TaxonomyService:
         Returns:
             List of matching species dicts
         """
-        # Simple name search in local cache first
+        # Simple name search in local cache first — but only return arthropod
+        # hits. The local cache could theoretically contain anything if an
+        # older bug submission slipped in a non-arthropod species.
         if mode == 'name':
             cached = Species.query.filter(
                 db.or_(
                     Species.scientific_name.ilike(f'%{query}%'),
                     Species.common_name.ilike(f'%{query}%')
-                )
+                ),
+                db.or_(
+                    Species.phylum == 'Arthropoda',
+                    Species.phylum.is_(None),  # legacy rows pre-phylum
+                ),
             ).all()
             if cached:
                 return [s.to_dict() for s in cached]
@@ -458,23 +465,65 @@ class TaxonomyService:
         candidates.sort(key=lambda x: x['relevance_score'], reverse=True)
         return candidates
     
+    # GBIF backbone classKeys we consider real arthropods (Insecta, Arachnida,
+    # Chilopoda, Diplopoda, Malacostraca, etc.). Used to filter search results
+    # client-side because GBIF's ?class= query param matches loosely and lets
+    # virus and bird results leak through.
+    _ARTHROPOD_CLASSES = {
+        'insecta', 'arachnida', 'chilopoda', 'diplopoda', 'malacostraca',
+        'collembola', 'pauropoda', 'symphyla', 'merostomata', 'pycnogonida',
+        'remipedia', 'cephalocarida', 'branchiopoda', 'maxillopoda', 'ostracoda',
+    }
+
+    @classmethod
+    def _is_arthropod_taxon(cls, result: dict) -> bool:
+        """True if a GBIF/iNat search result looks like an arthropod."""
+        if not isinstance(result, dict):
+            return False
+        phylum = (result.get('phylum') or '').strip().lower()
+        clazz = (result.get('class') or result.get('class_') or result.get('class_name') or '').strip().lower()
+        kingdom = (result.get('kingdom') or '').strip().lower()
+        if phylum == 'arthropoda':
+            return True
+        if clazz in cls._ARTHROPOD_CLASSES:
+            return True
+        # iNat results expose iconic_taxon_name on detail; for search use ancestor_ids if present
+        ancestors = result.get('ancestor_ids') or result.get('ancestors') or []
+        if isinstance(ancestors, list):
+            # iNat taxon_id 47120 == Arthropoda
+            for a in ancestors:
+                aid = a.get('id') if isinstance(a, dict) else a
+                if aid == 47120:
+                    return True
+        # Reject anything explicitly outside Animalia or non-arthropod phyla
+        if kingdom and kingdom != 'animalia':
+            return False
+        return False
+
     def _search_gbif(self, query):
-        """Search GBIF database with improved ranking"""
+        """Search GBIF database with improved ranking, filtered to arthropods."""
         url = f"{self.GBIF_API}/species/search"
         params = {
             'q': query,
-            'class': 'Insecta',
-            'limit': 20  # Get more results for better filtering
+            'phylumKey': 54,  # GBIF backbone key for Arthropoda
+            'status': 'ACCEPTED',
+            'limit': 25,
         }
-        
+
         response = requests.get(url, params=params, timeout=10)
         if response.status_code != 200:
             return []
-        
+
         data = response.json()
         results = []
-        
+
         for result in data.get('results', []):
+            # Defensive: filter again client-side. The phylumKey param is the
+            # strong filter; this catches edge cases like virus matches that
+            # share the search-text.
+            if not self._is_arthropod_taxon(result):
+                continue
+
             species_key = result.get('key')
             scientific_name = result.get('scientificName')
             common_name = result.get('vernacularName')
@@ -562,22 +611,26 @@ class TaxonomyService:
         return results
     
     def _search_inaturalist(self, query):
-        """Search iNaturalist database"""
+        """Search iNaturalist database, restricted to Arthropoda (taxon 47120)."""
         url = f"{self.INATURALIST_API}/taxa"
         params = {
             'q': query,
-            'iconic_taxa': 'Insecta',
-            'per_page': 10
+            'taxon_id': 47120,   # Arthropoda — covers Insecta + Arachnida + others
+            'per_page': 15,
         }
-        
+
         response = requests.get(url, params=params, timeout=10)
         if response.status_code != 200:
             return []
-        
+
         data = response.json()
         results = []
-        
+
         for result in data.get('results', []):
+            # iNat sometimes returns vernacular-name matches outside the filter,
+            # so defend client-side too.
+            if not self._is_arthropod_taxon(result):
+                continue
             photo = result.get('default_photo')
             image_url = photo.get('medium_url') if photo else None
             
@@ -760,11 +813,15 @@ class TaxonomyService:
         return species
     
     def _is_cache_valid(self, species):
-        """Check if cached species data is still valid"""
+        """Check if cached species data is still valid."""
         if not species.last_updated:
             return False
-        
-        age = datetime.now(timezone.utc) - species.last_updated
+        # SQLite drops tzinfo on read, so stored last_updated is naive.
+        # Compare against a naive 'now' to avoid the offset-naive/aware error.
+        last = species.last_updated
+        if last.tzinfo is not None:
+            last = last.astimezone(timezone.utc).replace(tzinfo=None)
+        age = datetime.utcnow() - last
         return age < self.cache_duration
     
     def identify_from_image(self, image_path):
@@ -844,6 +901,16 @@ class TaxonomyService:
         if inat_data.get('wikipedia_url') and not species.wikipedia_url:
             species.wikipedia_url = inat_data['wikipedia_url']
             updated = True
+
+        # If we still don't have a photo after Layer 2, walk the chained
+        # resolver — Wikipedia thumbnail, iNat with cleaned name, then
+        # genus/family/order fallback. Guarantees a usable field-guide image
+        # for ~every arthropod we'll ever store.
+        if not species.image_url:
+            chained = self.resolve_species_image(species)
+            if chained:
+                species.image_url = chained
+                updated = True
 
         # ── Layer 3: Catalogue of Life ──────────────────────────────────────
         col = CatalogueOfLife()
@@ -934,6 +1001,133 @@ class TaxonomyService:
             return facts
         except Exception:
             return []
+
+    @staticmethod
+    def _clean_taxon_name(name: str) -> str:
+        """Strip 'specimen', 'sp.', 'spp.', etc. from a name so iNat search hits.
+
+        e.g. 'Mantodea specimen' -> 'Mantodea'; 'Photinus sp.' -> 'Photinus'
+        """
+        if not name:
+            return ''
+        cleaned = re.sub(
+            r'\s+(specimen|spp?\.?|sp\.?|cf\.?|aff\.?)\b',
+            '',
+            name.strip(),
+            flags=re.IGNORECASE,
+        )
+        return re.sub(r'\s+', ' ', cleaned).strip()
+
+    @staticmethod
+    def _fetch_wikipedia_thumbnail(name: str) -> Optional[str]:
+        """Return Wikipedia's REST-API thumbnail for a taxon name, if any."""
+        if not name:
+            return None
+        try:
+            slug = name.strip().replace(' ', '_')
+            resp = requests.get(
+                f"https://en.wikipedia.org/api/rest_v1/page/summary/{slug}",
+                headers={'User-Agent': 'BattleBugs/1.0 (insectidex enrichment)'},
+                timeout=6,
+            )
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            # Prefer the larger originalimage; fall back to thumbnail.
+            for key in ('originalimage', 'thumbnail'):
+                obj = data.get(key) or {}
+                src = obj.get('source')
+                if src and (src.endswith('.jpg') or src.endswith('.jpeg') or
+                            src.endswith('.png') or src.endswith('.webp')):
+                    return src
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
+    def _fetch_inat_taxon_photo(query: str) -> Optional[str]:
+        """Search iNat /taxa for `query` and return the most-observed taxon's photo.
+
+        Works for any rank — species, genus, family, order — because iNat
+        returns the closest matching taxon ordered by observations_count.
+        """
+        if not query:
+            return None
+        try:
+            resp = requests.get(
+                "https://api.inaturalist.org/v1/taxa",
+                params={
+                    'q': query,
+                    'per_page': 1,
+                    'order_by': 'observations_count',
+                    'order': 'desc',
+                    'taxon_id': 47120,  # Arthropoda — keep us in the right kingdom
+                },
+                headers={'User-Agent': 'BattleBugs/1.0 (insectidex enrichment)'},
+                timeout=6,
+            )
+            if not resp.ok:
+                return None
+            results = resp.json().get('results') or []
+            if not results:
+                return None
+            photo = (results[0].get('default_photo') or {})
+            return photo.get('medium_url') or photo.get('square_url')
+        except Exception:
+            return None
+
+    def resolve_species_image(self, species) -> Optional[str]:
+        """Best-effort image URL for a species, chaining several sources.
+
+        Tries: iNat exact -> Wikipedia REST thumbnail -> iNat-with-cleaned-name
+        -> iNat-by-genus -> iNat-by-family -> iNat-by-order. First non-empty
+        URL wins. Safe to call repeatedly; each call costs at most a handful
+        of external HTTP requests against public APIs.
+        """
+        if not species:
+            return None
+
+        sci = (species.scientific_name or '').strip()
+        common = (species.common_name or '').strip()
+
+        candidates: list[tuple[str, str]] = []  # (source_label, query)
+        if sci:
+            candidates.append(('inat-exact', sci))
+        if common and common.lower() != sci.lower():
+            candidates.append(('inat-common', common))
+        cleaned = self._clean_taxon_name(sci)
+        if cleaned and cleaned != sci:
+            candidates.append(('inat-cleaned', cleaned))
+
+        # iNat first — best photos for arthropods.
+        for label, q in candidates:
+            url = self._fetch_inat_taxon_photo(q)
+            if url:
+                current_app.logger.debug("Image: %s via %s for %r", url, label, q)
+                return url
+
+        # Wikipedia REST thumbnail — works well for genera/families with their
+        # own Wikipedia article.
+        for q in (sci, cleaned, common):
+            if not q:
+                continue
+            url = self._fetch_wikipedia_thumbnail(q)
+            if url:
+                current_app.logger.debug("Image: %s via wikipedia for %r", url, q)
+                return url
+
+        # Climb the taxonomy chain — find a representative photo for the
+        # next-higher rank we have.
+        for higher in (species.genus, species.family, species.order):
+            higher = (higher or '').strip()
+            if not higher:
+                continue
+            url = self._fetch_inat_taxon_photo(higher)
+            if url:
+                current_app.logger.debug("Image: %s via inat higher-taxon %r", url, higher)
+                return url
+
+        return None
 
     @staticmethod
     def _clean_wiki_html(text: str) -> str:

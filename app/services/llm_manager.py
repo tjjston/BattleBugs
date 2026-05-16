@@ -60,7 +60,7 @@ class LLMConfig:
     TASK_MODELS = {
         'battle_narrative': LLMModel.GEMMA_UC_E4B,
         'stat_generation': LLMModel.QWEN36_UC,
-        'vision_analysis': LLMModel.GEMMA4_E4B,
+        'vision_analysis': LLMModel.GEMMA4_31B,  # 18.5 GB; slow but much more accurate
         'species_identification': LLMModel.GEMMA4_E4B,
         'quick_tasks': LLMModel.GEMMA_UC_E4B,  # non-thinking, fast — used for lore/species/nickname helpers
     }
@@ -516,7 +516,9 @@ class LLMService:
             method="POST",
         )
         try:
-            with _urllib.urlopen(req, timeout=300) as resp:
+            # 600s tolerates: cold model load (30-60s for a 18 GB GGUF) +
+            # vision token encoding + slow inference on big models.
+            with _urllib.urlopen(req, timeout=600) as resp:
                 result = json.loads(resp.read())
             return result.get("message", {}).get("content", "") or ""
         except _urlerr.HTTPError as exc:

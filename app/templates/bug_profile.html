@@ -37,16 +37,16 @@
                     {% if bug.vision_confidence %}
                     {% set pct = (bug.vision_confidence * 100)|int %}
                     {% set conf_color = 'success' if pct >= 90 else 'warning' if pct >= 70 else 'danger' %}
-                    <small class="text-muted">AI Confidence: </small>
+                    <small class="text-muted">Lab Confidence: </small>
                     <span class="badge bg-{{ conf_color }}">{{ pct }}%</span>
                     {% endif %}
                     {% if bug.vision_identified_species and bug.scientific_name and bug.vision_identified_species.lower() != bug.scientific_name.lower() %}
                     <div class="small text-muted mt-1">
-                        AI saw: <em>{{ bug.vision_identified_species }}</em><br>
+                        The lab observed: <em>{{ bug.vision_identified_species }}</em><br>
                         Filed as: <em>{{ bug.scientific_name }}</em>
                     </div>
                     {% elif bug.vision_identified_species and bug.scientific_name %}
-                    <div class="small text-success mt-1">✓ AI identification matches species record</div>
+                    <div class="small text-success mt-1">✓ Lab identification matches species record</div>
                     {% endif %}
                 </div>
                 {% endif %}
@@ -56,8 +56,15 @@
                 </div>
                 <div id="speciesEditPanel" class="mt-2 d-none">
                     <form method="POST" action="{{ url_for('bugs.correct_bug_species', bug_id=bug.id) }}">
+                        <button type="button" class="btn btn-outline-info btn-sm w-100 mb-2"
+                                id="adminSuggestSpeciesBtn"
+                                data-bug-id="{{ bug.id }}"
+                                title="Have the lab re-examine the photo">
+                          🧪 Get Lab Suggestions
+                        </button>
+                        <div id="adminLabSuggestions" class="mb-2"></div>
                         <div class="input-group mb-2">
-                            <input type="text" class="form-control" id="adminSpeciesSearch" placeholder="Search species...">
+                            <input type="text" class="form-control" id="adminSpeciesSearch" placeholder="Search species…">
                             <button type="button" class="btn btn-outline-secondary" onclick="adminSearchSpecies()">🔍</button>
                         </div>
                         <div id="adminSpeciesResults"></div>
@@ -530,6 +537,90 @@
     </div>
 </div>
 
+{# ── Species overview modal — auto-opens on a fresh submit redirect ─── #}
+{% if bug.species_info %}
+{%- set _si = bug.species_info -%}
+{%- set _facts_raw = (_si.interesting_facts | fromjson) if _si.interesting_facts else [] -%}
+<div class="modal fade" id="speciesOverviewModal" tabindex="-1" aria-labelledby="speciesOverviewLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="speciesOverviewLabel">
+          Field Guide:
+          <strong>{{ _si.common_name or _si.scientific_name or 'Your bug' }}</strong>
+          {% if _si.scientific_name %}<span class="text-muted fst-italic small ms-2">{{ _si.scientific_name }}</span>{% endif %}
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" style="max-height:75vh; overflow-y:auto;">
+        <div class="row g-3">
+          <div class="col-md-5">
+            {% if _si.image_url %}
+            <img src="{{ _si.image_url }}" alt="{{ _si.common_name or _si.scientific_name }}"
+                 class="img-fluid rounded border"
+                 loading="lazy"
+                 style="width:100%; max-height:260px; object-fit:cover;">
+            {% else %}
+            <div class="rounded border bg-light d-flex align-items-center justify-content-center"
+                 style="height:200px;">
+              <span class="text-muted small">Reference photo not yet available</span>
+            </div>
+            {% endif %}
+            <div class="mt-2 small">
+              {% if _si.order %}<div><strong>Order:</strong> {{ _si.order }}</div>{% endif %}
+              {% if _si.family %}<div><strong>Family:</strong> {{ _si.family }}</div>{% endif %}
+              {% if _si.genus %}<div><strong>Genus:</strong> {{ _si.genus }}</div>{% endif %}
+              {% if _si.average_size_mm %}<div><strong>Avg size:</strong> {{ _si.average_size_mm }} mm</div>{% endif %}
+              {% if _si.conservation_status %}<div><span class="badge bg-info-subtle text-info border">{{ _si.conservation_status }}</span></div>{% endif %}
+              {% if _si.observation_count %}<div class="text-muted">{{ "{:,}".format(_si.observation_count) }} iNaturalist sightings</div>{% endif %}
+            </div>
+          </div>
+          <div class="col-md-7">
+            {% if _si.habitat %}
+            <div class="mb-2">
+              <div class="small text-uppercase text-muted">Habitat</div>
+              <div class="small">{{ _si.habitat }}</div>
+            </div>
+            {% endif %}
+            {% if _si.diet %}
+            <div class="mb-2">
+              <div class="small text-uppercase text-muted">Diet</div>
+              <div class="small">{{ _si.diet }}</div>
+            </div>
+            {% endif %}
+            {% if _facts_raw %}
+            <div class="mb-2">
+              <div class="small text-uppercase text-muted">Cool things about it</div>
+              <ul class="small mb-0 ps-3">
+                {% for fact in _facts_raw[:5] %}<li>{{ fact }}</li>{% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+            {% if _si.wikipedia_url %}
+            <a href="{{ _si.wikipedia_url }}" target="_blank" rel="noopener" class="small">Wikipedia article →</a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <small class="text-muted me-auto">Data drawn from iNaturalist, GBIF, and the Wikipedia knowledge base.</small>
+        <button type="button" class="btn btn-primary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('_celebrate') !== 'submit') return;
+  const el = document.getElementById('speciesOverviewModal');
+  if (!el || !window.bootstrap) return;
+  // Slight delay so the celebrate confetti renders first.
+  setTimeout(() => bootstrap.Modal.getOrCreateInstance(el).show(), 600);
+})();
+</script>
+{% endif %}
+
 {# ── Stats reasoning modal ─────────────────────────────────────────── #}
 {% if bug.stats_reasoning %}
 <div class="modal fade" id="statsReasoningModal" tabindex="-1" aria-labelledby="statsReasoningModalLabel" aria-hidden="true">
@@ -726,44 +817,191 @@ function toggleSpeciesEdit(){
     panel.classList.toggle('d-none');
 }
 
+// Build a species result card via DOM APIs (textContent only, no innerHTML)
+// so a malicious common_name or order can't inject markup. Returns an element.
+function _adminSpeciesCard(sp, onPick) {
+    const card = document.createElement('div');
+    card.className = 'species-result';
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', () => onPick(sp));
+
+    const wrap = document.createElement('div');
+    wrap.className = 'species-result-content';
+    wrap.style.display = 'flex';
+    wrap.style.gap = '8px';
+    wrap.style.alignItems = 'center';
+
+    if (sp.image_url) {
+        const img = document.createElement('img');
+        img.src = sp.image_url;
+        img.className = 'species-image';
+        img.style.width = '54px';
+        img.style.height = '54px';
+        img.style.objectFit = 'cover';
+        img.style.borderRadius = '4px';
+        img.alt = sp.common_name || sp.scientific_name || '';
+        img.loading = 'lazy';
+        img.onerror = function () {
+            const ph = document.createElement('div');
+            ph.className = 'species-image-placeholder';
+            ph.style.cssText = 'width:54px;height:54px;display:flex;align-items:center;justify-content:center;background:#f0f0f0;border-radius:4px;font-size:1.6rem;';
+            ph.textContent = '🐛';
+            img.replaceWith(ph);
+        };
+        wrap.appendChild(img);
+    } else {
+        const ph = document.createElement('div');
+        ph.className = 'species-image-placeholder';
+        ph.style.cssText = 'width:54px;height:54px;display:flex;align-items:center;justify-content:center;background:#f0f0f0;border-radius:4px;font-size:1.6rem;';
+        ph.textContent = '🐛';
+        wrap.appendChild(ph);
+    }
+
+    const info = document.createElement('div');
+    info.className = 'species-info';
+    info.style.flex = '1';
+    const title = document.createElement('h6');
+    title.style.marginBottom = '2px';
+    title.textContent = sp.common_name || sp.scientific_name || '(unnamed)';
+    info.appendChild(title);
+
+    if (sp.scientific_name && sp.common_name && sp.scientific_name !== sp.common_name) {
+        const sci = document.createElement('div');
+        sci.style.cssText = 'font-size:0.78em;color:#888;font-style:italic;';
+        sci.textContent = sp.scientific_name;
+        info.appendChild(sci);
+    }
+
+    const taxoBits = [];
+    if (sp.order) taxoBits.push(sp.order);
+    if (sp.family) taxoBits.push(sp.family);
+    if (sp.rank) taxoBits.push('rank: ' + sp.rank);
+    if (taxoBits.length) {
+        const taxo = document.createElement('div');
+        taxo.style.cssText = 'font-size:0.78em;color:#6c757d;';
+        taxo.textContent = taxoBits.join(' · ');
+        info.appendChild(taxo);
+    }
+    if (sp.reasoning) {
+        const rs = document.createElement('div');
+        rs.style.cssText = 'font-size:0.75em;color:#555;margin-top:2px;';
+        rs.textContent = sp.reasoning;
+        info.appendChild(rs);
+    }
+    if (typeof sp.confidence === 'number') {
+        const cf = document.createElement('div');
+        cf.style.cssText = 'font-size:0.7em;color:#888;';
+        cf.textContent = 'Lab confidence: ' + Math.round(sp.confidence * 100) + '%';
+        info.appendChild(cf);
+    }
+    wrap.appendChild(info);
+    card.appendChild(wrap);
+    return card;
+}
+
 function adminSearchSpecies(){
     const q = document.getElementById('adminSpeciesSearch').value;
     const container = document.getElementById('adminSpeciesResults');
-    if(!q) { container.innerHTML = '<div class="text-muted">Enter a query</div>'; return; }
-    container.innerHTML = '<div class="spinner-border" role="status"></div>';
-    fetch(`/api/species/search?q=${encodeURIComponent(q)}`)
+    if(!q) {
+        container.replaceChildren();
+        const div = document.createElement('div');
+        div.className = 'text-muted';
+        div.textContent = 'Enter a query';
+        container.appendChild(div);
+        return;
+    }
+    const spinner = document.createElement('div');
+    spinner.className = 'spinner-border';
+    spinner.setAttribute('role', 'status');
+    container.replaceChildren(spinner);
+
+    fetch(`/api/species/search?q=${encodeURIComponent(q)}`, { credentials: 'same-origin' })
         .then(r => r.json())
         .then(data => {
+            container.replaceChildren();
             if(!Array.isArray(data) || data.length === 0){
-                container.innerHTML = '<div class="alert alert-info">No species found</div>';
+                const alert = document.createElement('div');
+                alert.className = 'alert alert-info';
+                alert.textContent = 'No species found';
+                container.appendChild(alert);
                 return;
             }
-            let html = '';
-            data.forEach(sp => {
-                html += `<div class="species-result" onclick='adminSelectSpecies(${JSON.stringify(sp).replace(/'/g, "&apos;")})'>` +
-                        `<div class="species-result-content">` +
-                        (sp.image_url?`<img src="${sp.image_url}" class="species-image">`:`<div class="species-image-placeholder">🐛</div>`) +
-                        `<div class="species-info"><h6>${sp.common_name || sp.scientific_name}</h6><div style="font-size:0.9em;color:#6c757d">${sp.order||''} ${sp.family||''}</div></div>`+
-                        `</div></div>`;
-            });
-            container.innerHTML = html;
+            data.forEach(sp => container.appendChild(_adminSpeciesCard(sp, adminSelectSpecies)));
         })
-        .catch(e=>{ container.innerHTML = '<div class="alert alert-danger">Error searching</div>'; });
+        .catch(() => {
+            container.replaceChildren();
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-danger';
+            alert.textContent = 'Error searching';
+            container.appendChild(alert);
+        });
 }
 
 function adminSelectSpecies(spec){
     document.getElementById('admin_species_id').value = spec.id || '';
     document.getElementById('admin_common_name').value = spec.common_name || '';
     document.getElementById('admin_scientific_name').value = spec.scientific_name || '';
-    // Highlight selected — show confirmation using DOM (not innerHTML)
-    var res = document.getElementById('adminSpeciesResults');
+    const res = document.getElementById('adminSpeciesResults');
     if (res) {
-      var msg = document.createElement('div');
-      msg.className = 'alert alert-success';
-      msg.textContent = 'Selected: ' + (spec.common_name || spec.scientific_name);
-      res.replaceChildren(msg);
+        const msg = document.createElement('div');
+        msg.className = 'alert alert-success';
+        msg.textContent = 'Selected: ' + (spec.common_name || spec.scientific_name || '—');
+        res.replaceChildren(msg);
     }
+    const labs = document.getElementById('adminLabSuggestions');
+    if (labs) labs.replaceChildren();
 }
+
+// Lab-suggested species — re-runs the lab on the bug's existing photo.
+(function () {
+    const btn = document.getElementById('adminSuggestSpeciesBtn');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+        const bugId = btn.getAttribute('data-bug-id');
+        const target = document.getElementById('adminLabSuggestions');
+        if (!target) return;
+        target.replaceChildren();
+
+        const spinner = document.createElement('div');
+        spinner.className = 'spinner-border spinner-border-sm';
+        spinner.setAttribute('role', 'status');
+        const wait = document.createElement('div');
+        wait.className = 'small text-muted mt-1';
+        wait.textContent = 'The lab is examining the photo…';
+        target.appendChild(spinner);
+        target.appendChild(wait);
+        btn.disabled = true;
+
+        fetch(`/api/bug/${encodeURIComponent(bugId)}/suggest-species`, {
+            method: 'POST',
+            credentials: 'same-origin',
+        })
+        .then(r => r.json())
+        .then(data => {
+            target.replaceChildren();
+            if (!data || !Array.isArray(data.candidates) || data.candidates.length === 0) {
+                const alert = document.createElement('div');
+                alert.className = 'alert alert-warning small';
+                alert.textContent = (data && data.message) || 'No suggestions returned.';
+                target.appendChild(alert);
+                return;
+            }
+            const heading = document.createElement('div');
+            heading.className = 'small text-muted text-uppercase mb-1';
+            heading.textContent = 'Lab suggestions — pick one to fill the form';
+            target.appendChild(heading);
+            data.candidates.forEach(c => target.appendChild(_adminSpeciesCard(c, adminSelectSpecies)));
+        })
+        .catch(err => {
+            target.replaceChildren();
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-danger small';
+            alert.textContent = 'The lab could not analyse the photo: ' + (err && err.message ? err.message : 'unknown error');
+            target.appendChild(alert);
+        })
+        .finally(() => { btn.disabled = false; });
+    });
+})();
 
 // Release bug loading state
 (function() {

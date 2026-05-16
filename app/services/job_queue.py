@@ -154,30 +154,25 @@ def _run_taxonomy_job(job: Job) -> dict:
 
 
 def _run_stat_recalculation_job(job: Job) -> dict:
+    """Background recalculation — defers to LLMStatGenerator.regenerate_stats_for_bug
+    so we pick up species-baseline normalization, visual observations,
+    stats_reasoning persistence, and ability_slug resolution (rather than
+    re-implementing a partial copy of that flow)."""
     bug = _bug_from_job(job)
-    from app.services.tier_system import LLMStatGenerator, TierSystem
+    from app.services.tier_system import LLMStatGenerator
 
     generator = LLMStatGenerator()
-    stats = generator.generate_stats_with_llm({
-        'scientific_name': bug.scientific_name,
-        'common_name': bug.common_name,
-        'size_mm': bug.species_info.average_size_mm if bug.species_info else None,
-        'traits': [],
-        'species_info': bug.species_info.to_dict() if bug.species_info else None,
-    })
-    bug.attack = stats['attack']
-    bug.defense = stats['defense']
-    bug.speed = stats['speed']
-    bug.lethality = stats.get('lethality', bug.lethality)
-    bug.grip = stats.get('grip', bug.grip)
-    bug.cunning = stats.get('cunning', bug.cunning)
-    bug.special_ability = stats.get('special_ability')
+    bug = generator.regenerate_stats_for_bug(bug)
     bug.stats_generation_method = 'llm_recalc_job'
-    bug.stats_generated = True
-    bug.tier = TierSystem.assign_tier(bug)
     db.session.add(bug)
     db.session.commit()
-    return {'bug_id': bug.id, 'stats': stats}
+    return {
+        'bug_id': bug.id,
+        'stats': {
+            'attack': bug.attack, 'defense': bug.defense, 'speed': bug.speed,
+            'lethality': bug.lethality, 'grip': bug.grip, 'cunning': bug.cunning,
+        },
+    }
 
 
 def _mark_bug_enrichment_failed(job: Job, error: str) -> None:

@@ -652,7 +652,7 @@ def recalc_bug_stats(bug_id):
     try:
         generator = LLMStatGenerator()
         generator.regenerate_stats_for_bug(bug)
-        flash('Stats recalculated and applied by AI.', 'success')
+        flash('Stats recalculated and applied by the lab.', 'success')
     except Exception as e:
         db.session.rollback()
         flash(f'Stat recalculation failed: {e}', 'danger')
@@ -726,6 +726,26 @@ def insectidex():
      .order_by(_desc('discoveries'))\
      .limit(10).all()
     discovery_leaders = [{'user_id': r.id, 'username': r.username, 'count': r.discoveries} for r in leader_rows]
+
+    # Kick a background re-enrichment for species missing an iNat image so
+    # the field-guide view backfills over time. We don't block the request.
+    _missing_img_ids = [r.id for r in species_rows if not r.image_url][:8]
+    if _missing_img_ids:
+        import threading as _threading
+        _app = current_app._get_current_object()
+        def _bg_enrich(app, ids):
+            try:
+                with app.app_context():
+                    from app.services.taxonomy import TaxonomyService
+                    svc = TaxonomyService()
+                    for sid in ids:
+                        try:
+                            svc.enrich_species(sid)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        _threading.Thread(target=_bg_enrich, args=(_app, _missing_img_ids), daemon=True).start()
 
     entries = []
     for row in species_rows:

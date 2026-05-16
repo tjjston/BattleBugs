@@ -73,17 +73,25 @@
             <div style="background:#28a745;color:white;font-size:0.65rem;text-align:center;margin:-10px -10px 8px;padding:2px 4px;font-weight:bold;">🌍 WORLD FIRST</div>
             {% endif %}
 
-            {% set _img = s.species_image_url or (url_for('main.uploaded_file', filename=s.image_path) if s.image_path else None) %}
-            {% if _img %}
+            {# Always use the iNaturalist species photo so the field-guide
+               look is consistent — fall through to a styled placeholder if
+               iNat hasn't yet resolved a photo for this species. We
+               deliberately do NOT fall back to a user-uploaded bug photo
+               here; user photos vary wildly in quality and framing. #}
+            {% if s.species_image_url %}
             <a href="{{ url_for('bugs.insectidex_species', species_id=s.id) }}">
-              <img src="{{ _img }}"
+              <img src="{{ s.species_image_url }}"
                    style="width:100%;height:120px;object-fit:contain;background:#fafafa;"
                    alt="{{ s.common_name or s.scientific_name }}"
+                   loading="lazy"
                    {% if s.facts %}title="{{ s.facts[0] }}"{% endif %}>
             </a>
             {% else %}
             <a href="{{ url_for('bugs.insectidex_species', species_id=s.id) }}" style="text-decoration:none;">
-              <div style="width:100%;height:120px;display:flex;align-items:center;justify-content:center;font-size:3rem;background:#f8f8f0;">🐛</div>
+              <div style="width:100%;height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f8f8f0;color:#888;">
+                <div style="font-size:2.4rem;line-height:1;">🐛</div>
+                <div style="font-size:0.6rem;letter-spacing:0.05em;text-transform:uppercase;margin-top:4px;">field guide image pending</div>
+              </div>
             </a>
             {% endif %}
 
