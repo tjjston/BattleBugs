@@ -566,80 +566,71 @@ class LLMBugClassifier:
     ]
 
     def _llm_feature_extraction(self, image_data: str, media_type: str) -> dict:
-        """Pass 1: ask the vision model to describe what it SEES, no taxonomy.
+        """Pass 1: ask the vision model for a plain-prose feature description.
 
-        Returns a small dict of structured visual observations. Used as
-        context for Pass 2 and as a sanity check against Pass 2's taxonomic
-        claim. Failure here is non-fatal — we just skip the cross-check.
+        Returns a dict with one key 'prose' (string) and 'haystack' (the same
+        text lowercased for substring matching by the consistency rules).
+        We deliberately do NOT ask for structured JSON here — vision models
+        often fail JSON-mode on the first call and return empty content.
+        Prose is more robust and the consistency rules just need substring
+        hits anyway. Failure is non-fatal.
         """
         log = current_app.logger
         model = self._ensure_vision_model(self._get_preferred_model())
 
         prompt = (
-            "You are an entomologist examining a bug photograph. DO NOT name a species yet.\n"
-            "Look at the image and report ONLY the visual features you can see. Stick to what is plainly visible.\n\n"
-            "Respond with this exact JSON shape (no markdown, no prose):\n"
-            "{\n"
-            '  "body_shape": "elongate / oval / hourglass / teardrop / cylindrical / spherical",\n'
-            '  "legs_visible": <integer count of legs you can see, or null>,\n'
-            '  "wings": "hard elytra (beetle wing covers) / two clear pairs / one pair clear / single small pair / scaled (butterfly/moth) / none visible / not visible",\n'
-            '  "antennae": "long thin filiform / short clubbed / feathered (plumose) / elbowed / none visible",\n'
-            '  "mouthparts": "long needle proboscis / chewing mandibles / pincers/forceps / coiled tongue / not visible",\n'
-            '  "eyes": "large compound eyes / small simple eyes / not visible",\n'
-            '  "abdomen": "segmented dark / glowing or luminescent tip / hairy / armored / striped / not visible",\n'
-            '  "limbs_special": "raptorial forelegs / jumping hind legs / suction pads / claws/hooks / web spinnerets / none",\n'
-            '  "colors": "short comma-separated palette",\n'
-            '  "size_estimate_mm": <integer or null>,\n'
-            '  "posture": "stationary / threat display / mid-flight / curled / extended",\n'
-            '  "habitat_visible": "leaf / soil / bark / web / water / human-made surface / unknown",\n'
-            '  "diagnostic_features": ["3-5 short phrases naming the most distinctive features visible"]\n'
-            "}"
+            "You are an entomologist examining a bug photograph.\n"
+            "DO NOT name a species yet. Describe what you actually SEE.\n\n"
+            "Write 5-8 short bullet points covering, in plain English:\n"
+            "  • body shape and segmentation\n"
+            "  • how many legs are visible\n"
+            "  • wings (hard elytra? clear membranes? scaled? folded? none?)\n"
+            "  • antennae (long thin / clubbed / feathered / none)\n"
+            "  • mouthparts (needle proboscis / chewing mandibles / pincers / coiled tongue / not visible)\n"
+            "  • abdomen — IS THERE A GLOWING OR LIGHT-PRODUCING ORGAN at the tip? state it explicitly if yes\n"
+            "  • dominant colors and any striking patterns\n"
+            "  • posture and the surface the bug is on\n\n"
+            "Use simple phrases like 'glowing abdomen', 'hard elytra', 'needle proboscis', "
+            "'raptorial forelegs', 'eight legs', 'narrow waist', 'feathered antennae'. "
+            "These exact phrases are checked against a feature-to-family rule table — "
+            "if the bug has a glowing tail, SAY 'glowing abdomen' or 'light organ at tip'."
         )
 
-        try:
-            response = self.llm.generate(
-                prompt=prompt,
-                task='vision_analysis',
-                model=model,
-                image_data={'base64': image_data, 'media_type': media_type},
-                max_tokens=600,
-                temperature=0.1,
-                json_mode=True,
-            )
-        except Exception as exc:
-            log.warning("Pass 1 (feature extraction) failed: %s", exc)
+        # Retry on empty — cold loads on a big vision GGUF often return ""
+        # the first time, then succeed on the retry against a warm model.
+        response = ''
+        last_error = None
+        for attempt in range(2):
+            try:
+                response = self.llm.generate(
+                    prompt=prompt,
+                    task='vision_analysis',
+                    model=model,
+                    image_data={'base64': image_data, 'media_type': media_type},
+                    max_tokens=400,
+                    temperature=0.3,   # slightly warmer; deterministic temp produced empties
+                )
+            except Exception as exc:
+                last_error = exc
+                log.warning("Pass 1 attempt %d failed: %s", attempt + 1, exc)
+                continue
+            if response and response.strip():
+                break
+
+        if not response or not response.strip():
+            log.warning("Pass 1 (feature extraction) returned empty after 2 attempts; last_error=%s", last_error)
             return {}
 
-        if not response:
-            log.warning("Pass 1 (feature extraction) returned empty response")
-            return {}
-
-        log.warning("PASS1 raw features (%d chars): %s", len(response), response[:600])
-        try:
-            return _extract_json(response) or {}
-        except Exception as exc:
-            log.warning("Pass 1 JSON parse failed: %s", exc)
-            return {}
+        log.warning("PASS1 prose (%d chars): %s", len(response), response[:600])
+        prose = response.strip()
+        return {'prose': prose, 'haystack': prose.lower()}
 
     def _features_summary(self, features: dict) -> str:
-        """Render Pass-1 features as a compact bullet list for the Pass-2 prompt."""
-        if not features:
+        """Render Pass-1 features as a bullet block for the Pass-2 prompt."""
+        prose = (features or {}).get('prose')
+        if not prose:
             return "(no features available)"
-        keys = [
-            'body_shape', 'legs_visible', 'wings', 'antennae', 'mouthparts',
-            'eyes', 'abdomen', 'limbs_special', 'colors', 'size_estimate_mm',
-            'posture', 'habitat_visible',
-        ]
-        lines = []
-        for k in keys:
-            v = features.get(k)
-            if v in (None, '', [], {}):
-                continue
-            lines.append(f"- {k}: {v}")
-        diag = features.get('diagnostic_features') or []
-        if diag:
-            lines.append("- diagnostic_features: " + "; ".join(str(d) for d in diag))
-        return "\n".join(lines) if lines else "(no features available)"
+        return prose
 
     def _consistency_warnings(self, features: dict, result_data: dict) -> list[str]:
         """Cross-check Pass-1 visual features against Pass-2's named taxon."""
@@ -650,13 +641,17 @@ class LLMBugClassifier:
         if not order and not family:
             return []
 
-        haystack_parts = []
-        for v in features.values():
-            if isinstance(v, str):
-                haystack_parts.append(v.lower())
-            elif isinstance(v, list):
-                haystack_parts.extend(str(x).lower() for x in v)
-        haystack = " | ".join(haystack_parts)
+        # Prefer the prebuilt lowercase haystack (from prose Pass 1); fall back
+        # to flattening structured features (older callers/tests).
+        haystack = features.get('haystack')
+        if not haystack:
+            haystack_parts = []
+            for v in features.values():
+                if isinstance(v, str):
+                    haystack_parts.append(v.lower())
+                elif isinstance(v, list):
+                    haystack_parts.extend(str(x).lower() for x in v)
+            haystack = " | ".join(haystack_parts)
 
         warnings_out = []
         for feature_phrase, allowed_orders, allowed_families in self._FEATURE_TAXON_RULES:
@@ -710,6 +705,10 @@ class LLMBugClassifier:
         media_type = media_types.get(ext, 'image/jpeg')
 
         # ── Pass 1: feature extraction ─────────────────────────────────
+        # (Skipped pre-warm: the text-only ping ran through the OpenAI-compat
+        # /v1 path with a 45s timeout — it consistently failed during cold
+        # load and just added 45s of waste. We rely instead on Pass 1's own
+        # retry-on-empty inside _llm_feature_extraction.)
         features = self._llm_feature_extraction(image_data, media_type)
         features_block = self._features_summary(features)
 
@@ -921,9 +920,18 @@ The user believes this might be: "{user_species_guess}"
 
 Your job: Analyze this image and determine if it should be APPROVED or REJECTED.
 
-**Submission Context:**
+**Submission Context (USE THIS — keywords in the user's description are strong taxonomic hints):**
 {f"User's chosen name: {nickname}" if nickname else "No name provided yet"}
 {f"User's description: {description}" if description else "No description provided"}
+
+Context interpretation rules:
+- "firefly", "lightning bug", "glowing tail", "lit up at night" → strongly suggests Lampyridae. Default to Lampyridae unless visible morphology rules it out.
+- "hovering above flowers", "looked like a bee/wasp but stationary" → Syrphidae (hover flies), not Apidae or Vespidae.
+- "mosquito", "biting me", "needle proboscis", "near standing water" → Culicidae.
+- "huge bee at dawn", "fast" → could be carpenter bee or a hawkmoth bee-mimic; check antennae shape.
+- "praying", "stick-shaped raptorial arms" → Mantodea.
+- "spider but tucked legs / round flat body / dog tick" → Ixodidae (ticks), not Araneae.
+Treat the description as supplementary evidence — not gospel — but DO use it to break ties between visually similar families.
 {f"Pre-flight warnings: {', '.join(preflight_warnings)}" if preflight_warnings else "No pre-flight issues"}
 {classifier_hint_section}{user_hint_section}
 
@@ -1001,6 +1009,21 @@ If you see those features, return at least `scientific_name: "Culicidae"`. If yo
 🕷️ **TICK vs. SPIDER — another common miss:**
 Ticks are arachnids, not insects and not spiders. They have an oval flattened body, compact fused-looking body regions, no narrow spider waist, and legs clustered toward the front. Common hard ticks belong to order `Ixodida`, family `Ixodidae`.
 Do not call a tick a ground spider. If the image shows a hard tick but you cannot identify species, return at least `scientific_name: "Ixodidae"`.
+
+✨ **FIREFLY (Lampyridae) vs. SOLDIER BEETLE (Cantharidae) — extremely common confusion:**
+Both are soft-bodied Coleoptera with elongate bodies and similar coloration. Tell them apart by:
+- Pronotum SHAPE: fireflies have a broad **shield-shaped pronotum that fully covers and conceals the head from above**; soldier beetles have a smaller, narrower pronotum and the head is plainly visible.
+- ABDOMEN tip: fireflies have **light-producing organs (lanterns)** on the last 1-2 abdominal segments — these appear as paler, cream/yellow patches even when the bug is not actively glowing. Soldier beetles do NOT have light organs.
+- Context clues from the submission: photos taken **at dusk, near porch lights, with luminous activity mentioned, or with "firefly"/"lightning bug" in the description** strongly indicate Lampyridae.
+- Pattern: fireflies often have a red/orange pronotum with a dark central spot; soldier beetles have more uniformly colored pronota.
+If ANY of these firefly signals are present, return `scientific_name: "Lampyridae"` (or the genus like `Photinus`/`Photuris` if you can read it), NOT `Cantharidae`.
+
+🐝 **HOVER FLY (Syrphidae) vs. BEE/WASP — Batesian mimic confusion:**
+Hover flies are flies (order Diptera, family Syrphidae) that mimic bees and wasps with yellow-black banding. Distinguishing features:
+- Hover flies have ONE pair of wings + halteres (knob-like balancers behind the wings); bees/wasps have TWO pairs of wings.
+- Hover flies have large fly eyes that cover most of the head; bees/wasps have smaller eyes leaving room for ocelli on top of the head.
+- Hover flies have short stubby antennae; bees have longer thread-like or elbowed antennae.
+- Hover flies are often photographed hovering motionless above flowers — bees are usually landed and walking around the flower.
 
 **YOUR RESPONSE FORMAT (JSON only, no markdown):**
 {{

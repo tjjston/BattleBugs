@@ -503,6 +503,7 @@ class LLMService:
             "model": model.model_name,
             "messages": messages,
             "stream": False,
+            "keep_alive": "30m",  # keep big vision models resident between calls
             "options": {
                 "num_predict": max_tokens,
                 "temperature": temperature,
@@ -516,9 +517,11 @@ class LLMService:
             method="POST",
         )
         try:
-            # 600s tolerates: cold model load (30-60s for a 18 GB GGUF) +
-            # vision token encoding + slow inference on big models.
-            with _urllib.urlopen(req, timeout=600) as resp:
+            # 1200s tolerates: VRAM-eviction-driven cold load on big GGUFs
+            # (can be 90-180s when another model is resident) + vision token
+            # encoding + slow inference. User has explicitly OK'd long waits
+            # in exchange for accuracy.
+            with _urllib.urlopen(req, timeout=1200) as resp:
                 result = json.loads(resp.read())
             return result.get("message", {}).get("content", "") or ""
         except _urlerr.HTTPError as exc:

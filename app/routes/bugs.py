@@ -659,6 +659,94 @@ def recalc_bug_stats(bug_id):
     return redirect(url_for('bugs.view_bug', bug_id=bug.id))
 
 
+@bp.route('/bug/<int:bug_id>/reclassify', methods=['POST'])
+@login_required
+def reclassify_bug(bug_id):
+    """Admin/mod-only: re-run the lab on this bug's saved photo and update
+    its scientific_name, common_name, order, family, and species_id from the
+    fresh classification. Uses the two-pass + feature-consistency pipeline.
+    """
+    bug = db.get_or_404(Bug, bug_id)
+    if current_user.role not in ('MODERATOR', 'ADMIN', 'OWNER'):
+        flash('Only moderators and admins can re-classify a bug.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    image_path = os.path.join(current_app.config['UPLOAD_FOLDER'], bug.image_path)
+    if not os.path.exists(image_path):
+        flash('Image file is missing on disk — cannot re-classify.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    from app.services.bug_classifier import LLMBugClassifier
+    classifier = LLMBugClassifier()
+
+    try:
+        result = classifier._llm_comprehensive_analysis(
+            image_path=image_path,
+            nickname=bug.nickname,
+            description=bug.description,
+            user_species_guess=None,
+            preflight_warnings=[],
+        )
+        # Run GBIF backbone normalisation so we end up with canonical names.
+        result = classifier._normalize_species_via_backbone(result)
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Re-classification failed: {e}', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    if not result.approved:
+        flash('The lab still cannot identify this bug confidently.', 'warning')
+        for r in (result.rejection_reasons or [])[:3]:
+            flash(f'• {r}', 'info')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    old_label = f"{bug.scientific_name or bug.common_name or 'Unknown'}"
+
+    # Update names and confidence.
+    if result.scientific_name:
+        bug.scientific_name = result.scientific_name
+    if result.common_name:
+        bug.common_name = result.common_name
+    bug.vision_confidence = result.confidence
+    bug.vision_identified_species = result.identified_species or result.scientific_name
+    bug.requires_manual_review = result.confidence < 0.70
+
+    # Resolve / cache the species and link the bug to it.
+    species_info = None
+    if result.scientific_name:
+        from app.services.taxonomy import TaxonomyService
+        taxonomy = TaxonomyService()
+        try:
+            species_info = taxonomy.get_species_details(scientific_name=result.scientific_name)
+        except Exception as exc:
+            current_app.logger.warning("Re-classify taxonomy lookup failed: %s", exc)
+        if not species_info and result.order:
+            from app.models import Species
+            species_info = Species(
+                scientific_name=result.scientific_name,
+                common_name=result.common_name,
+                order=result.order,
+                family=result.family,
+                data_source='reclassify_llm',
+            )
+            db.session.add(species_info)
+            db.session.flush()
+        if species_info:
+            bug.species_id = species_info.id
+
+    db.session.commit()
+
+    new_label = f"{bug.scientific_name or bug.common_name or 'Unknown'}"
+    if old_label.lower() == new_label.lower():
+        flash(f'Re-classification confirmed: still {new_label} (confidence {result.confidence:.0%}).', 'info')
+    else:
+        flash(f'Re-classified: {old_label} → {new_label} (confidence {result.confidence:.0%}).', 'success')
+    for w in (result.warnings or [])[:3]:
+        flash(w, 'warning')
+
+    return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+
 @bp.route('/bug/<int:bug_id>/recalc/deny', methods=['POST'])
 @login_required
 def deny_recalc_bug_stats(bug_id):
