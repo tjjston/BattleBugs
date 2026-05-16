@@ -842,12 +842,40 @@ Analyze the image now and respond with your classification decision."""
         return prompt
 
     def _downgrade_uncertain_taxonomy(self, result_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Avoid storing vague local-model guesses as authoritative IDs."""
+        """Keep partial taxonomic IDs (genus or family) instead of nuking them.
+
+        Field-photo identification often only resolves to family or genus rank
+        — both are valid GBIF/iNaturalist ranks. We only fully downgrade to
+        "Unidentified arthropod" when the model returns prose, an order name,
+        or nothing at all.
+        """
         if not result_data.get('approved'):
             return result_data
         scientific = (result_data.get('scientific_name') or '').strip()
-        has_binomial = bool(re.match(r'^[A-Z][a-zA-Z-]+\s+[a-z][a-zA-Z-]+(?:\s+[a-z][a-zA-Z-]+)?$', scientific))
-        if has_binomial:
+
+        # Strict binomial — accept and return as-is.
+        if re.match(r'^[A-Z][a-zA-Z-]+\s+[a-z][a-zA-Z-]+(?:\s+[a-z][a-zA-Z-]+)?$', scientific):
+            return result_data
+
+        # Genus only ("Photinus", "Vespula") — strip optional "sp." / "spp.".
+        genus_match = re.match(r'^([A-Z][a-zA-Z-]+)(?:\s+(?:sp\.?|spp\.?))?$', scientific)
+        if genus_match:
+            genus = genus_match.group(1)
+            result_data['scientific_name'] = f"{genus} sp."
+            if not result_data.get('genus'):
+                result_data['genus'] = genus
+            # Slight confidence shave because we're at genus rank, not species.
+            result_data['confidence'] = min(float(result_data.get('confidence') or 0), 0.85)
+            return result_data
+
+        # Family-rank (-idae) or subfamily (-inae). Both valid GBIF taxa.
+        family_match = re.match(r'^([A-Z][a-zA-Z-]+(?:idae|inae))$', scientific)
+        if family_match:
+            family = family_match.group(1)
+            if not result_data.get('family'):
+                result_data['family'] = family
+            result_data['scientific_name'] = family
+            result_data['confidence'] = min(float(result_data.get('confidence') or 0), 0.80)
             return result_data
 
         previous = result_data.get('common_name') or result_data.get('identified_species') or result_data.get('order')
@@ -857,14 +885,14 @@ Analyze the image now and respond with your classification decision."""
         result_data['confidence'] = min(float(result_data.get('confidence') or 0), 0.55)
         warnings = list(result_data.get('warnings') or [])
         warnings.append(
-            "The local vision model did not return a reliable scientific name, so this submission needs manual review"
+            "The vision model could not pin down even a family-level identification, so this submission needs manual review"
             f"{f' (tentative visual label was: {previous})' if previous else ''}."
         )
         result_data['warnings'] = warnings
         reasoning = result_data.get('reasoning') or ''
         result_data['reasoning'] = (
             reasoning.rstrip() + " "
-            "Because the local model did not provide a real binomial scientific name, the taxonomic label was downgraded to unidentified arthropod for manual review."
+            "Because the model did not provide a recognizable genus or family, the taxonomic label was downgraded to unidentified arthropod for manual review."
         ).strip()
         return result_data
 

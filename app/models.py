@@ -266,10 +266,12 @@ class Bug(db.Model):
     xfactor_reason = db.Column(db.Text)
     
     special_ability = db.Column(db.String(200))
+    ability_slug = db.Column(db.String(80))  # canonical ability_catalog key
     
     # Stats metadata
     stats_generated = db.Column(db.Boolean, default=False)
     stats_generation_method = db.Column(db.String(50))
+    stats_reasoning = db.Column(db.Text)  # JSON: per-stat justification + summary from LLM
     
     # Flair system
     flair = db.Column(db.String(100))

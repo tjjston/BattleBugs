@@ -223,6 +223,96 @@ def get_bug_achievements(bug_id):
     }), 200
 
 
+@bp.route('/bug/<int:bug_id>/facts/sample')
+def get_bug_random_facts(bug_id):
+    """Return a random sample of N species facts for shuffle refresh.
+
+    Query params: ?count=3 (default 3, capped at 10).
+    """
+    import json as _json
+    import random as _r
+
+    bug = db.session.get(Bug, bug_id)
+    if not bug:
+        return jsonify({'error': 'Bug not found'}), 404
+
+    try:
+        count = max(1, min(10, int(request.args.get('count', 3))))
+    except (TypeError, ValueError):
+        count = 3
+
+    pool = []
+    if bug.species_info and bug.species_info.interesting_facts:
+        try:
+            raw = _json.loads(bug.species_info.interesting_facts) or []
+            pool = [f for f in raw if isinstance(f, str) and f.strip()]
+        except Exception:
+            pool = []
+
+    if not pool:
+        return jsonify({'bug_id': bug_id, 'facts': [], 'pool_size': 0}), 200
+
+    _r.shuffle(pool)
+    return jsonify({
+        'bug_id': bug_id,
+        'facts': pool[:count],
+        'pool_size': len(pool),
+    }), 200
+
+
+@bp.route('/bug/<int:bug_id>/stats-reasoning')
+def get_bug_stats_reasoning(bug_id):
+    """Return the LLM's per-stat explanation for a bug, if available."""
+    import json as _json
+    bug = db.session.get(Bug, bug_id)
+    if not bug:
+        return jsonify({'error': 'Bug not found'}), 404
+
+    raw = bug.stats_reasoning
+    if not raw:
+        return jsonify({
+            'bug_id': bug_id,
+            'has_reasoning': False,
+            'reasoning': None,
+        }), 200
+
+    try:
+        parsed = _json.loads(raw)
+    except (TypeError, ValueError):
+        parsed = {'summary': raw}
+
+    ability_info = None
+    if bug.ability_slug:
+        from app.services import ability_catalog as _ac
+        a = _ac.get(bug.ability_slug)
+        if a:
+            ability_info = {
+                'slug': a.slug,
+                'name': a.name,
+                'description': a.description,
+                'effect': _ac.describe_effect(a),
+            }
+
+    return jsonify({
+        'bug_id': bug_id,
+        'bug_name': bug.nickname,
+        'has_reasoning': True,
+        'method': bug.stats_generation_method,
+        'special_ability': bug.special_ability,
+        'ability': ability_info,
+        'tier': bug.tier,
+        'stats': {
+            'attack': bug.attack,
+            'defense': bug.defense,
+            'speed': bug.speed,
+            'lethality': bug.lethality,
+            'grip': bug.grip,
+            'cunning': bug.cunning,
+        },
+        'reasoning': parsed,
+    }), 200
+
+
 @bp.route('/species/popular')
 def get_popular_species():
     """Get most commonly submitted species"""
@@ -285,17 +375,52 @@ def generate_bug_suggestion():
 
     if field == 'lore':
         hint = context.get('hint', '')
-        prompt = f"""Create lore for a bug gladiator. Provide three short sections as JSON: {{"background": "...", "motivation": "...", "personality": "..."}}.\nContext hint: {hint}\nRespond with valid JSON only — no markdown, no explanation."""
-        try:
-            resp = llm.generate(prompt, task='quick_tasks', max_tokens=400, json_mode=True)
+        prompt = (
+            "Write punchy gladiator lore for a single bug.\n"
+            f"Context hint: {hint or '(none)'}\n\n"
+            "Return ONLY this JSON (no prose, no markdown fences):\n"
+            '{"background": "<one sentence, max 30 words>",'
+            ' "motivation": "<one sentence, max 25 words>",'
+            ' "personality": "<one sentence, max 20 words>"}'
+        )
+        def _try_parse(text):
+            if not text:
+                return None
+            import re as _re
             try:
-                parsed = json.loads(resp)
+                return json.loads(text)
             except Exception:
-                parsed = _fallback_lore(context)
+                m = _re.search(r'\{[^{}]*\}', text, _re.DOTALL)
+                if m:
+                    try:
+                        return json.loads(m.group())
+                    except Exception:
+                        return None
+            return None
+
+        parsed = None
+        last_error = None
+        for _attempt in range(2):
+            try:
+                resp = llm.generate(prompt, task='quick_tasks', max_tokens=600, json_mode=True)
+            except Exception as exc:
+                last_error = str(exc)
+                current_app.logger.warning("Lore generation attempt %d failed: %s", _attempt + 1, exc)
+                continue
+            parsed = _try_parse(resp)
+            if parsed:
+                break
+
+        if parsed:
             return jsonify({'field': 'lore', 'result': parsed}), 200
-        except Exception as e:
-            current_app.logger.warning("Lore generation fell back locally: %s", e)
-            return jsonify({'field': 'lore', 'result': _fallback_lore(context), 'fallback': True}), 200
+
+        current_app.logger.warning("Lore generation falling back — last_error=%s", last_error)
+        return jsonify({
+            'field': 'lore',
+            'result': _fallback_lore(context),
+            'fallback': True,
+            'message': 'The local LLM did not respond — placeholder lore was filled in. Edit it manually or try again in a moment.',
+        }), 200
 
     if field == 'species':
         desc = context.get('description', '')

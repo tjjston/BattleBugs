@@ -129,6 +129,16 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    // <main> sets z-index:1, which creates a stacking context that traps
+    // Bootstrap modals beneath the body-level .modal-backdrop and freezes the
+    // page. Reparent every .modal to <body> so they render above the backdrop.
+    document.addEventListener('DOMContentLoaded', function () {
+      document.querySelectorAll('.modal').forEach(function (m) {
+        if (m.parentElement !== document.body) document.body.appendChild(m);
+      });
+    });
+    </script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script>
     // ── LLM loading overlay ───────────────────────────────────────────────

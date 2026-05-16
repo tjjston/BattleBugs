@@ -221,13 +221,46 @@ def view_bug(bug_id):
         (current_user.id == bug.user_id or
          current_user.role in ('MODERATOR', 'ADMIN', 'OWNER'))
     )
+
+    species_facts_sample = _sample_species_facts(bug, count=3)
+
+    ability_effect = None
+    if bug.ability_slug:
+        from app.services import ability_catalog as _ac
+        a = _ac.get(bug.ability_slug)
+        if a:
+            ability_effect = {
+                'slug': a.slug,
+                'name': a.name,
+                'description': a.description,
+                'effect': _ac.describe_effect(a),
+            }
+
     return render_template('bug_profile.html',
                          bug=bug,
                          comments=comments,
                          lore=lore,
                          jobs=jobs,
                          rivals=rivals,
-                         show_exact_stats=show_exact_stats)
+                         show_exact_stats=show_exact_stats,
+                         species_facts_sample=species_facts_sample,
+                         ability_effect=ability_effect)
+
+
+def _sample_species_facts(bug, count=3):
+    """Return up to `count` random facts from the bug's species fact pool."""
+    if not bug.species_info or not bug.species_info.interesting_facts:
+        return []
+    try:
+        pool = json.loads(bug.species_info.interesting_facts) or []
+    except Exception:
+        return []
+    pool = [f for f in pool if isinstance(f, str) and f.strip()]
+    if not pool:
+        return []
+    import random as _r
+    _r.shuffle(pool)
+    return pool[:count]
 
 def handle_submission():
     """Process bug submission with LLM-controlled classification"""

@@ -98,4 +98,18 @@ def create_app(config_class=Config):
         from app.services.job_queue import start_scheduler
         start_scheduler(app)
 
+        # Warm the quick-task model so the first user request doesn't pay
+        # Ollama's cold-load (often 15-30 s, which manifests as an empty
+        # response). One small ping is enough — Ollama then keeps the model
+        # resident for its idle timeout.
+        import threading as _threading
+        def _warmup_quick_tasks(flask_app):
+            try:
+                with flask_app.app_context():
+                    from app.services.llm_manager import LLMService
+                    LLMService().generate('hi', task='quick_tasks', max_tokens=5)
+            except Exception:
+                pass
+        _threading.Thread(target=_warmup_quick_tasks, args=(app,), daemon=True).start()
+
     return app

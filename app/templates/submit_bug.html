@@ -975,13 +975,21 @@ function updateReview() {
 
 // ---------- Generation helpers ----------
 function generateSuggestion(field) {
-    const btn = event?.target;
-    // Basic spinner / feedback
+    const btn = event?.target?.closest('button');
+    let oldText = null;
     if (btn) {
         btn.disabled = true;
-        const old = btn.innerHTML;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span>';
-        setTimeout(() => { if(btn) { btn.innerHTML = old; btn.disabled = false; } }, 4000);
+        oldText = btn.textContent;
+        const spinner = document.createElement('span');
+        spinner.className = 'spinner-border spinner-border-sm';
+        spinner.setAttribute('role', 'status');
+        btn.replaceChildren(spinner);
+    }
+    function restoreBtn() {
+        if (btn && oldText !== null) {
+            btn.textContent = oldText;
+            btn.disabled = false;
+        }
     }
 
     let context = {};
@@ -996,18 +1004,20 @@ function generateSuggestion(field) {
         context.description = document.getElementById('speciesSearch').value || document.getElementById('description').value || '';
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
     fetch('/api/bug/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ field: field, context: context })
+        body: JSON.stringify({ field: field, context: context }),
+        signal: controller.signal,
     })
     .then(r => r.json())
     .then(data => {
         if (!data) return;
         if (field === 'nickname' && data.suggestions && data.suggestions.length) {
-            // Fill first suggestion into the field and show dropdown of other suggestions
             document.getElementById('nickname').value = data.suggestions[0];
-            // Optionally show quick-picks
             showQuickPicks('nickname', data.suggestions);
         }
         if (field === 'lore' && data.result) {
@@ -1015,9 +1025,11 @@ function generateSuggestion(field) {
             if (res.background) document.getElementById('lore_background').value = res.background;
             if (res.motivation) document.getElementById('lore_motivation').value = res.motivation;
             if (res.personality) document.getElementById('lore_personality').value = res.personality;
+            if (data.fallback && data.message) {
+                alert(data.message);
+            }
         }
         if (field === 'species' && data.suggestions) {
-            // If suggestions is array of objects, pick first
             try {
                 const s = Array.isArray(data.suggestions) ? data.suggestions[0] : data.suggestions[0];
                 if (s && s.common_name) {
@@ -1031,7 +1043,15 @@ function generateSuggestion(field) {
     })
     .catch(err => {
         console.error('Generation error', err);
-        alert('Failed to generate suggestion. Try again later.');
+        if (err.name === 'AbortError') {
+            alert('Generation timed out after 60s. The model server may be slow — try once more.');
+        } else {
+            alert('Failed to generate suggestion. Try again later.');
+        }
+    })
+    .finally(() => {
+        clearTimeout(timeoutId);
+        restoreBtn();
     });
 }
 

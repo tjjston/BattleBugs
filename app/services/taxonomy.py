@@ -209,11 +209,18 @@ class iNaturalistLayer:
         """
         Single call that returns everything iNaturalist knows about the species.
         Safe to call in a background thread.
+
+        Returns enriched fields (see keys below) and additionally fetches the
+        taxa/{id} detail page to pick up wikipedia_summary, establishment_means,
+        iconic_taxon_name, extinct, taxon_photos[] — fields that the search
+        endpoint omits.
         """
         out = {
             'taxon_id': None, 'common_name': None, 'photo_url': None,
             'observation_count': None, 'conservation_status': None,
-            'wikipedia_url': None, 'similar_species': [],
+            'wikipedia_url': None, 'wikipedia_summary': None,
+            'establishment_means': None, 'iconic_taxon_name': None,
+            'extinct': None, 'similar_species': [], 'taxon_photo_urls': [],
         }
         taxon = self.search_taxon(scientific_name)
         if not taxon:
@@ -227,13 +234,29 @@ class iNaturalistLayer:
         photo = taxon.get('default_photo') or {}
         out['photo_url'] = photo.get('medium_url') or photo.get('square_url')
 
-        # Conservation status (nested inside taxon_geoprivacy/conservation)
         status_code = (taxon.get('conservation_status') or {}).get('status_name') or \
                       taxon.get('threatened') and 'VU' or None
         if status_code:
             out['conservation_status'] = status_code.upper()
 
+        # The /taxa/{id} detail endpoint includes wikipedia_summary and other
+        # fields the search response strips. One extra request, cached by iNat.
         if out['taxon_id']:
+            detail = self.get_taxon_detail(out['taxon_id']) or {}
+            out['wikipedia_summary'] = detail.get('wikipedia_summary')
+            est = detail.get('establishment_means')
+            if isinstance(est, dict):
+                out['establishment_means'] = est.get('establishment_means') or est.get('place_id')
+            elif isinstance(est, str):
+                out['establishment_means'] = est
+            out['iconic_taxon_name'] = detail.get('iconic_taxon_name')
+            out['extinct'] = detail.get('extinct')
+            for tp in (detail.get('taxon_photos') or [])[:6]:
+                tphoto = (tp or {}).get('photo') or {}
+                url = tphoto.get('medium_url') or tphoto.get('square_url')
+                if url:
+                    out['taxon_photo_urls'].append(url)
+
             out['similar_species'] = self.get_similar_species(out['taxon_id'])
 
         return out
@@ -829,11 +852,19 @@ class TaxonomyService:
             species.catalogue_of_life_id = col_match['col_id']
             updated = True
 
-        # ── Layer 4: Wikipedia facts (fallback) ─────────────────────────────
-        if not species.interesting_facts:
-            facts = self._fetch_wikipedia_facts(name)
-            if not facts and species.common_name:
-                facts = self._fetch_wikipedia_facts(species.common_name)
+        # ── Layer 4: Build a fact pool from multiple sources ──────────────
+        # We refresh facts whenever fewer than 6 are stored — keeps the pool
+        # rich enough for random sampling on the profile page without hammering
+        # external APIs on every page load.
+        existing_facts = []
+        if species.interesting_facts:
+            try:
+                existing_facts = json.loads(species.interesting_facts) or []
+            except Exception:
+                existing_facts = []
+
+        if len(existing_facts) < 6:
+            facts = self._build_fact_pool(species, name, inat_data)
             if facts:
                 species.interesting_facts = json.dumps(facts)
                 updated = True
@@ -898,12 +929,101 @@ class TaxonomyService:
             extract = data.get('extract', '')
             if not extract:
                 return []
-            # Split into sentences, take first 5 non-trivial ones
             sentences = re.split(r'(?<=[.!?])\s+', extract)
             facts = [s.strip() for s in sentences if len(s.strip()) > 40][:5]
             return facts
         except Exception:
             return []
+
+    @staticmethod
+    def _clean_wiki_html(text: str) -> str:
+        """Strip the inline HTML iNat embeds in wikipedia_summary."""
+        if not text:
+            return ''
+        text = re.sub(r'<[^>]+>', '', text)
+        return re.sub(r'\s+', ' ', text).strip()
+
+    @staticmethod
+    def _establishment_label(value) -> str | None:
+        if not value:
+            return None
+        v = str(value).lower()
+        mapping = {
+            'native': 'Native to its range — not introduced from elsewhere.',
+            'endemic': 'Endemic: found naturally in only one region on Earth.',
+            'introduced': 'An introduced species — established outside its native range.',
+            'naturalised': 'Naturalised: introduced but now self-sustaining in the wild.',
+            'naturalized': 'Naturalised: introduced but now self-sustaining in the wild.',
+            'invasive': 'Considered invasive in at least one region.',
+        }
+        return mapping.get(v)
+
+    def _build_fact_pool(self, species, name: str, inat_data: dict) -> list[str]:
+        """Combine Wikipedia + iNat + structured-field sources into a fact pool.
+
+        Returns a deduped list of short, profile-friendly sentences (typically
+        8-12 entries) ready for random sampling.
+        """
+        pool: list[str] = []
+        seen: set[str] = set()
+
+        def _add(s: str):
+            if not s:
+                return
+            s = s.strip().rstrip('.') + '.'
+            if len(s) < 30 or len(s) > 320:
+                return
+            key = s.lower()
+            if key in seen:
+                return
+            seen.add(key)
+            pool.append(s)
+
+        # 1. en.wikipedia.org REST summary (clean, well-edited prose).
+        for fact in self._fetch_wikipedia_facts(name):
+            _add(fact)
+        if len(pool) < 5 and species.common_name:
+            for fact in self._fetch_wikipedia_facts(species.common_name):
+                _add(fact)
+
+        # 2. iNaturalist's curated wikipedia_summary — often different sentences
+        #    and sometimes includes natural-history detail Wikipedia's lead omits.
+        inat_summary = self._clean_wiki_html(inat_data.get('wikipedia_summary') or '')
+        if inat_summary:
+            for sentence in re.split(r'(?<=[.!?])\s+', inat_summary):
+                _add(sentence)
+                if len(pool) >= 12:
+                    break
+
+        # 3. Structured one-liners from iNat fields.
+        est_fact = self._establishment_label(inat_data.get('establishment_means'))
+        if est_fact:
+            _add(est_fact)
+
+        iconic = inat_data.get('iconic_taxon_name')
+        if iconic and iconic.lower() not in (name or '').lower():
+            _add(f"Classified under {iconic} on iNaturalist.")
+
+        if inat_data.get('extinct'):
+            _add("This taxon is flagged as extinct.")
+
+        obs = inat_data.get('observation_count')
+        if obs and obs >= 1000:
+            _add(f"Citizen scientists have logged over {obs:,} research-grade sightings of this species on iNaturalist.")
+        elif obs and obs >= 50:
+            _add(f"Logged in roughly {obs:,} iNaturalist research-grade sightings.")
+
+        status = inat_data.get('conservation_status')
+        if status:
+            label = iNaturalistLayer.CONSERVATION_LABELS.get(status.upper(), status)
+            _add(f"IUCN conservation status: {label}.")
+
+        if species.habitat:
+            _add(f"Typical habitat: {species.habitat}.")
+        if species.diet:
+            _add(f"Diet: {species.diet}.")
+
+        return pool
 
 
 class StatsGenerator:

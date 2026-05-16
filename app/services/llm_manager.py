@@ -62,7 +62,7 @@ class LLMConfig:
         'stat_generation': LLMModel.QWEN36_UC,
         'vision_analysis': LLMModel.GEMMA4_E4B,
         'species_identification': LLMModel.GEMMA4_E4B,
-        'quick_tasks': LLMModel.GEMMA4_E2B,
+        'quick_tasks': LLMModel.GEMMA_UC_E4B,  # non-thinking, fast — used for lore/species/nickname helpers
     }
     
     @classmethod
@@ -444,7 +444,10 @@ class LLMService:
         base_url = self._get_ollama_url().rstrip('/')
         if not base_url.endswith('/v1'):
             base_url = f"{base_url}/v1"
-        client = OpenAI(base_url=base_url, api_key="ollama", timeout=240.0)
+        # 240s is too long when Ollama is intermittently hung — the UI sits
+        # waiting. 45s is enough for one cold load + a normal completion;
+        # the route layer can retry once if needed.
+        client = OpenAI(base_url=base_url, api_key="ollama", timeout=45.0)
 
         messages: list = [{"role": "system", "content": base_system}]
         if has_image:
