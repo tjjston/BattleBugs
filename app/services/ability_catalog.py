@@ -165,6 +165,18 @@ _ABILITIES: list[Ability] = [
     Ability('soporific_bite',      'Soporific Bite',        'Sedating bite slows opponent reactions.',                          _adv_amp(0.12), ('soporific', 'sedating', 'bite'), ('venom',)),
     Ability('alkaloid_drip',       'Alkaloid Drip',         'Alkaloid-laden secretions on the strike surface.',                 _stat('lethality', 5), ('alkaloid', 'drip'), ('chemical',)),
 
+    # ── Blood-feeder / saliva-based abilities ──────────────────────────
+    # Mosquitoes, bedbugs, kissing bugs, ticks — they don't have venom but
+    # use anticoagulant / immunosuppressive saliva to keep blood flowing.
+    Ability('anticoagulant_saliva','Anticoagulant Saliva',  'Saliva prevents the wound from closing, prolonging contact damage.',_adv_amp(0.15), ('anticoagulant', 'saliva', 'blood', 'mosquito', 'feed'), ('piercing', 'venom')),
+    Ability('blood_meal',          'Blood Meal',            'A sustained blood-feed steadily drains opponent vitality.',         _stat('lethality', 6), ('blood', 'meal', 'feed', 'engorge'), ('piercing',)),
+    Ability('vector_load',         'Vector Load',           'Pathogen-laden saliva amplifies any wound it makes.',               _adv_amp(0.18), ('vector', 'pathogen', 'disease'), ('piercing', 'venom')),
+    Ability('immunosuppressive_bite','Immunosuppressive Bite','Saliva proteins mute the opponent\'s defensive response.',          _adv_amp(0.12), ('immunosuppressive', 'suppress', 'saliva'), ('piercing', 'venom')),
+    Ability('proboscis_strike',    'Proboscis Strike',      'A needle-thin proboscis pierces between armor plates with surgical precision.',_stat('attack', 5), ('proboscis', 'needle', 'pierce', 'rostrum'), ('piercing',)),
+    Ability('host_seeking',        'Host-Seeking',          'CO2 + heat detection lets it find vulnerable spots before the opponent reacts.',_stat('cunning', 6), ('host', 'seeking', 'co2', 'heat'), ('piercing',)),
+    Ability('aedes_strike',        'Aedes Strike',          'Daytime ambush feeder — fast in, fast out before the slap connects.',_stat('speed', 5), ('aedes', 'mosquito', 'day', 'ambush'), ('piercing',)),
+    Ability('tick_anchor',         'Tick Anchor',           'Cement-like saliva glues the bug to its host for the duration of the bite.',_stat('grip', 7), ('tick', 'cement', 'anchor', 'fasten'), ('grappling', 'piercing')),
+
     # ── Camouflage / cunning — type disadvantage dampen ────────────────
     Ability('mirror_shield',       'Mirror Shield',         'Reflective patterning misleads the strike vector.',                _disadv_dampen(0.18), ('mirror', 'reflect'), suits_defense_type=('evasive',)),
     Ability('cryptic_pose',        'Cryptic Pose',          'Holds a profile that breaks predator search image.',               _disadv_dampen(0.15), ('cryptic', 'pose'), suits_defense_type=('evasive',)),

@@ -521,7 +521,11 @@ def handle_submission():
             lore_rivals=lore_data.get('rivals'),
             
             image_hash=str(candidate_hash),
-            requires_manual_review=(classification.confidence < 0.90)
+            # 0.80 matches the confidence range where the classifier is
+            # actually trustworthy. The previous 0.90 cutoff was too strict
+            # and flagged routine clean IDs (e.g. Aedes @ 0.85) for admin
+            # review unnecessarily.
+            requires_manual_review=(classification.confidence < 0.80)
         )
         
         db.session.add(bug)
