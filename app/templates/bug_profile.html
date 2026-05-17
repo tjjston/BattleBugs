@@ -248,8 +248,14 @@
                     <form method="post" action="{{ url_for('bugs.reclassify_bug', bug_id=bug.id) }}"
                           data-llm-loading='["The lab is re-examining the photo…","Looking at visual features…","Cross-checking against known families…","Almost done…"]'>
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="form-check form-check-sm mb-1">
+                          <input class="form-check-input" type="checkbox" id="reclassifyRestat" name="also_restat" value="1">
+                          <label class="form-check-label small" for="reclassifyRestat">
+                            Also regenerate stats to match the new ID
+                          </label>
+                        </div>
                         <button type="submit" class="btn btn-sm btn-outline-info w-100"
-                                onclick="return confirm('Re-run the lab classifier on this photo? This may take 1-3 minutes.');">
+                                onclick="return confirm('Re-run the lab classifier on this photo? This may take 1-3 minutes.' + (document.getElementById('reclassifyRestat').checked ? ' Stats will also be regenerated, adding another 1-2 minutes.' : ''));">
                           🧪 Re-classify with the Lab
                         </button>
                     </form>
@@ -415,6 +421,18 @@
                   + (bug.lethality or 0) + (bug.grip or 0) + (bug.cunning or 0) }}
                 <span class="ms-1" title="Tier bands by total of all six stats: ZU <240, NU 240-319, RU 320-399, UU 400-479, OU 480-539, Uber 540+">ⓘ</span>
               </small>
+              {# Archetype name lives in the stats_reasoning JSON; pull it
+                 out so the profile shows the combat shape without opening
+                 the popup. #}
+              {%- if bug.stats_reasoning -%}
+                {%- set _r = bug.stats_reasoning | fromjson -%}
+                {%- if _r and _r.archetype_name -%}
+                <div class="small mt-1">
+                  <span class="text-muted">Archetype:</span>
+                  <span class="badge bg-info-subtle text-info border ms-1">{{ _r.archetype_name }}</span>
+                </div>
+                {%- endif -%}
+              {%- endif -%}
             </div>
           </div>
         </div>
@@ -749,6 +767,26 @@
     }
     const r = data.reasoning || {};
     const stats = data.stats || {};
+
+    // Archetype banner at the top — the core "why these stats" answer.
+    if (r.archetype_name) {
+      const banner = el('div', { className: 'p-2 rounded mb-3 border bg-light' });
+      const title = el('div', { className: 'fw-bold' });
+      title.appendChild(document.createTextNode('Combat archetype: '));
+      const badge = el('span', { className: 'badge bg-primary me-2', text: r.archetype_name });
+      title.appendChild(badge);
+      if (data.tier) {
+        title.appendChild(el('span', { className: 'badge bg-secondary', text: String(data.tier).toUpperCase() + ' tier' }));
+      }
+      banner.appendChild(title);
+      if (r.archetype_flavor) {
+        banner.appendChild(el('div', { className: 'small text-muted mt-1', text: r.archetype_flavor }));
+      }
+      if (r.archetype_pick) {
+        banner.appendChild(el('div', { className: 'small mt-1', text: '👉 ' + r.archetype_pick }));
+      }
+      body.appendChild(banner);
+    }
 
     if (r.summary) body.appendChild(el('p', { className: 'lead', text: r.summary }));
 

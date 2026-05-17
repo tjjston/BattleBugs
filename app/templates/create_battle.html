@@ -1,41 +1,418 @@
 {% extends "base.html" %}
 
-{% block title %}Create Battle - Bug Arena{% endblock %}
+{% block title %}Sparring - Bug Arena{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Create A New Battle</h1>
+<style>
+  /* Sparring page: tile grid below a filter / selection bar */
+  .spar-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--surface-card, #fff);
+    padding: 0.75rem 0.75rem 0.6rem;
+    border: 1px solid var(--border-dim, #ddd);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
+  }
+  .spar-selection {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-bottom: 0.6rem;
+    border-bottom: 1px dashed var(--border-dim, #ddd);
+    margin-bottom: 0.6rem;
+  }
+  .spar-slot {
+    flex: 1;
+    border: 2px dashed #aaa;
+    border-radius: 8px;
+    padding: 0.4rem 0.6rem;
+    min-height: 64px;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: rgba(0, 0, 0, 0.02);
+  }
+  .spar-slot.filled {
+    border-style: solid;
+    border-color: #2d6a1e;
+    background: rgba(45, 106, 30, 0.08);
+  }
+  .spar-slot-img {
+    width: 54px; height: 54px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+  }
+  .spar-slot-empty {
+    color: #999;
+    font-style: italic;
+  }
+  .spar-vs {
+    font-weight: 800;
+    font-size: 1.4rem;
+    color: #b94242;
+    letter-spacing: 0.1em;
+  }
+
+  .spar-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.6rem;
+  }
+  .spar-tile {
+    position: relative;
+    border: 2px solid var(--border-dim, #ddd);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--surface-card, #fff);
+    cursor: pointer;
+    transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
+  }
+  .spar-tile:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+  }
+  .spar-tile.selected-1 { border-color: #2d6a1e; box-shadow: 0 0 0 3px rgba(45, 106, 30, 0.3); }
+  .spar-tile.selected-2 { border-color: #b94242; box-shadow: 0 0 0 3px rgba(185, 66, 66, 0.3); }
+  .spar-tile.hidden { display: none; }
+
+  .spar-tile-img {
+    width: 100%;
+    height: 130px;
+    object-fit: cover;
+    background: #f0f0f0;
+    display: block;
+  }
+  .spar-tile-body {
+    padding: 0.4rem 0.55rem 0.5rem;
+  }
+  .spar-tile-name {
+    font-weight: 700;
+    font-size: 0.9rem;
+    margin-bottom: 0.1rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .spar-tile-owner {
+    font-size: 0.72rem;
+    color: #777;
+    margin-bottom: 0.25rem;
+  }
+  .spar-tile-typing {
+    display: flex; flex-wrap: wrap;
+    gap: 0.2rem;
+    margin-top: 0.2rem;
+    font-size: 0.7rem;
+  }
+  .spar-tile-record {
+    font-size: 0.72rem;
+    color: #555;
+    margin-top: 0.25rem;
+  }
+  .spar-tile-tier {
+    position: absolute;
+    top: 6px; right: 6px;
+    font-size: 0.7rem;
+    font-weight: 800;
+    padding: 3px 7px;
+    border-radius: 4px;
+    color: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+  .spar-tile-rank {
+    position: absolute;
+    top: 6px; left: 6px;
+    font-size: 0.85rem;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+  }
+</style>
+
+<h1 class="mb-3">Sparring Arena</h1>
 
 {% if not bugs %}
 <div class="alert alert-info">No bugs available to fight. Submit some bugs first.</div>
 {% else %}
-<form method="POST" action="{{ url_for('battles.new_battle') }}" data-llm-loading="Preparing battle… this may take a moment.">
-    <div class="row">
-        <div class="col-md-6">
-            <label for="bug1_id" class="form-label">Combatant One</label>
-            <select class="form-select" id="bug1_id" name="bug1_id">
-                <option value="">Select a bug</option>
-                {% for bug in bugs %}
-                <option value="{{ bug.id }}">{{ bug.nickname }} ({{ bug.owner.username }})</option>
-                {% endfor %}
-            </select>
-        </div>
 
-        <div class="col-md-6">
-            <label for="bug2_id" class="form-label">Combatant Two</label>
-            <select class="form-select" id="bug2_id" name="bug2_id">
-                <option value="">Select a bug</option>
-                {% for bug in bugs %}
-                <option value="{{ bug.id }}">{{ bug.nickname }} ({{ bug.owner.username }})</option>
-                {% endfor %}
-            </select>
-        </div>
+<form method="POST" action="{{ url_for('battles.new_battle') }}" id="sparForm"
+      data-llm-loading="Preparing battle… this may take a moment.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="bug1_id" id="bug1_id">
+  <input type="hidden" name="bug2_id" id="bug2_id">
+
+  <div class="spar-toolbar">
+    {# ── Selection tray ────────────────────────────────────────── #}
+    <div class="spar-selection">
+      <div class="spar-slot" id="slot1">
+        <span class="spar-slot-empty">Pick your fighter</span>
+      </div>
+      <div class="spar-vs">VS</div>
+      <div class="spar-slot" id="slot2">
+        <span class="spar-slot-empty">Pick your opponent</span>
+      </div>
+      <div class="d-flex flex-column gap-1" style="min-width:160px;">
+        <button type="submit" class="btn btn-danger" id="sparGoBtn" disabled>Simulate Battle</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="sparClearBtn">Clear</button>
+      </div>
     </div>
 
-    <div class="mt-3">
-        <button type="submit" class="btn btn-danger">Simulate Battle</button>
-        <a href="{{ url_for('battles.list_battles') }}" class="btn btn-secondary">Back to Battles</a>
+    {# ── Filters ───────────────────────────────────────────────── #}
+    <div class="row g-2 align-items-end">
+      <div class="col-sm-3 col-6">
+        <label class="form-label small mb-0">Tier</label>
+        <select class="form-select form-select-sm" id="filterTier">
+          <option value="">All tiers</option>
+          <option value="uber">Über</option>
+          <option value="ou">OU — Overused</option>
+          <option value="uu">UU — Underused</option>
+          <option value="ru">RU — Rarely Used</option>
+          <option value="nu">NU — Never Used</option>
+          <option value="zu">ZU — Zero Used</option>
+        </select>
+      </div>
+      <div class="col-sm-3 col-6">
+        <label class="form-label small mb-0">Attack Type</label>
+        <select class="form-select form-select-sm" id="filterAttack">
+          <option value="">All</option>
+          <option value="piercing">⚔️ Piercing</option>
+          <option value="crushing">💥 Crushing</option>
+          <option value="slashing">🔪 Slashing</option>
+          <option value="venom">☠️ Venom</option>
+          <option value="chemical">⚗️ Chemical</option>
+          <option value="grappling">🤼 Grappling</option>
+          <option value="sonic">🔊 Sonic</option>
+          <option value="electric">⚡ Electric</option>
+          <option value="neutral">⚪ Neutral</option>
+        </select>
+      </div>
+      <div class="col-sm-3 col-6">
+        <label class="form-label small mb-0">Defense Type</label>
+        <select class="form-select form-select-sm" id="filterDefense">
+          <option value="">All</option>
+          <option value="hard_shell">🛡️ Armored</option>
+          <option value="segmented_armor">🔗 Segmented</option>
+          <option value="evasive">💨 Elusive</option>
+          <option value="hairy_spiny">🦔 Spiny</option>
+          <option value="toxic_skin">☢️ Toxic</option>
+          <option value="thick_hide">🦏 Thick Hide</option>
+          <option value="unarmored">🫀 Resilient</option>
+          <option value="regenerative">💚 Regenerative</option>
+          <option value="bioluminescent">✨ Bioluminescent</option>
+        </select>
+      </div>
+      <div class="col-sm-3 col-6">
+        <label class="form-label small mb-0">Owner</label>
+        <select class="form-select form-select-sm" id="filterOwner">
+          <option value="">All owners</option>
+          {% set owners = bugs | map(attribute='owner.username') | unique | list %}
+          {% for o in owners | sort %}<option value="{{ o }}">{{ o }}</option>{% endfor %}
+        </select>
+      </div>
     </div>
+    <div class="small text-muted mt-1" id="sparCount"></div>
+  </div>
+
+  {# ── Tile grid ──────────────────────────────────────────────── #}
+  {%- set _atk_map = {
+    'piercing': ('⚔️', 'Piercing', 'danger'),
+    'crushing': ('💥', 'Crushing', 'warning text-dark'),
+    'slashing': ('🔪', 'Slashing', 'danger'),
+    'venom': ('☠️', 'Venom', 'success'),
+    'chemical': ('⚗️', 'Chemical', 'info text-dark'),
+    'grappling': ('🤼', 'Grappling', 'primary'),
+    'sonic': ('🔊', 'Sonic', 'primary'),
+    'electric': ('⚡', 'Electric', 'warning text-dark'),
+    'neutral': ('⚪', 'Neutral', 'secondary'),
+  } -%}
+  {%- set _def_map = {
+    'hard_shell': ('🛡️', 'Armored', 'secondary'),
+    'segmented_armor': ('🔗', 'Segmented', 'secondary'),
+    'evasive': ('💨', 'Elusive', 'info text-dark'),
+    'hairy_spiny': ('🦔', 'Spiny', 'warning text-dark'),
+    'toxic_skin': ('☢️', 'Toxic', 'success'),
+    'thick_hide': ('🦏', 'Thick Hide', 'dark'),
+    'unarmored': ('🫀', 'Resilient', 'danger'),
+    'regenerative': ('💚', 'Regenerative', 'success'),
+    'bioluminescent': ('✨', 'Bio', 'info text-dark'),
+  } -%}
+  {%- set _tier_colors = {'uber':'#b94242','ou':'#d8a32d','uu':'#3060c0','ru':'#3a8aa0','nu':'#6c757d','zu':'#3a3a3a'} -%}
+
+  <div class="spar-grid" id="sparGrid">
+    {% for bug in bugs %}
+    {%- set _record = bug.wins or 0 -%}
+    {%- set _losses = bug.losses or 0 -%}
+    {%- set _img = url_for('main.uploaded_file', filename=bug.image_path) if bug.image_path else '' -%}
+    <div class="spar-tile"
+         data-bug-id="{{ bug.id }}"
+         data-bug-name="{{ bug.nickname }}"
+         data-bug-img="{{ _img }}"
+         data-tier="{{ bug.tier or '' }}"
+         data-attack-type="{{ bug.attack_type or '' }}"
+         data-defense-type="{{ bug.defense_type or '' }}"
+         data-owner="{{ bug.owner.username }}">
+      {% if bug.tier %}
+      <span class="spar-tile-tier" style="background:{{ _tier_colors.get(bug.tier, '#666') }};">{{ bug.tier|upper }}</span>
+      {% endif %}
+      {% if _record >= 10 %}<span class="spar-tile-rank" title="Veteran (10+ wins)">🏆</span>
+      {% elif _record >= 5 %}<span class="spar-tile-rank" title="5+ wins">🥇</span>
+      {% endif %}
+      {% if _img %}
+      <img src="{{ _img }}" class="spar-tile-img" alt="{{ bug.nickname }}" loading="lazy">
+      {% else %}
+      <div class="spar-tile-img d-flex align-items-center justify-content-center text-muted">🐛</div>
+      {% endif %}
+      <div class="spar-tile-body">
+        <div class="spar-tile-name" title="{{ bug.nickname }}">{{ bug.nickname }}</div>
+        <div class="spar-tile-owner">{{ bug.owner.username }}</div>
+        <div class="spar-tile-typing">
+          {% if bug.attack_type and bug.attack_type in _atk_map %}
+            {%- set _a = _atk_map[bug.attack_type] %}
+            <span class="badge bg-{{ _a[2] }}">{{ _a[0] }} {{ _a[1] }}</span>
+          {% endif %}
+          {% if bug.defense_type and bug.defense_type in _def_map %}
+            {%- set _d = _def_map[bug.defense_type] %}
+            <span class="badge bg-{{ _d[2] }}">{{ _d[0] }} {{ _d[1] }}</span>
+          {% endif %}
+        </div>
+        <div class="spar-tile-record">{{ _record }}W · {{ _losses }}L</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
 </form>
+
+<script>
+(function () {
+  const tiles    = Array.from(document.querySelectorAll('.spar-tile'));
+  const slot1El  = document.getElementById('slot1');
+  const slot2El  = document.getElementById('slot2');
+  const bug1Inp  = document.getElementById('bug1_id');
+  const bug2Inp  = document.getElementById('bug2_id');
+  const goBtn    = document.getElementById('sparGoBtn');
+  const clearBtn = document.getElementById('sparClearBtn');
+  const countEl  = document.getElementById('sparCount');
+
+  const filters = {
+    tier:    document.getElementById('filterTier'),
+    attack:  document.getElementById('filterAttack'),
+    defense: document.getElementById('filterDefense'),
+    owner:   document.getElementById('filterOwner'),
+  };
+
+  // selection: ordered array of bug ids
+  let picked = [];
+
+  function renderSlot(slotEl, bugTile) {
+    slotEl.replaceChildren();
+    if (!bugTile) {
+      const span = document.createElement('span');
+      span.className = 'spar-slot-empty';
+      span.textContent = slotEl.id === 'slot1' ? 'Pick your fighter' : 'Pick your opponent';
+      slotEl.classList.remove('filled');
+      slotEl.appendChild(span);
+      return;
+    }
+    slotEl.classList.add('filled');
+    const img = document.createElement('img');
+    img.src = bugTile.dataset.bugImg;
+    img.className = 'spar-slot-img';
+    img.alt = bugTile.dataset.bugName;
+    slotEl.appendChild(img);
+
+    const info = document.createElement('div');
+    info.style.flex = '1';
+    info.style.minWidth = '0';
+
+    const name = document.createElement('div');
+    name.style.fontWeight = '700';
+    name.style.whiteSpace = 'nowrap';
+    name.style.overflow = 'hidden';
+    name.style.textOverflow = 'ellipsis';
+    name.textContent = bugTile.dataset.bugName;
+    info.appendChild(name);
+
+    const owner = document.createElement('div');
+    owner.className = 'small text-muted';
+    owner.textContent = bugTile.dataset.owner;
+    info.appendChild(owner);
+
+    slotEl.appendChild(info);
+  }
+
+  function refreshSelection() {
+    const pickedTiles = picked.map(id => tiles.find(t => t.dataset.bugId === String(id)));
+    renderSlot(slot1El, pickedTiles[0]);
+    renderSlot(slot2El, pickedTiles[1]);
+    bug1Inp.value = picked[0] || '';
+    bug2Inp.value = picked[1] || '';
+    goBtn.disabled = picked.length !== 2;
+    tiles.forEach(t => {
+      t.classList.remove('selected-1', 'selected-2');
+      if (t.dataset.bugId === String(picked[0])) t.classList.add('selected-1');
+      else if (t.dataset.bugId === String(picked[1])) t.classList.add('selected-2');
+    });
+  }
+
+  tiles.forEach(t => {
+    t.addEventListener('click', () => {
+      const id = t.dataset.bugId;
+      const idx = picked.indexOf(id);
+      if (idx >= 0) {
+        // Deselect
+        picked.splice(idx, 1);
+      } else if (picked.length < 2) {
+        picked.push(id);
+      } else {
+        // Already 2 picked — replace slot 2 with this one
+        picked[1] = id;
+      }
+      refreshSelection();
+    });
+  });
+
+  clearBtn.addEventListener('click', () => {
+    picked = [];
+    refreshSelection();
+  });
+
+  function applyFilters() {
+    const tv = filters.tier.value;
+    const av = filters.attack.value;
+    const dv = filters.defense.value;
+    const ov = filters.owner.value;
+    let visible = 0;
+    tiles.forEach(t => {
+      const ok = (!tv || t.dataset.tier === tv)
+              && (!av || t.dataset.attackType === av)
+              && (!dv || t.dataset.defenseType === dv)
+              && (!ov || t.dataset.owner === ov);
+      t.classList.toggle('hidden', !ok);
+      if (ok) visible++;
+    });
+    countEl.textContent = visible + ' of ' + tiles.length + ' bug' + (tiles.length === 1 ? '' : 's') + ' shown';
+  }
+
+  Object.values(filters).forEach(sel => sel.addEventListener('change', applyFilters));
+
+  // Guard against the loading overlay flashing on an invalid submit.
+  document.getElementById('sparForm').addEventListener('submit', function (e) {
+    if (picked.length !== 2) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      goBtn.disabled = true;
+      return false;
+    }
+  });
+
+  applyFilters();
+  refreshSelection();
+})();
+</script>
 {% endif %}
 
 {% endblock %}

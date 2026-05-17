@@ -460,9 +460,17 @@ The same species must produce roughly the same stats. Stay within ±8 points of 
             if visual_lines:
                 visual_block = "\n**Visual observations from THIS specimen's photo (the only legitimate reason to deviate from the baseline):**\n" + "\n".join(visual_lines) + "\n"
 
-        prompt = f"""You are a senior entomologist and competitive game-balance designer. Your job is to produce combat stats for a real-world bug AND a thorough, biology-grounded explanation a player can read on a "Why these stats?" popup.
+        # Archetype framework: pick (archetype, tier), then per-stat ±8 deviation.
+        from app.services import archetypes as _arch
+        archetype_block = _arch.prompt_block()
 
-**Reference Dataset (for power-level calibration):**
+        prompt = f"""You are a senior entomologist and competitive game-balance designer.
+
+Your job: classify a real-world bug into one of 16 **combat archetypes**, place it in the right **tier**, and then tune its individual stats slightly to reflect what the specimen actually looks like.
+
+The archetype determines the SHAPE of the stats (which are high, which low). The tier determines the TOTAL BUDGET. You get ±8 per-stat freedom on top.
+
+**Reference dataset (for power-level calibration only — anchors, not archetypes):**
 {context}
 {baseline_block}{visual_block}
 **Bug to Evaluate:**
@@ -473,6 +481,10 @@ The same species must produce roughly the same stats. Stay within ±8 points of 
 - Species Info: {bug_info.get('species_info', 'N/A')}
 {f"- Real-world facts: {'; '.join(bug_info['species_facts'])}" if bug_info.get('species_facts') else ''}
 
+**Combat archetypes — pick the ONE that best matches this bug's real-world combat identity. The weights are atk/def/spd/lth/grp/cun shares of the total budget; the engine will apply them automatically.**
+
+{archetype_block}
+
 **Stat definitions (each 1-100):**
 - attack: raw offensive power — mandible/chelicerae strength, strike force, body mass used offensively
 - defense: survivability — cuticle hardness, armor thickness, regenerative toughness
@@ -482,52 +494,44 @@ The same species must produce roughly the same stats. Stay within ±8 points of 
 - cunning: tactical adaptation — feints, terrain use, ambush timing, behavioral flexibility
 
 **Total-stat budget by tier (sum of all six):**
-- uber (legendary): 540-600
-- ou (strong): 480-539
-- uu (average): 400-479
-- ru (below average): 320-399
-- nu (weak): 240-319
-- zu (very weak): 0-239
+- uber (legendary): 540-600 — extreme predators only (large mantids, large scorpions, hornets, huge centipedes)
+- ou (strong): 480-539 — top-of-food-chain arthropods
+- uu (average): 400-479 — capable predators and large beetles
+- ru (below average): 320-399 — common adult bugs
+- nu (weak): 240-319 — small pollinators, soft larvae, common ants
+- zu (very weak): 0-239 — aphids, springtails, mites, fragile larvae
 
-**Categorical fields:**
+**Categorical fields (these are flavor labels, not stat drivers):**
 - attack_type: piercing | crushing | slashing | venom | chemical | grappling | sonic | electric | neutral
-  • sonic: vibrational/stridulation; bypasses rigid armor
-  • electric: bioelectric discharge; conducts through shell and hide (rare)
-  • neutral: balanced fighter with no type advantage or weakness
 - defense_type: hard_shell | segmented_armor | evasive | hairy_spiny | toxic_skin | thick_hide | unarmored | regenerative | bioluminescent
-  • unarmored: soft body, high metabolic resilience; weak to physical, somewhat resists chemical/venom
-  • regenerative: rapid wound closure; resists sustained attacks, vulnerable to crushing
-  • bioluminescent: light-flash confusion; disrupts piercing/grappling, useless vs chemical/sonic
 - size_category: tiny (0-5mm) | small (6-20mm) | medium (21-50mm) | large (51-150mm) | massive (151mm+)
 
 **Process — follow in order:**
-1. If a SPECIES BASELINE is provided above, START from those numbers and types. Otherwise identify the closest 1-2 reference bugs from the dataset and calibrate against them.
-2. Read the visual observations. If a specific visual cue justifies adjusting the baseline (e.g. "specimen unusually large", "missing leg", "intact, vibrant"), apply a deliberate, named adjustment within ±8 points. If nothing in the photo warrants change, keep the baseline values.
-3. Pick attack_type, defense_type, size_category, and a real-trait-based special_ability — match the baseline unless visuals demand otherwise.
-4. Assign each of the six stats with a one-sentence biological justification per stat (cite anatomy, venom/chemistry, behavior, or ecology — no vague filler). For any stat that deviates from a provided baseline, the justification MUST reference the specific visual cue.
-5. Pick a tier whose budget matches the sum of your six stats. If they disagree, adjust the stats, not the budget.
-6. Write a 2-4 sentence summary tying it all together — what kind of fighter is this, where it shines, and where it loses.
-
-**Calibration reminder:** Most North American garden bugs fall in the 360-440 total range. Only truly exceptional predators (large mantids, scorpions, hornets, large centipedes) reach 540+. Common pollinators, beetles, and small spiders should sit in uu/ru.
+1. Identify the bug's combat identity from its anatomy + behavior. Match to ONE archetype slug from the list above.
+2. Pick a tier based on body size, weaponry, and ecological standing. Most garden bugs sit in NU/RU/UU. Don't inflate.
+3. If a SPECIES BASELINE is provided above, prefer the same archetype + tier as the baseline. Only deviate if visual observations justify it.
+4. For each of the six stats, give a per-stat deviation in **{{-8, ..., +8}}** explaining what about THIS specimen pushes it off the archetype's typical shape. Most stats should deviate 0-3 unless you see a real reason.
+5. Pick attack_type, defense_type, size_category, special_ability based on real biology.
 
 Respond with valid JSON only — no prose, no markdown fences — in EXACTLY this shape:
 {{
-  "attack": 1-100,
-  "defense": 1-100,
-  "speed": 1-100,
-  "lethality": 1-100,
-  "grip": 1-100,
-  "cunning": 1-100,
-  "attack_type": "...",
-  "defense_type": "...",
-  "size_category": "...",
-  "special_ability": "Concrete ability name grounded in real biology",
+  "archetype":        "<one slug from the list above>",
   "tier_recommendation": "uber|ou|uu|ru|nu|zu",
-  "confidence": 0.0-1.0,
+  "deviations": {{
+    "attack": <-8..+8>, "defense": <-8..+8>, "speed": <-8..+8>,
+    "lethality": <-8..+8>, "grip": <-8..+8>, "cunning": <-8..+8>
+  }},
+  "attack_type":      "<one of the attack_type values>",
+  "defense_type":     "<one of the defense_type values>",
+  "size_category":    "tiny|small|medium|large|massive",
+  "special_ability":  "Concrete ability name grounded in real biology",
+  "confidence":       0.0-1.0,
   "reasoning": {{
-    "summary": "2-4 sentence overall read of the fighter",
-    "calibration": "Which reference bug(s) anchored the rating and why",
-    "key_factors": ["3-6 concise biological factors that drove the numbers"],
+    "archetype_pick": "One sentence on why this archetype fits this bug",
+    "tier_pick":      "One sentence on why this tier",
+    "summary":        "2-4 sentence overall read of the fighter",
+    "calibration":    "Which reference bug(s) anchored the rating and why",
+    "key_factors":    ["3-6 concise biological factors that drove the choices"],
     "per_stat": {{
       "attack":    "one-sentence reason citing anatomy/behavior",
       "defense":   "one-sentence reason",
@@ -540,7 +544,7 @@ Respond with valid JSON only — no prose, no markdown fences — in EXACTLY thi
       "strong_against": "the kind of opponent this bug beats and why",
       "weak_against":   "the kind of opponent that beats this bug and why"
     }},
-    "baseline_deviation": "If a species baseline was provided, briefly state how this specimen differs from it and which visual cue justified the change. If no baseline existed, write 'first of species — sets the baseline'. If you stayed exactly on baseline, write 'matches species baseline'."
+    "baseline_deviation": "If a baseline was provided, briefly state how this specimen differs and which visual cue justified the change. Otherwise write 'first of species — sets the baseline' or 'matches species baseline'."
   }}
 }}
 """
@@ -562,14 +566,41 @@ Respond with valid JSON only — no prose, no markdown fences — in EXACTLY thi
             if result is None:
                 raise ValueError(f"Could not extract JSON from response: {raw[:300]}")
 
-            # Validate
-            if not all(k in result for k in ['attack', 'defense', 'speed']):
-                raise ValueError("Missing required stat fields")
+            # Resolve archetype + tier into final stats. The LLM proposes
+            # (archetype, tier, deviations); the engine computes the actual
+            # 1-100 stat values. This is the guardrail: no matter what the
+            # LLM says, we never store stats that violate the archetype shape
+            # by more than ±8 or escape the tier's total budget.
+            from app.services import archetypes as _arch
+            arch_slug = (result.get('archetype') or '').strip()
+            tier = (result.get('tier_recommendation') or 'uu').strip().lower()
+            if tier not in _arch.TIER_BANDS:
+                tier = 'uu'
+            if not _arch.get(arch_slug):
+                # Fall back to ground_sprinter if the model invented a slug.
+                current_app.logger.warning(
+                    "STATS: LLM returned unknown archetype %r — falling back to ground_sprinter",
+                    arch_slug,
+                )
+                arch_slug = 'ground_sprinter'
+            deviations = result.get('deviations') or {}
+            if not isinstance(deviations, dict):
+                deviations = {}
 
-            # Clamp all stats to valid range
-            for stat in ('attack', 'defense', 'speed', 'lethality', 'grip', 'cunning'):
-                result[stat] = max(1, min(100, result.get(stat, 50)))
-
+            stats = _arch.apply(arch_slug, tier, deviations)
+            for k in ('attack', 'defense', 'speed', 'lethality', 'grip', 'cunning'):
+                result[k] = stats[k]
+            # Persist the archetype + tier choice in the reasoning blob so
+            # the popup can show "Heavy Tank — UU".
+            reasoning = result.get('reasoning')
+            if not isinstance(reasoning, dict):
+                reasoning = {'summary': str(reasoning) if reasoning else ''}
+                result['reasoning'] = reasoning
+            reasoning['archetype_slug'] = arch_slug
+            arch = _arch.get(arch_slug)
+            if arch:
+                reasoning['archetype_name'] = arch.name
+                reasoning['archetype_flavor'] = arch.flavor
             return result
 
         except Exception as e:

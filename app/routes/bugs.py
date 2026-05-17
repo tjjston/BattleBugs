@@ -755,6 +755,18 @@ def reclassify_bug(bug_id):
     for w in (result.warnings or [])[:3]:
         flash(w, 'warning')
 
+    # Optional: same admin gesture also re-runs the LLM stat generator
+    # so attack/defense/stats reflect the new species. Without this the
+    # bug keeps the stats it had from its original (possibly wrong) ID.
+    if request.form.get('also_restat') == '1':
+        try:
+            from app.services.tier_system import LLMStatGenerator
+            LLMStatGenerator().regenerate_stats_for_bug(bug)
+            flash('Stats also regenerated to match the new classification.', 'success')
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Re-classification succeeded but stat regeneration failed: {e}', 'warning')
+
     return redirect(url_for('bugs.view_bug', bug_id=bug.id))
 
 
