@@ -62,7 +62,9 @@
           <div class="text-muted small">{{ bug.common_name or bug.scientific_name or 'Unknown species' }}</div>
         </td>
         <td>
-          {% if bug.tier %}<span class="badge bg-dark">{{ bug.tier|upper }}</span>
+          {% if bug.tier %}
+            {%- set _tc = {'uber':'danger','ou':'warning','uu':'primary','ru':'info','nu':'secondary','zu':'dark'}.get(bug.tier, 'secondary') -%}
+            <span class="badge bg-{{ _tc }}">{{ bug.tier|upper }}</span>
           {% else %}<span class="text-muted small">Pending</span>{% endif %}
         </td>
         <td>

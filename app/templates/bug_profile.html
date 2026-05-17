@@ -372,7 +372,12 @@
             <span class="badge bg-{{ _tc }} fs-3 px-3 py-2 fw-bold">{{ bug.tier.upper() }}</span>
             <div>
               <div class="fw-semibold fs-5">{{ _tier_labels.get(bug.tier, bug.tier.upper()) }} Tier</div>
-              <small class="text-muted">Power: {{ (bug.attack or 0) + (bug.defense or 0) + (bug.speed or 0) }}</small>
+              <small class="text-muted">
+                Power:
+                {{ (bug.attack or 0) + (bug.defense or 0) + (bug.speed or 0)
+                  + (bug.lethality or 0) + (bug.grip or 0) + (bug.cunning or 0) }}
+                <span class="ms-1" title="Tier bands by total of all six stats: ZU <240, NU 240-319, RU 320-399, UU 400-479, OU 480-539, Uber 540+">ⓘ</span>
+              </small>
             </div>
           </div>
         </div>
