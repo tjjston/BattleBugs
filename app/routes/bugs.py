@@ -416,8 +416,10 @@ def handle_submission():
         condition = getattr(classification, 'condition', 'alive') or 'alive'
         condition_notes = getattr(classification, 'condition_notes', None) or None
 
+        zombug_attempted = False  # marks the submission as ritual-bound
         if condition == 'dead':
             from app.services.condition_system import roll_zombug_success
+            zombug_attempted = True
             if not roll_zombug_success():
                 os.remove(temp_path)
                 # Permanently block this hash so the image can't be resubmitted
@@ -432,7 +434,9 @@ def handle_submission():
                     'this specimen did not survive the process. The image has been permanently blocked.',
                     'danger',
                 )
-                return redirect(url_for('bugs.submit_bug'))
+                # Redirect through the ritual animation so the user sees the
+                # reveal before landing back on the submit page.
+                return redirect(url_for('bugs.zombug_ritual', outcome='fail'))
 
         final_filename = f"{current_user.id}_{timestamp}_{filename}"
         final_path = os.path.join(current_app.config['UPLOAD_FOLDER'], final_filename)
@@ -612,6 +616,9 @@ def handle_submission():
         db.session.commit()
 
         # NOW redirect (bug.id exists!)
+        if zombug_attempted and bug.is_zombug:
+            # Route through the ritual animation for the dramatic reveal.
+            return redirect(url_for('bugs.zombug_ritual', outcome='success', bug_id=bug.id))
         return redirect(url_for('bugs.view_bug', bug_id=bug.id, _celebrate='submit'))
         
     except Exception as e:
@@ -757,6 +764,29 @@ def deny_recalc_bug_stats(bug_id):
     bug = db.get_or_404(Bug, bug_id)
     flash('No changes applied.', 'info')
     return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+
+@bp.route('/zombug-ritual')
+@login_required
+def zombug_ritual():
+    """Animated reveal for the zombug roll outcome.
+
+    Query params:
+        outcome: 'success' or 'fail'
+        bug_id: numeric — only meaningful when outcome=success
+    The page plays a ~4-second slider animation and then auto-redirects.
+    The actual roll already happened server-side before redirecting here;
+    this view is purely cosmetic.
+    """
+    outcome = (request.args.get('outcome') or '').strip().lower()
+    if outcome not in ('success', 'fail'):
+        return redirect(url_for('bugs.submit_bug'))
+    bug_id = request.args.get('bug_id', type=int)
+    next_url = (
+        url_for('bugs.view_bug', bug_id=bug_id, _celebrate='submit')
+        if outcome == 'success' and bug_id else url_for('bugs.submit_bug')
+    )
+    return render_template('zombug_ritual.html', outcome=outcome, next_url=next_url)
 
 
 @bp.route('/bug/<int:bug_id>/zombug', methods=['POST'])
