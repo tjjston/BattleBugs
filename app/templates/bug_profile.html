@@ -253,6 +253,25 @@
                           🧪 Re-classify with the Lab
                         </button>
                     </form>
+                    {% if bug.is_zombug %}
+                    <form method="post" action="{{ url_for('bugs.toggle_zombug', bug_id=bug.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="mode" value="remove">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100"
+                                onclick="return confirm('Remove zombug status from {{ bug.nickname|e }}?');">
+                          🧟 Remove Zombug Status
+                        </button>
+                    </form>
+                    {% else %}
+                    <form method="post" action="{{ url_for('bugs.toggle_zombug', bug_id=bug.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="mode" value="add">
+                        <button type="submit" class="btn btn-sm btn-outline-success w-100"
+                                onclick="return confirm('Mark {{ bug.nickname|e }} as a Zombug? Condition will be set to dead.');">
+                          🧟 Add Zombug Status
+                        </button>
+                    </form>
+                    {% endif %}
                     {% if current_user.role in ['ADMIN','OWNER'] %}
                     <form method="post" action="{{ url_for('bugs.recalc_bug_stats', bug_id=bug.id) }}"
                           data-llm-loading="Recalculating stats… this may take a moment.">

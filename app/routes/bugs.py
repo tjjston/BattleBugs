@@ -759,6 +759,45 @@ def deny_recalc_bug_stats(bug_id):
     return redirect(url_for('bugs.view_bug', bug_id=bug.id))
 
 
+@bp.route('/bug/<int:bug_id>/zombug', methods=['POST'])
+@login_required
+def toggle_zombug(bug_id):
+    """Admin/mod-only: flip the zombug status on a bug.
+
+    Mode is taken from the 'mode' form field: 'add' or 'remove'. Toggling on
+    sets is_zombug=True and condition='dead'; toggling off sets both back to
+    their alive defaults (and clears condition_notes mentioning zombug).
+    """
+    bug = db.get_or_404(Bug, bug_id)
+    if current_user.role not in ('MODERATOR', 'ADMIN', 'OWNER'):
+        flash('Only moderators and admins can change zombug status.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    mode = (request.form.get('mode') or '').strip().lower()
+    if mode not in ('add', 'remove'):
+        # Default to a toggle if mode is missing — useful for a single-button UI.
+        mode = 'remove' if bug.is_zombug else 'add'
+
+    if mode == 'add':
+        bug.is_zombug = True
+        if bug.condition not in ('dead', 'squashed'):
+            bug.condition = 'dead'
+        if not bug.condition_notes:
+            bug.condition_notes = 'Marked as a zombug by an administrator.'
+        flash(f'{bug.nickname} is now a 🧟 Zombug.', 'success')
+    else:
+        bug.is_zombug = False
+        if bug.condition == 'dead':
+            bug.condition = 'alive'
+        # Strip a likely auto-generated zombug note; preserve a custom one.
+        if bug.condition_notes and 'zombug' in bug.condition_notes.lower():
+            bug.condition_notes = None
+        flash(f'{bug.nickname}\'s zombug status was removed.', 'info')
+
+    db.session.commit()
+    return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+
 @bp.route('/insectidex')
 @bp.route('/pokedex')
 def insectidex():
