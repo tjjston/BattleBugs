@@ -361,6 +361,43 @@
     {% endif %}
 
     <div class="col-md-8">
+        {# ── "Stats are finalizing" banner ─────────────────────────────────
+           When a bug has just been submitted, it lives with fallback stats
+           and no typing for ~30-180s while the LLM stat-recalc job runs in
+           the background. Showing the placeholder values as final is
+           confusing. We poll the bug-stats endpoint and auto-refresh once
+           the real stats land. #}
+        {% if bug.stats_generation_method == 'fallback_pending_llm' %}
+        <div class="alert alert-warning d-flex align-items-center gap-2" id="statsPendingBanner">
+          <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+          <div>
+            <strong>The lab is finalizing this bug's stats.</strong>
+            What you're seeing now is a fallback placeholder. Real stats and
+            combat typing usually land within a minute or two — this page
+            will refresh automatically when they do.
+          </div>
+        </div>
+        <script>
+        (function () {
+          const bugId = {{ bug.id | tojson }};
+          let attempts = 0;
+          const poll = setInterval(() => {
+            attempts++;
+            if (attempts > 60) { clearInterval(poll); return; }    // ~3 min cap
+            fetch('/api/bug/' + bugId + '/stats-reasoning', { credentials: 'same-origin' })
+              .then(r => r.json())
+              .then(data => {
+                if (data && data.has_reasoning) {
+                  clearInterval(poll);
+                  location.reload();
+                }
+              })
+              .catch(() => {});
+          }, 3000);
+        })();
+        </script>
+        {% endif %}
+
         {# ── Tier tile ──────────────────────────────────────────────────── #}
         {% if bug.tier %}
         {%- set _tier_colors = {'uber': 'danger', 'ou': 'warning', 'uu': 'primary', 'ru': 'info', 'nu': 'secondary', 'zu': 'dark'} -%}

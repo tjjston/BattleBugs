@@ -1015,7 +1015,9 @@ function generateLoreStream(buttonEl) {
                   || document.getElementById('description').value || '');
 
     const controller = new AbortController();
-    const hardTimeout = setTimeout(() => controller.abort(), 90000);
+    // 4 minutes — gives Ollama room to cold-load an 8 GB GGUF and produce
+    // the response. Falls back to the JSON endpoint on AbortError.
+    const hardTimeout = setTimeout(() => controller.abort(), 240000);
 
     let buffer = '';     // accumulated model output (raw text)
 
