@@ -6,14 +6,47 @@ classification path for new bug submissions, ahead of the local LLM. The
 LLM only runs when iNat is unconfigured, unreachable, or returns a
 score below 0.55.
 
-This setup is one-time per environment, ~5 minutes.
+There are two ways to get a token. Try the **fast path** first.
 
-## 1. Register an application on iNaturalist
+---
+
+## Fast path: personal JWT (60 seconds, no app registration)
+
+iNaturalist issues every logged-in user a personal JWT that the same CV
+endpoint accepts. The token expires after ~24 hours — fine for trying
+this out and easy to refresh.
+
+1. Sign in to https://www.inaturalist.org in your browser.
+2. While signed in, open https://www.inaturalist.org/users/api_token
+   in the same browser. You'll see a JSON blob like:
+   ```json
+   {"api_token": "eyJhbGciOi...long.jwt.value...sjvk"}
+   ```
+3. Copy the `api_token` value into your `.env`:
+   ```dotenv
+   INATURALIST_API_TOKEN=eyJhbGciOi...
+   ```
+4. `docker compose restart web`. You're done — the next submission gets
+   scored by iNat CV.
+
+The downside: this JWT lasts ~24 hours, so for production use, fall
+back to the **stable path** below. For development, just paste a fresh
+one whenever it expires.
+
+---
+
+## Stable path: OAuth application + bearer token (1-year token)
+
+Use this when you want a token that doesn't expire daily.
+
+### 1. Register an application on iNaturalist
 
 1. Sign in at https://www.inaturalist.org with the account you want the
    API calls attributed to. A personal account is fine.
 2. Visit https://www.inaturalist.org/oauth/applications and click
-   **New Application**.
+   **New Application**. (Note: iNat sometimes gates application creation
+   behind a few days of account activity. If you can't see the form,
+   use the **Fast path** above instead.)
 3. Fill in:
    - **Name**: anything (e.g. `BattleBugs local`)
    - **Description**: e.g. `Personal arthropod classification helper`
@@ -23,7 +56,7 @@ This setup is one-time per environment, ~5 minutes.
 4. After creation you'll get a **Client ID** and a **Client Secret**.
    Treat the secret like a password.
 
-## 2. Exchange your credentials for a bearer token
+### 2. Exchange your credentials for a bearer token
 
 iNat allows the OAuth `password` grant for first-party apps. Run this in
 your shell with placeholders replaced — your iNat password is sent only
@@ -52,7 +85,7 @@ You'll get back:
 Copy the `access_token` value. Tokens are long-lived (~1 year) but are
 revocable from your iNaturalist account settings.
 
-## 3. Drop the token into `.env`
+### 3. Drop the token into `.env`
 
 ```dotenv
 INATURALIST_API_TOKEN=abcd1234...
@@ -61,7 +94,9 @@ INATURALIST_API_TOKEN=abcd1234...
 Restart the container (`docker compose restart web` or your usual flow)
 and the next bug submission will be scored by iNat CV first.
 
-## 4. Verify it's wired up
+---
+
+## Verify it's wired up
 
 Submit a bug photo. In `docker logs battlebug-web` you should see:
 

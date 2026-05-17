@@ -13,19 +13,73 @@ from app.services.vision_service import ImageQualityChecker
 
 
 def _extract_json(text: str) -> dict:
-    """Parse JSON from an LLM response, tolerating prose before/after the object."""
+    """Parse JSON from an LLM response, tolerating prose around AND truncation.
+
+    Tries strict parse, then a `{…}` substring parse, then walks the string
+    to recover the longest balanced span, then last-ditch closes any open
+    braces/brackets. Truncated LLM responses still produce usable dicts.
+    """
+    if not text:
+        raise ValueError("No parseable JSON in LLM response: <empty>")
+
     try:
         return json.loads(text)
     except (json.JSONDecodeError, TypeError):
         pass
-    if text:
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError:
-                pass
-    raise ValueError(f"No parseable JSON in LLM response: {(text or '')[:200]}")
+
+    start = text.find('{')
+    if start < 0:
+        raise ValueError(f"No parseable JSON in LLM response: {text[:200]}")
+    candidate = text[start:]
+
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        pass
+
+    # Walk and remember the last position where braces/brackets balance.
+    in_string = False
+    escape = False
+    stack: list[str] = []
+    last_balanced = -1
+    for i, ch in enumerate(candidate):
+        if escape:
+            escape = False
+            continue
+        if ch == '\\' and in_string:
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in '{[':
+            stack.append(ch)
+        elif ch in '}]':
+            if stack:
+                stack.pop()
+            if not stack:
+                last_balanced = i
+
+    if last_balanced >= 0:
+        try:
+            return json.loads(candidate[:last_balanced + 1])
+        except json.JSONDecodeError:
+            pass
+
+    # Last-ditch repair: close any open string + brackets in reverse order.
+    repaired = candidate.rstrip()
+    repaired = re.sub(r'[,:]\s*$', '', repaired)
+    if in_string:
+        repaired += '"'
+    closers = {'{': '}', '[': ']'}
+    for opener in reversed(stack):
+        repaired += closers[opener]
+    try:
+        return json.loads(repaired)
+    except json.JSONDecodeError:
+        raise ValueError(f"No parseable JSON in LLM response: {text[:200]}")
 
 
 class BugClassificationResult:
@@ -533,6 +587,21 @@ class LLMBugClassifier:
 
         return result
     
+    # Visually-confusable family pairs. When Pass 2 returns one of these,
+    # we run a focused disambiguation pass that asks the model to pick
+    # between just the listed candidates. The order of the value list
+    # doesn't matter — we always include all of them in the choices.
+    _CONFUSION_FAMILIES = {
+        'cantharidae': ['lampyridae', 'cantharidae'],     # firefly vs soldier beetle
+        'lampyridae':  ['lampyridae', 'cantharidae'],
+        'syrphidae':   ['syrphidae', 'apidae', 'vespidae'], # hover fly vs bee vs wasp
+        'apidae':      ['apidae', 'syrphidae'],
+        'vespidae':    ['vespidae', 'syrphidae'],
+        'asilidae':    ['asilidae', 'apidae'],            # robber fly bee mimic
+        'noctuidae':   ['noctuidae', 'sphingidae'],       # owlet vs hawk moth
+        'gryllidae':   ['gryllidae', 'gryllotalpidae', 'tettigoniidae'],
+    }
+
     # ── Feature-to-taxon sanity rules (used in Pass 2 cross-check) ──────
     # Each rule: (feature substring, {allowed_orders}, {allowed_families})
     # An empty set means "no constraint at that rank". If Pass 1 reports the
@@ -645,6 +714,191 @@ class LLMBugClassifier:
         if not prose:
             return "(no features available)"
         return prose
+
+    # Family-specific field marks used in the disambiguation prompt. Only
+    # families that appear in _CONFUSION_FAMILIES need entries here.
+    _FAMILY_FIELD_MARKS = {
+        'lampyridae': (
+            "Firefly. Broad SHIELD-SHAPED pronotum fully covers and conceals "
+            "the head from above. Last 1-2 abdominal segments have pale "
+            "cream/yellow LIGHT-PRODUCING ORGANS even when not actively "
+            "glowing. Pronotum often red/orange with a dark central spot. "
+            "Often photographed at dusk."
+        ),
+        'cantharidae': (
+            "Soldier beetle. Smaller, narrower pronotum — HEAD IS PLAINLY "
+            "VISIBLE from above. NO light organs anywhere on the abdomen. "
+            "Coloration more uniform on the pronotum than fireflies. "
+            "Active during the day, often on flowers."
+        ),
+        'syrphidae': (
+            "Hover fly. ONE pair of wings + halteres (knob-like balancers). "
+            "LARGE fly eyes cover most of the head. Short stubby antennae. "
+            "Often photographed HOVERING above flowers."
+        ),
+        'apidae': (
+            "Bee. TWO pairs of wings. Smaller eyes leaving room for ocelli "
+            "on top of the head. Longer thread-like or elbowed antennae. "
+            "Usually landed and walking on the flower."
+        ),
+        'vespidae': (
+            "Wasp. TWO pairs of wings. Pronounced narrow waist. Bare body "
+            "(less hair than a bee). Longer legs that often dangle in flight."
+        ),
+        'asilidae': (
+            "Robber fly. ONE pair of wings + halteres. Hollow on top of head "
+            "between the large eyes. Often photographed mid-air with prey."
+        ),
+        'noctuidae': (
+            "Owlet moth. Stout body, broad wings held roof-like at rest. "
+            "Antennae thread-like, NOT feathered. Eyes large."
+        ),
+        'sphingidae': (
+            "Hawk moth. Very large body, narrow pointed forewings. Often "
+            "hovers at flowers with a long coiled proboscis. Antennae are "
+            "thread-like with a small hooked tip."
+        ),
+        'gryllidae': (
+            "True cricket. Cylindrical body, flat back. Long thread-like "
+            "antennae longer than body. Three ovipositor projections in females."
+        ),
+        'gryllotalpidae': (
+            "Mole cricket. Velvety appearance, MODIFIED SPADE-LIKE FORELEGS "
+            "for digging, head capsule resembles a mole's. Spends life underground."
+        ),
+        'tettigoniidae': (
+            "Katydid/long-horned grasshopper. Often green and leaf-shaped. "
+            "Very long thread-like antennae longer than the body."
+        ),
+    }
+
+    def _disambiguate_confusable(
+        self,
+        image_data: str,
+        media_type: str,
+        result_data: dict,
+        description: Optional[str] = None,
+    ) -> dict:
+        """If Pass 2 returned a family that's commonly confused, force a
+        focused choice between the small candidate set, with each family's
+        field marks side-by-side. Returns either the original result_data
+        or a corrected dict.
+        """
+        family = (result_data.get('family') or '').strip().lower()
+        if not family or family not in self._CONFUSION_FAMILIES:
+            return result_data
+
+        candidates = self._CONFUSION_FAMILIES[family]
+        if len(candidates) < 2:
+            return result_data
+
+        log = current_app.logger
+        log.warning(
+            "PASS3 disambiguation triggered for family=%s candidates=%s",
+            family, candidates,
+        )
+
+        # Build candidate field-mark block.
+        marks = []
+        for fam in candidates:
+            mk = self._FAMILY_FIELD_MARKS.get(fam.lower())
+            if mk:
+                marks.append(f"**{fam.title()}**: {mk}")
+        if not marks:
+            return result_data
+
+        prompt = (
+            "You previously identified this bug at family rank. The family you picked "
+            f"({family.title()}) is commonly confused with one or two others on photos "
+            "like this. Look at the image again and choose between these specific "
+            "candidates using the listed field marks.\n\n"
+            + "\n\n".join(marks)
+            + (f"\n\nUser context: {description}" if description else "")
+            + "\n\nReply with ONLY this JSON (no markdown):\n"
+            "{\"family\": \"one of the candidate family names exactly as listed\","
+            " \"confidence\": 0.0-1.0,"
+            " \"why\": \"one sentence naming the field mark(s) that decided it\"}"
+        )
+
+        model = self._ensure_vision_model(self._get_preferred_model())
+        try:
+            response = self.llm.generate(
+                prompt=prompt,
+                task='vision_analysis',
+                model=model,
+                image_data={'base64': image_data, 'media_type': media_type},
+                max_tokens=300,
+                temperature=0.2,
+                json_mode=True,
+            )
+        except Exception as exc:
+            log.warning("Pass 3 disambiguation call failed: %s", exc)
+            return result_data
+
+        if not response or not response.strip():
+            log.warning("Pass 3 disambiguation returned empty response")
+            return result_data
+        log.warning("PASS3 raw: %s", response[:400])
+        try:
+            picked = _extract_json(response) or {}
+        except Exception:
+            picked = {}
+
+        chosen = (picked.get('family') or '').strip()
+        # Match case-insensitively against the candidate list.
+        normalized = None
+        for fam in candidates:
+            if fam.lower() == chosen.lower():
+                normalized = fam
+                break
+        if not normalized:
+            log.warning("Pass 3 picked %r which is not in candidates %s — keeping Pass 2", chosen, candidates)
+            return result_data
+
+        if normalized.lower() == family:
+            log.warning("Pass 3 confirmed original family %s — why: %s", family, picked.get('why'))
+            return result_data
+
+        # Family changed — rewrite result_data accordingly.
+        log.warning(
+            "Pass 3 OVERRIDE: family %s -> %s. why: %s",
+            family, normalized, picked.get('why'),
+        )
+        new_family = normalized
+        result_data['family'] = new_family.title()
+        # Drop the species-level claim — we only re-decided the family.
+        result_data['scientific_name'] = new_family.title()
+        result_data['identified_species'] = None
+        # Common name: lowercase mapping of family → typical common.
+        common_names = {
+            'lampyridae': 'Firefly',
+            'cantharidae': 'Soldier Beetle',
+            'syrphidae': 'Hover Fly',
+            'apidae': 'Bee',
+            'vespidae': 'Wasp',
+            'asilidae': 'Robber Fly',
+            'noctuidae': 'Owlet Moth',
+            'sphingidae': 'Hawk Moth',
+            'gryllidae': 'Cricket',
+            'gryllotalpidae': 'Mole Cricket',
+            'tettigoniidae': 'Katydid',
+        }
+        result_data['common_name'] = common_names.get(new_family.lower()) or result_data.get('common_name')
+        # Keep Pass 2 confidence but blend with Pass 3 confidence so we don't
+        # overstate. Take the smaller of the two.
+        try:
+            p3_conf = float(picked.get('confidence') or 0)
+        except (TypeError, ValueError):
+            p3_conf = 0
+        if p3_conf > 0:
+            result_data['confidence'] = min(float(result_data.get('confidence') or 0), p3_conf)
+        # Annotate reasoning.
+        existing_reason = (result_data.get('reasoning') or '').rstrip()
+        why = (picked.get('why') or '').strip()
+        result_data['reasoning'] = (
+            existing_reason + f"\n\nDisambiguation pass overrode {family.title()} → {new_family.title()}: {why}"
+        ).strip()
+        return result_data
 
     def _consistency_warnings(self, features: dict, result_data: dict) -> list[str]:
         """Cross-check Pass-1 visual features against Pass-2's named taxon."""
@@ -770,6 +1024,15 @@ class LLMBugClassifier:
             result_data = _extract_json(response)
             result_data['llm_provider'] = model.provider
             result_data['llm_model'] = model.model_name
+
+            # ── Pass 3 (disambiguation, only fires for known-confusable
+            # families like Lampyridae↔Cantharidae). Forces the model to
+            # pick between the small list of candidates, with the specific
+            # field marks for each — kills the firefly/soldier-beetle
+            # oscillation we kept seeing on the same photo.
+            result_data = self._disambiguate_confusable(
+                image_data, media_type, result_data, description=description,
+            )
 
             # Cross-check Pass-1 features against Pass-2's taxonomic claim.
             mismatches = self._consistency_warnings(features, result_data)
