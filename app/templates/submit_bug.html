@@ -130,10 +130,11 @@
                         <div class="mb-3">
                             <label for="lore_background" class="form-label">Background & Origins</label>
                             <div class="input-group">
-                                <textarea class="form-control" id="lore_background" name="lore_background" rows="2" 
+                                <textarea class="form-control" id="lore_background" name="lore_background" rows="2"
                                           placeholder="Where did they come from? What's their history?&#10;Example: 'Born in the shadow of the Great Oak, trained by ancient mantis monks'"></textarea>
-                                <button class="btn btn-outline-secondary" type="button" onclick="generateSuggestion('lore')" title="Generate lore">⚡</button>
+                                <button class="btn btn-outline-secondary" type="button" onclick="generateLoreStream(this)" title="Generate lore (streaming)">⚡</button>
                             </div>
+                            <div id="lore_live_preview" class="small text-muted mt-1 d-none" style="white-space:pre-wrap; max-height:120px; overflow-y:auto; padding:6px; border:1px dashed #ddd; border-radius:4px;"></div>
                         </div>
 
                         <div class="mb-3">
@@ -977,6 +978,160 @@ function updateReview() {
 }
 
 // ---------- Generation helpers ----------
+
+// Streaming lore generation — calls the SSE endpoint, shows the model's
+// output materialize in a live-preview block, then parses the final JSON
+// and populates the three lore textareas. Falls through to the JSON
+// endpoint if the browser lacks ReadableStream or the stream errors out.
+function generateLoreStream(buttonEl) {
+    const btn = buttonEl || event?.target?.closest('button');
+    if (!('ReadableStream' in window) || !window.fetch) {
+        // No streaming support — fall back to the existing JSON endpoint.
+        return generateSuggestion('lore');
+    }
+
+    const oldText = btn ? btn.textContent : null;
+    if (btn) {
+        btn.disabled = true;
+        const spinner = document.createElement('span');
+        spinner.className = 'spinner-border spinner-border-sm';
+        spinner.setAttribute('role', 'status');
+        btn.replaceChildren(spinner);
+    }
+    function restoreBtn() {
+        if (btn && oldText !== null) {
+            btn.textContent = oldText;
+            btn.disabled = false;
+        }
+    }
+
+    const preview = document.getElementById('lore_live_preview');
+    if (preview) {
+        preview.textContent = '';
+        preview.classList.remove('d-none');
+    }
+
+    const hint = (document.getElementById('lore_background').value
+                  || document.getElementById('description').value || '');
+
+    const controller = new AbortController();
+    const hardTimeout = setTimeout(() => controller.abort(), 90000);
+
+    let buffer = '';     // accumulated model output (raw text)
+
+    fetch('/api/bug/generate/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ field: 'lore', context: { hint } }),
+        signal: controller.signal,
+    })
+    .then(resp => {
+        if (!resp.ok || !resp.body) {
+            throw new Error('SSE response not OK (' + resp.status + ')');
+        }
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let leftover = '';
+
+        function pump() {
+            return reader.read().then(({ value, done }) => {
+                if (done) return finish();
+                const text = leftover + decoder.decode(value, { stream: true });
+                const events = text.split('\n\n');
+                leftover = events.pop() || '';
+                for (const evt of events) {
+                    if (!evt.trim()) continue;
+                    let eventName = 'message';
+                    const dataLines = [];
+                    for (const line of evt.split('\n')) {
+                        if (line.startsWith('event:')) {
+                            eventName = line.slice(6).trim();
+                        } else if (line.startsWith('data:')) {
+                            dataLines.push(line.slice(5).trimStart());
+                        }
+                    }
+                    const data = dataLines.join('\n');
+                    if (eventName === 'done') {
+                        return finish();
+                    } else if (eventName === 'error') {
+                        throw new Error(data || 'stream error');
+                    } else {
+                        // Server escaped real newlines as '\n' inside the
+                        // data payload to keep SSE framing intact — reverse.
+                        const chunk = data.replace(/\\n/g, '\n');
+                        buffer += chunk;
+                        if (preview) preview.textContent = buffer;
+                    }
+                }
+                return pump();
+            });
+        }
+        return pump();
+
+        function finish() {
+            // Try to parse accumulated buffer as JSON and fill the form.
+            applyLoreFromText(buffer);
+            return null;
+        }
+    })
+    .catch(err => {
+        console.error('lore stream error:', err);
+        if (preview) {
+            preview.textContent = 'Streaming failed — falling back to one-shot generation.';
+        }
+        // Fall back to the legacy JSON endpoint so the button still works.
+        return fetch('/api/bug/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ field: 'lore', context: { hint } }),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data && data.result) {
+                const r = data.result;
+                if (r.background) document.getElementById('lore_background').value = r.background;
+                if (r.motivation) document.getElementById('lore_motivation').value = r.motivation;
+                if (r.personality) document.getElementById('lore_personality').value = r.personality;
+                if (preview) preview.textContent = '';
+            }
+        })
+        .catch(() => {
+            alert('Failed to generate lore. Try again in a moment.');
+        });
+    })
+    .finally(() => {
+        clearTimeout(hardTimeout);
+        restoreBtn();
+        // Auto-hide the preview after a short delay so the form stays clean.
+        if (preview) setTimeout(() => preview.classList.add('d-none'), 4000);
+    });
+}
+
+function applyLoreFromText(text) {
+    if (!text) return;
+    // Locate the JSON object — model may have wrapped in prose or markdown.
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start < 0 || end <= start) return;
+    let parsed = null;
+    try {
+        parsed = JSON.parse(text.slice(start, end + 1));
+    } catch (e) {
+        // Repair: drop trailing comma + close any unmatched brackets.
+        let repaired = text.slice(start).replace(/[,\s]+$/, '');
+        const opens = (repaired.match(/[{[]/g) || []).length;
+        const closes = (repaired.match(/[}\]]/g) || []).length;
+        repaired = repaired + '}'.repeat(Math.max(0, opens - closes));
+        try { parsed = JSON.parse(repaired); } catch (_) {}
+    }
+    if (!parsed) return;
+    if (parsed.background) document.getElementById('lore_background').value = parsed.background;
+    if (parsed.motivation) document.getElementById('lore_motivation').value = parsed.motivation;
+    if (parsed.personality) document.getElementById('lore_personality').value = parsed.personality;
+}
+
 function generateSuggestion(field) {
     const btn = event?.target?.closest('button');
     let oldText = null;
