@@ -494,22 +494,36 @@ The archetype determines the SHAPE of the stats (which are high, which low). The
 - cunning: tactical adaptation — feints, terrain use, ambush timing, behavioral flexibility
 
 **Total-stat budget by tier (sum of all six):**
-- uber (legendary): 540-600 — apex arthropods only. Examples: Asian giant hornet, giant desert centipede, large emperor scorpion, large praying mantis, goliath beetle.
-- ou (strong): 480-539 — top-tier hunters. Examples: tarantula, large dragonfly, wolf spider, large stag beetle, jumping spider (apex of its niche).
-- uu (average): 400-479 — capable adults. Examples: large ground beetle, paper wasp, large grasshopper, mid-size mantis, orb weaver.
-- ru (below average): 320-399 — common adults of moderate ability. Examples: common bumblebee, large housefly, garden spider, June beetle.
-- nu (weak): 240-319 — small soft/short-lived bugs. Examples: **ladybug, common ant worker, small moth, fruit fly, lacewing, small leafhopper**.
+Tier is set by TOTAL COMBAT FOOTPRINT — what the bug can actually do in a fight — NOT by body size alone. Small bugs with extreme weaponry (venom, chemical artillery, web traps) can sit in high tiers despite low physical stats.
+
+- uber (legendary): 540-600 — apex arthropods. Examples: Asian giant hornet (size + venom + aggression), giant desert centipede, large emperor scorpion, large praying mantis, goliath beetle, Sydney funnel-web spider (small body but extreme venom + aggression), deathstalker scorpion.
+- ou (strong): 480-539 — top-tier hunters. Examples: tarantula, large dragonfly, wolf spider, large stag beetle, tarantula hawk wasp (paralyzing sting), Brazilian wandering spider.
+- uu (average): 400-479 — capable. Examples: large ground beetle, paper wasp, large grasshopper, mid-size mantis, orb weaver, **black widow (small body, α-latrotoxin earns the rating)**, jumping spider (Portia genus — cognitive predator), velvet ant (extreme sting).
+- ru (below average): 320-399 — moderate. Examples: common bumblebee, large housefly, garden spider, June beetle, **bombardier beetle (small but chemical jet)**, brown recluse (small but necrotic venom), tiger beetle (small but exceptional speed + jaws).
+- nu (weak): 240-319 — small soft/short-lived bugs with no signature weaponry. Examples: ladybug, common ant worker, small moth, fruit fly, lacewing, small leafhopper, pill bug, stink bug (mild chemical only).
 - zu (very weak): 0-239 — fragile or microscopic. Examples: aphid, springtail, mite, soft larva, gnat, newly-hatched anything.
 
-**Size-anchored tier ceiling (HARD RULE — do not violate):**
-- size_category=tiny (≤5mm)   → max tier is ZU. Single stat ceiling 45.
-- size_category=small (6-20mm) → max tier is NU. Single stat ceiling 60.
-- size_category=medium (21-50mm) → max tier is UU. Single stat ceiling 80.
-- size_category=large/massive → no ceiling.
-A ladybug is ~6-10mm. It is NU, not UU/RU. No individual ladybug stat should
-exceed ~60 even with the +15 deviation; a "tanky" ladybug means defense
-~50-55, not 90+. Real-world bite force and cuticle thickness don't scale
-with how round/armored the bug LOOKS in a photo.
+**Size-anchored ceilings for PHYSICAL stats (HARD RULE):**
+Body mass bounds raw physical force. These caps apply to ATTACK, DEFENSE, and GRIP only — those are mass-bound. They do NOT cap lethality, speed, or cunning.
+- size_category=tiny (≤5mm)   → attack ≤ 40, defense ≤ 40, grip ≤ 40
+- size_category=small (6-20mm) → attack ≤ 60, defense ≤ 60, grip ≤ 60
+- size_category=medium (21-50mm) → attack ≤ 80, defense ≤ 80, grip ≤ 80
+- size_category=large/massive → no caps
+
+**Principle: mass bounds force, biology bounds danger.**
+
+LETHALITY, SPEED, and CUNNING are biology-driven and NOT size-capped:
+- Lethality: a 10mm black widow with α-latrotoxin earns lethality 80+. A 4mm bombardier beetle larva's boiling spray earns lethality 70+. A 50mm beetle with no venom or spray earns lethality 30 regardless of size.
+- Speed: a flea or tiger beetle is tiny and extraordinary; a slow huge stag beetle is slow.
+- Cunning: a Portia jumping spider (6mm) solves problems no larger bug can; a giant moth might be cunning 15.
+
+Worked examples:
+- **Ladybug (~6-10mm, no venom, no signature defense):** NU. Physical caps bind (atk/def/grip all ≤60). Nothing earns high lethality/cunning/speed either. Totals around 240-280.
+- **Black widow (~8-13mm, α-latrotoxin, web hunter):** UU. Physical caps bind (atk 35, def 25, grip 50 — she's fragile), but lethality 85, cunning 70, speed 50 are biology-earned. Total ~315 → still NU/RU if low physical drags her down, OR UU if the LLM correctly assigns the venom-driven combat footprint. The tier reflects the THREAT, not the body.
+- **Bombardier beetle (~10mm, chemical jet, hard shell for its size):** RU. Defense capped at 60 (still respectable for size), lethality 75 (chemistry), speed 35.
+- **Goliath beetle (~110mm, no venom, massive shell, crushing jaws):** OU. No physical caps. Defense 85, attack 80, but lethality only 40 (no biological weapon beyond size).
+
+Don't pick UU+ for a bug unless it has at least ONE of: (a) size + physical mass to dominate, (b) potent venom / chemical / electrical weaponry, (c) ecosystem-apex behavior (web complexity, prey specialization), (d) demonstrable cognitive sophistication. Pretty colors, hard-looking shell, or photogenic pose do NOT qualify.
 
 **Categorical fields (these are flavor labels, not stat drivers):**
 - attack_type: piercing | crushing | slashing | venom | chemical | grappling | sonic | electric | neutral
@@ -797,6 +811,21 @@ Respond with valid JSON only — no prose, no markdown fences — in EXACTLY thi
             if sc == 'giant':
                 sc = 'massive'
             bug.size_class = sc
+
+        # Defense-in-depth: enforce size-anchored caps on PHYSICAL stats
+        # (attack, defense, grip) even if the LLM ignored the rubric. Mass
+        # bounds force. Lethality/speed/cunning stay biology-driven and
+        # unclamped — a small bug can still be venomous, fast, or clever.
+        _physical_caps_by_size = {'tiny': 40, 'small': 60, 'medium': 80}
+        _cap = _physical_caps_by_size.get(bug.size_class or '')
+        if _cap is not None:
+            if bug.attack > _cap:
+                bug.attack = _cap
+            if bug.defense > _cap:
+                bug.defense = _cap
+            if bug.grip > _cap:
+                bug.grip = _cap
+
         bug.stats_generation_method = 'llm_contextual'
         bug.stats_generated = True
 
