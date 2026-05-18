@@ -218,13 +218,8 @@ BE CREATIVE! Find interesting details. If the bug is near a twig, maybe it's a L
         return bug
 
 
-def generate_lore_enhanced_battle_narrative(bug1, bug2, winner, venue=None):
-    """
-    Enhanced battle narrative routed through LLMService (defaults to Ollama/Qwen).
-    Secretly incorporates visual lore without revealing it to users.
-    """
-    from app.services.llm_manager import LLMService
-
+def _build_battle_prompt(bug1, bug2, winner, venue=None) -> str:
+    """Compose the same prompt used by both the sync and streaming paths."""
     secret1 = bug1.get_secret_lore()
     secret2 = bug2.get_secret_lore()
     public1 = bug1.get_public_lore()
@@ -234,7 +229,7 @@ def generate_lore_enhanced_battle_narrative(bug1, bug2, winner, venue=None):
     if venue:
         venue_line = f"\n**Arena: {venue['name']}** — {venue['desc']}\n"
 
-    prompt = f"""Generate an epic 3-paragraph battle narrative between two bug gladiators.
+    return f"""Generate an epic 3-paragraph battle narrative between two bug gladiators.
 {venue_line}
 **{bug1.nickname}**
 Background: {public1.get('background') or 'Unknown origin'}
@@ -254,14 +249,31 @@ Write a dramatic 3-paragraph battle (Opening / Mid-battle / Climax). Use the are
 establish atmosphere. Weave the secret edges SUBTLY — never name them literally. Use the lore
 and personality naturally. Keep under 300 words. End with a one-line declaration of the winner."""
 
-    try:
-        llm = LLMService()
-        result = llm.generate(prompt, task='battle_narrative', max_tokens=800, temperature=0.85)
-        if not result or not result.strip():
-            raise ValueError("LLM returned empty narrative")
-        return result
-    except Exception as e:
-        current_app.logger.warning("Battle narrative failed: %s", e)
+
+def generate_lore_enhanced_battle_narrative(bug1, bug2, winner, venue=None):
+    """
+    Enhanced battle narrative routed through LLMService (defaults to Ollama/Qwen).
+    Secretly incorporates visual lore without revealing it to users.
+
+    Tries twice on empty response — Ollama frequently returns empty content
+    while the model is cold-loading. The retry usually succeeds against the
+    now-warm model, which is the difference between every tournament match
+    showing the same canned 'ARENA TREMBLES' fallback and showing real prose.
+    """
+    from app.services.llm_manager import LLMService
+    prompt = _build_battle_prompt(bug1, bug2, winner, venue=venue)
+    llm = LLMService()
+
+    for attempt in range(2):
+        try:
+            result = llm.generate(prompt, task='battle_narrative', max_tokens=800, temperature=0.85)
+            if result and result.strip():
+                return result
+            current_app.logger.warning(
+                "Battle narrative empty on attempt %d/2 — retrying", attempt + 1)
+        except Exception as e:
+            current_app.logger.warning(
+                "Battle narrative attempt %d/2 failed: %s", attempt + 1, e)
 
     return (
         f"THE ARENA TREMBLES\n\n"

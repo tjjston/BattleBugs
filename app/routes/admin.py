@@ -6,14 +6,14 @@ Access to secret bug stats, xfactors, matchup predictions
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, current_app
 from flask_login import login_required, current_user
 from app import db
-from app.models import Bug, Battle, Tournament, User, Job, ClassificationFlag, Notification, SystemSetting, Season, RejectedSubmission
+from app.models import Bug, Battle, Tournament, User, Job, ClassificationFlag, Notification, SystemSetting, RejectedSubmission
 from app.services.permission_system import (
     require_role, UserRole, AdminBugAnalyzer, AdminUserManager,
     can_view_secrets
 )
 from app.services.tournament_system import TournamentManager
 import sqlalchemy as sa
-from sqlalchemy import text
+from sqlalchemy import text, func
 
 bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -182,16 +182,21 @@ def user_profile(user_id):
 @login_required
 @require_role(UserRole.ADMIN)
 def update_user(user_id):
-    """Update user properties (role, elo, ban). Role assignment enforces Owner permission inside AdminUserManager."""
+    """Admin user editor. Handles role, ELO, ban, and (for ADMIN/OWNER) free
+    rename of username + email — no validation cooldowns, no rate limit, just
+    a uniqueness check. Role assignment still enforces Owner-only promotions
+    via AdminUserManager.
+    """
     user = User.query.get_or_404(user_id)
 
     new_role_name = request.form.get('role')
     new_elo = request.form.get('elo')
     is_banned = True if request.form.get('is_banned') == '1' else False
+    new_username = (request.form.get('username') or '').strip()
+    new_email = (request.form.get('email') or '').strip()
 
     try:
         if new_role_name and new_role_name != user.role:
-            # AdminUserManager.assign_role enforces Owner-only promotions to ADMIN/OWNER
             AdminUserManager.assign_role(user, UserRole[new_role_name], current_user)
 
         if new_elo is not None and new_elo != '':
@@ -199,6 +204,32 @@ def update_user(user_id):
                 user.elo = int(new_elo)
             except ValueError:
                 flash('Invalid ELO value; not changed.', 'warning')
+
+        # Username rename — free for admins/owners. Validation is intentionally
+        # only "must not collide". No length / character / cooldown rules so
+        # admins can fix typos, ban-evade rotations, etc. without ceremony.
+        if new_username and new_username != user.username:
+            collision = User.query.filter(
+                func.lower(User.username) == new_username.lower(),
+                User.id != user.id,
+            ).first()
+            if collision:
+                flash(f'Username "{new_username}" is taken by another user.', 'warning')
+            else:
+                old = user.username
+                user.username = new_username
+                flash(f'Username changed: {old} → {new_username}.', 'success')
+
+        if new_email and new_email.lower() != (user.email or '').lower():
+            collision = User.query.filter(
+                func.lower(User.email) == new_email.lower(),
+                User.id != user.id,
+            ).first()
+            if collision:
+                flash(f'Email "{new_email}" is in use by another user.', 'warning')
+            else:
+                user.email = new_email
+                flash('Email updated.', 'success')
 
         user.is_banned = is_banned
         db.session.commit()
@@ -456,17 +487,6 @@ def jobs():
     return render_template('admin/jobs.html', jobs=jobs, status=status)
 
 
-@bp.route('/create-seasonal-tournaments', methods=['POST'])
-@login_required
-@require_role(UserRole.ADMIN)
-def trigger_seasonal_tournaments():
-    """Queue a job to create this season's per-tier tournaments."""
-    from app.services.job_queue import enqueue_seasonal_tournaments
-    enqueue_seasonal_tournaments()
-    flash('Seasonal tournament creation job queued.', 'success')
-    return redirect(url_for('admin.jobs'))
-
-
 @bp.route('/jobs/<int:job_id>/retry', methods=['POST'])
 @login_required
 @require_role(UserRole.ADMIN)
@@ -594,6 +614,8 @@ def llm_test():
         model = LLMModel.CLAUDE_SONNET_4
     elif provider_override == 'openai':
         model = LLMModel.GPT_4
+    elif provider_override == 'deepseek':
+        model = LLMModel.DEEPSEEK_V4_FLASH
     elif provider_override == 'ollama':
         model = LLMConfig.TASK_MODELS.get(task, LLMConfig.DEFAULT_MODEL)
     else:
@@ -786,6 +808,11 @@ def edit_tournament(tournament_id):
 
     if request.method == 'POST':
         tournament.name = request.form.get('name', tournament.name).strip() or tournament.name
+        # Capture status BEFORE assignment so we can detect a flip into 'active'
+        # — if it's the first time the tournament becomes active, we auto-fire
+        # the bracket generator. Without this, an admin could set status=active
+        # via the edit form and end up with an active tournament with 0 matches.
+        _prev_status = tournament.status
         tournament.status = request.form.get('status', tournament.status)
         tournament.tier = request.form.get('tier', '').strip() or None
         tournament.max_participants = request.form.get('max_participants', type=int) or tournament.max_participants
@@ -808,6 +835,19 @@ def edit_tournament(tournament_id):
         tournament.format = request.form.get('format', tournament.format or 'single_elimination')
         tournament.submissions_per_user = request.form.get('submissions_per_user', type=int) or 2
         db.session.commit()
+
+        # If the admin just promoted the tournament to 'active' and it has no
+        # matches yet, generate the bracket now. Otherwise the user ends up
+        # with an 'active' tournament and an empty bracket page.
+        if (_prev_status != 'active' and tournament.status == 'active'
+                and not tournament.matches.first()):
+            try:
+                from app.services.tournament_system import TournamentManager
+                matches = TournamentManager.generate_bracket(tournament.id)
+                flash(f'Bracket generated: {len(matches)} round-1 matches.', 'success')
+            except Exception as exc:
+                flash(f'Tournament saved as active, but bracket generation failed: {exc}', 'warning')
+
         flash(f'Tournament "{tournament.name}" updated.', 'success')
         return redirect(url_for('admin.edit_tournament', tournament_id=tournament.id))
 
@@ -939,80 +979,6 @@ def delete_tournament(tournament_id):
     db.session.commit()
     flash(f'Tournament "{name}" deleted.', 'warning')
     return redirect(url_for('admin.tournament_list'))
-
-
-@bp.route('/seasons/create', methods=['POST'])
-@login_required
-@require_role(UserRole.ADMIN)
-def create_season():
-    """Create a new season. Registration opens now, closes in N weeks per form input."""
-    from app.models import Season
-    from datetime import datetime as _dt, timedelta as _td
-    tier = request.form.get('tier', '').strip() or None
-    name = request.form.get('name', '').strip()
-    reg_weeks = int(request.form.get('reg_weeks') or 2)
-
-    now = datetime.now(timezone.utc)
-    reg_opens = now
-    reg_closes = now + _td(weeks=reg_weeks)
-    rs_start = reg_closes
-    rs_end = rs_start + _td(days=7)
-    t_start = rs_end
-    t_end = t_start + _td(days=7)
-
-    key_tier = tier or 'open'
-    from app.services.seasonal_tournament import get_season_key
-    season_key = f"{get_season_key(now)}_{key_tier}"
-    # Make key unique if it already exists
-    counter = 1
-    base_key = season_key
-    while Season.query.filter_by(season_key=season_key).first():
-        season_key = f"{base_key}_{counter}"
-        counter += 1
-
-    season = Season(
-        name=name or f"{get_season_key(now).replace('_',' ').title()} — {key_tier.upper()}",
-        tier=tier or '',
-        season_key=season_key,
-        phase='registration',
-        registration_opens=reg_opens,
-        registration_closes=reg_closes,
-        regular_season_start=rs_start,
-        regular_season_end=rs_end,
-        tournament_start=t_start,
-        tournament_end=t_end,
-    )
-    db.session.add(season)
-    db.session.commit()
-    flash(f'Season "{season.name}" created. Registration closes {reg_closes.strftime("%b %d")}.', 'success')
-    from flask import url_for as _url_for
-    return redirect(_url_for('tournaments.view_season', season_id=season.id))
-
-
-@bp.route('/seasons/create-cohort', methods=['POST'])
-@login_required
-@require_role(UserRole.ADMIN)
-def create_season_cohort():
-    """Mass-create one Season per competitive tier for the current (or a chosen) calendar season."""
-    from app.services.seasonal_tournament import auto_create_seasonal_cohort, get_season_for_date
-    from datetime import datetime as _dt
-
-    target = request.form.get('target_season', 'current')
-    now = datetime.now(timezone.utc)
-
-    if target == 'next':
-        from app.services.seasonal_tournament import _SEASONS
-        # Advance by ~13 weeks to land in the next calendar season
-        from datetime import timedelta as _td
-        now = now + _td(weeks=13)
-
-    created = auto_create_seasonal_cohort(dt=now)
-    if created:
-        flash(f'Created {len(created)} seasons: {", ".join(s.name for s in created)}.', 'success')
-    else:
-        sn, sy = get_season_for_date(now)
-        flash(f'All tiers for {sn.capitalize()} {sy} already exist.', 'info')
-    return redirect(url_for('admin.dashboard'))
 
 
 # Context processor to make admin checks available in templates

@@ -1,6 +1,6 @@
 """
 Unified LLM Service Manager
-Supports: Anthropic Claude, OpenAI, and Ollama (local models)
+Supports: Anthropic Claude, OpenAI, DeepSeek, and Ollama (local models)
 """
 
 from enum import Enum
@@ -13,6 +13,7 @@ class LLMProvider(Enum):
     """Supported LLM providers"""
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
+    DEEPSEEK = "deepseek"
     OLLAMA = "ollama"
 
 
@@ -21,12 +22,17 @@ class LLMModel(Enum):
     # Anthropic
     CLAUDE_SONNET_4 = ("anthropic", "claude-sonnet-4-6")
     CLAUDE_OPUS_4 = ("anthropic", "claude-opus-4-7")
-    
+
     # OpenAI
+    GPT_4O = ("openai", "gpt-4o")
     GPT_4 = ("openai", "gpt-4")
     GPT_4_TURBO = ("openai", "gpt-4-turbo-preview")
     GPT_35_TURBO = ("openai", "gpt-3.5-turbo")
-    
+
+    # DeepSeek (OpenAI-compatible API; text-only)
+    DEEPSEEK_V4_FLASH = ("deepseek", "deepseek-v4-flash")
+    DEEPSEEK_V4_PRO = ("deepseek", "deepseek-v4-pro")
+
     # Ollama (local)
     QWEN36_35B = ("ollama", "qwen3.6:35b")    # thinking-only via /v1 (broken for text output)
     QWEN36_UC  = ("ollama", "qwen3.6-uc:latest")  # thinking model that outputs via native endpoint
@@ -54,9 +60,9 @@ class LLMConfig:
     TASK_MODELS = {
         'battle_narrative': LLMModel.GEMMA_UC_E4B,
         'stat_generation': LLMModel.QWEN36_UC,
-        'vision_analysis': LLMModel.GEMMA4_E4B,
+        'vision_analysis': LLMModel.GEMMA4_31B,  # 18.5 GB; slow but much more accurate
         'species_identification': LLMModel.GEMMA4_E4B,
-        'quick_tasks': LLMModel.GEMMA4_E2B,
+        'quick_tasks': LLMModel.GEMMA_UC_E4B,  # non-thinking, fast — used for lore/species/nickname helpers
     }
     
     @classmethod
@@ -79,7 +85,13 @@ class LLMConfig:
             if db_provider == 'anthropic':
                 return LLMModel.CLAUDE_SONNET_4
             elif db_provider == 'openai':
+                if task == 'vision_analysis':
+                    return LLMModel.GPT_4O
                 return LLMModel.GPT_4
+            elif db_provider == 'deepseek':
+                # Text-only — vision tasks fall through to default vision model.
+                if task != 'vision_analysis':
+                    return LLMModel.DEEPSEEK_V4_FLASH
             elif db_provider == 'ollama':
                 pass  # fall through to default Ollama config
         except Exception:
@@ -106,6 +118,7 @@ class LLMService:
     def __init__(self):
         self._anthropic_client = None
         self._openai_client = None
+        self._deepseek_client = None
         self._ollama_base_url = None
 
     @staticmethod
@@ -150,6 +163,17 @@ class LLMService:
             self._openai_client = OpenAI(api_key=api_key)
         return self._openai_client
     
+    def _get_deepseek_client(self):
+        """Lazy load DeepSeek client (OpenAI-compatible)."""
+        if not self._deepseek_client:
+            api_key = current_app.config.get('DEEPSEEK_API_KEY')
+            if not api_key:
+                raise ValueError("DEEPSEEK_API_KEY not configured")
+            base_url = current_app.config.get('DEEPSEEK_API_URL', 'https://api.deepseek.com')
+            from openai import OpenAI
+            self._deepseek_client = OpenAI(api_key=api_key, base_url=base_url, timeout=240.0)
+        return self._deepseek_client
+
     def _get_ollama_url(self):
         """Get Ollama base URL"""
         if not self._ollama_base_url:
@@ -196,7 +220,9 @@ class LLMService:
         if model.provider == "anthropic":
             raw = self._generate_anthropic(prompt, model, max_tokens, temperature, system_prompt, image_data, json_mode)
         elif model.provider == "openai":
-            raw = self._generate_openai(prompt, model, max_tokens, temperature, system_prompt, json_mode)
+            raw = self._generate_openai(prompt, model, max_tokens, temperature, system_prompt, image_data, json_mode)
+        elif model.provider == "deepseek":
+            raw = self._generate_deepseek(prompt, model, max_tokens, temperature, system_prompt, image_data, json_mode)
         elif model.provider == "ollama":
             raw = self._generate_ollama(prompt, model, max_tokens, temperature, system_prompt, image_data)
         else:
@@ -267,6 +293,7 @@ class LLMService:
         max_tokens: int,
         temperature: float,
         system_prompt: Optional[str],
+        image_data: Optional[Dict[str, str]],
         json_mode: bool
     ) -> str:
         """Generate using OpenAI"""
@@ -275,7 +302,17 @@ class LLMService:
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
+
+        if image_data and image_data.get('base64'):
+            media_type = image_data.get("media_type", "image/jpeg")
+            messages.append({"role": "user", "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {
+                    "url": f"data:{media_type};base64,{image_data['base64']}"
+                }},
+            ]})
+        else:
+            messages.append({"role": "user", "content": prompt})
         
         kwargs = {
             "model": model.model_name,
@@ -294,6 +331,51 @@ class LLMService:
         
         return response.choices[0].message.content
     
+    def _generate_deepseek(
+        self,
+        prompt: str,
+        model: LLMModel,
+        max_tokens: int,
+        temperature: float,
+        system_prompt: Optional[str],
+        image_data: Optional[Dict[str, str]],
+        json_mode: bool,
+    ) -> str:
+        """Generate using DeepSeek (OpenAI-compatible chat completions).
+
+        DeepSeek V4 chat models are text-only. Image data is ignored with a
+        logged warning — callers should route vision tasks elsewhere.
+        """
+        if image_data and image_data.get('base64'):
+            current_app.logger.warning(
+                "DeepSeek model %s is text-only; ignoring image_data. "
+                "Use a vision-capable provider for image classification.",
+                model.model_name,
+            )
+
+        client = self._get_deepseek_client()
+
+        messages: list = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        if json_mode and system_prompt and "json" not in system_prompt.lower():
+            messages[0]["content"] += "\n\nRespond with valid JSON only."
+        elif json_mode and not system_prompt:
+            messages.append({"role": "system", "content": "Respond with valid JSON only."})
+        messages.append({"role": "user", "content": prompt})
+
+        kwargs: Dict[str, Any] = {
+            "model": model.model_name,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        response = client.chat.completions.create(**kwargs)
+        return response.choices[0].message.content or ''
+
     # Per-model capability registry.
     # 'thinking': model emits <think> blocks; /no_think suppresses them.
     # 'native_vision': model requires Ollama's /api/chat images[] instead of
@@ -362,7 +444,10 @@ class LLMService:
         base_url = self._get_ollama_url().rstrip('/')
         if not base_url.endswith('/v1'):
             base_url = f"{base_url}/v1"
-        client = OpenAI(base_url=base_url, api_key="ollama", timeout=240.0)
+        # 240s is too long when Ollama is intermittently hung — the UI sits
+        # waiting. 45s is enough for one cold load + a normal completion;
+        # the route layer can retry once if needed.
+        client = OpenAI(base_url=base_url, api_key="ollama", timeout=45.0)
 
         messages: list = [{"role": "system", "content": base_system}]
         if has_image:
@@ -418,6 +503,7 @@ class LLMService:
             "model": model.model_name,
             "messages": messages,
             "stream": False,
+            "keep_alive": "30m",  # keep big vision models resident between calls
             "options": {
                 "num_predict": max_tokens,
                 "temperature": temperature,
@@ -431,13 +517,115 @@ class LLMService:
             method="POST",
         )
         try:
-            with _urllib.urlopen(req, timeout=300) as resp:
+            # 1200s tolerates: VRAM-eviction-driven cold load on big GGUFs
+            # (can be 90-180s when another model is resident) + vision token
+            # encoding + slow inference. User has explicitly OK'd long waits
+            # in exchange for accuracy.
+            with _urllib.urlopen(req, timeout=1200) as resp:
                 result = json.loads(resp.read())
             return result.get("message", {}).get("content", "") or ""
         except _urlerr.HTTPError as exc:
             body = exc.read().decode(errors='replace')
             raise RuntimeError(f"Ollama /api/chat {exc.code}: {body}") from exc
     
+    def generate_stream(
+        self,
+        prompt: str,
+        task: Optional[str] = None,
+        model: Optional[LLMModel] = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+        system_prompt: Optional[str] = None,
+    ):
+        """Yield text chunks as the model produces them.
+
+        Currently implemented for Ollama (native /api/chat with stream=True).
+        Other providers fall back to a single-chunk yield of the full response
+        so callers can use one consumer pattern everywhere.
+        """
+        if model is None:
+            if task:
+                model = LLMConfig.get_model_for_task(task)
+            else:
+                model = LLMConfig.DEFAULT_MODEL
+
+        if model.provider != 'ollama':
+            # Non-Ollama providers: degrade to single-chunk emission.
+            full = self.generate(prompt, task=task, model=model, max_tokens=max_tokens,
+                                 temperature=temperature, system_prompt=system_prompt)
+            if full:
+                yield full
+            return
+
+        import urllib.request as _urllib
+        base_url = self._get_ollama_url().rstrip('/')
+        if base_url.endswith('/v1'):
+            base_url = base_url[:-3]
+
+        base_system = system_prompt or "You are a helpful assistant."
+        # Mirror generate()'s /no_think prepend for Qwen3-style thinking models
+        # so streamed text isn't a chain-of-thought leak.
+        caps = self._get_model_caps(model.model_name)
+        if caps.get('thinking') and '/no_think' not in base_system:
+            base_system = '/no_think\n' + base_system
+
+        payload = json.dumps({
+            "model": model.model_name,
+            "messages": [
+                {"role": "system", "content": base_system},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": True,
+            "keep_alive": "30m",
+            "options": {
+                "num_predict": max_tokens,
+                "temperature": temperature,
+            },
+        }).encode()
+
+        req = _urllib.Request(
+            f"{base_url}/api/chat",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        in_think = False
+        with _urllib.urlopen(req, timeout=1200) as resp:
+            for line in resp:
+                if not line.strip():
+                    continue
+                try:
+                    obj = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                msg = obj.get('message') or {}
+                chunk = msg.get('content') or ''
+                if not chunk:
+                    if obj.get('done'):
+                        break
+                    continue
+                # Strip <think>…</think> from streamed output incrementally.
+                while chunk:
+                    if in_think:
+                        end = chunk.find('</think>')
+                        if end < 0:
+                            chunk = ''
+                            break
+                        chunk = chunk[end + len('</think>'):]
+                        in_think = False
+                    else:
+                        start = chunk.find('<think>')
+                        if start < 0:
+                            yield chunk
+                            chunk = ''
+                            break
+                        if start > 0:
+                            yield chunk[:start]
+                        chunk = chunk[start + len('<think>'):]
+                        in_think = True
+                if obj.get('done'):
+                    break
+
     def generate_json(
         self,
         prompt: str,

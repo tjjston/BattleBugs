@@ -21,6 +21,21 @@ def create_app(config_class=Config):
 
     db.init_app(app)
     migrate = Migrate(app, db)
+
+    # Enable WAL mode + busy timeout on SQLite so web requests aren't blocked
+    # when the job-queue thread holds a write lock during long LLM calls.
+    from sqlalchemy import event, text as _sa_text
+    from sqlalchemy.engine import Engine as _Engine
+    import sqlite3 as _sqlite3
+
+    @event.listens_for(_Engine, "connect")
+    def _set_sqlite_pragmas(dbapi_conn, _conn_record):
+        if isinstance(dbapi_conn, _sqlite3.Connection):
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA busy_timeout=10000")   # 10 s — fail fast, not hang
+            cur.close()
+
     login_manager.init_app(app)
     csrf.init_app(app)
     limiter.init_app(app)
@@ -84,5 +99,18 @@ def create_app(config_class=Config):
         from app.services.job_queue import start_scheduler
         start_scheduler(app)
 
-    return app
+        # Warm the quick-task model so the first user request doesn't pay
+        # Ollama's cold-load (often 15-30 s, which manifests as an empty
+        # response). One small ping is enough — Ollama then keeps the model
+        # resident for its idle timeout.
+        import threading as _threading
+        def _warmup_quick_tasks(flask_app):
+            try:
+                with flask_app.app_context():
+                    from app.services.llm_manager import LLMService
+                    LLMService().generate('hi', task='quick_tasks', max_tokens=5)
+            except Exception:
+                pass
+        _threading.Thread(target=_warmup_quick_tasks, args=(app,), daemon=True).start()
 
+    return app

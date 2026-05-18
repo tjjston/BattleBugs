@@ -1,13 +1,12 @@
 {% extends "base.html" %}
-{% block title %}My Bugs — Bug Manager{% endblock %}
+{% block title %}My Bugs - Battle Bugs{% endblock %}
 {% block content %}
 
 <div class="d-flex align-items-center justify-content-between mb-3">
-  <h1 class="mb-0">🪲 My Bugs</h1>
-  <a href="{{ url_for('bugs.submit_bug') }}" class="btn btn-success">+ Submit New Bug</a>
+  <h1 class="mb-0">My Bugs</h1>
+  <a href="{{ url_for('bugs.submit_bug') }}" class="btn btn-success">Submit New Bug</a>
 </div>
 
-{# ── Summary strip ─────────────────────────────────────────────── #}
 <div class="row g-2 mb-4">
   <div class="col-6 col-md-3">
     <div class="card text-center py-2">
@@ -17,237 +16,94 @@
   </div>
   <div class="col-6 col-md-3">
     <div class="card text-center py-2">
-      <div class="fs-4 fw-bold text-success">{{ all_bugs|selectattr('bug_track','equalto','season')|list|length }}</div>
-      <div class="text-muted small">🏆 Season Track</div>
+      <div class="fs-4 fw-bold text-success">{{ all_bugs|rejectattr('is_retired')|list|length }}</div>
+      <div class="text-muted small">Active</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="card text-center py-2">
-      <div class="fs-4 fw-bold text-warning">{{ all_bugs|selectattr('bug_track','equalto','mma')|list|length }}</div>
-      <div class="text-muted small">🥊 MMA Circuit</div>
+      <div class="fs-4 fw-bold text-secondary">{{ all_bugs|selectattr('is_retired')|list|length }}</div>
+      <div class="text-muted small">Retired</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="card text-center py-2">
-      <div class="fs-4 fw-bold text-secondary">{{ untracked|length }}</div>
-      <div class="text-muted small">Untracked</div>
+      <div class="fs-4 fw-bold text-primary">{{ all_bugs|selectattr('tier')|list|length }}</div>
+      <div class="text-muted small">Tiered</div>
     </div>
   </div>
 </div>
 
-{# ── Untracked bugs ────────────────────────────────────────────── #}
-{% if untracked %}
-<div class="card mb-4 border-warning">
-  <div class="card-header fw-bold">
-    ⚠️ Needs a Track — {{ untracked|length }} bug{{ 's' if untracked|length != 1 else '' }}
-    <span class="text-muted fw-normal small ms-2">Choose a competition path for each of these</span>
-  </div>
+{% if all_bugs %}
+<div class="card mb-4">
   <div class="table-responsive">
-  <table class="table table-hover align-middle mb-0">
-    <thead class="table-light">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th style="width:44px;"></th>
+          <th>Bug</th>
+          <th>Tier</th>
+          <th>Record</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for bug in all_bugs %}
       <tr>
-        <th style="width:44px;"></th>
-        <th>Bug</th>
-        <th>Tier</th>
-        <th>Record</th>
-        <th>Actions</th>
+        <td>
+          {% if bug.image_path %}
+          <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}"
+               alt="{{ bug.nickname }}" style="width:36px;height:36px;object-fit:cover;border-radius:5px;">
+          {% endif %}
+        </td>
+        <td>
+          <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="fw-semibold">{{ bug.nickname }}</a>
+          <div class="text-muted small">{{ bug.common_name or bug.scientific_name or 'Unknown species' }}</div>
+        </td>
+        <td>
+          {% if bug.tier %}
+            {%- set _tc = {'uber':'danger','ou':'warning','uu':'primary','ru':'info','nu':'secondary','zu':'dark'}.get(bug.tier, 'secondary') -%}
+            <span class="badge bg-{{ _tc }}">{{ bug.tier|upper }}</span>
+          {% else %}<span class="text-muted small">Pending</span>{% endif %}
+        </td>
+        <td>
+          <span class="badge bg-success">{{ bug.wins }}W</span>
+          <span class="badge bg-danger">{{ bug.losses }}L</span>
+        </td>
+        <td>
+          {% if bug.is_retired %}
+            <span class="badge bg-secondary">Retired</span>
+          {% elif bug.enrichment_status == 'processing' %}
+            <span class="badge bg-info text-dark">Processing</span>
+          {% elif bug.enrichment_status == 'failed' %}
+            <span class="badge bg-warning text-dark">Needs Review</span>
+          {% else %}
+            <span class="badge bg-success">Active</span>
+          {% endif %}
+        </td>
+        <td class="text-end">
+          <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="btn btn-sm btn-outline-secondary">View</a>
+        </td>
       </tr>
-    </thead>
-    <tbody>
-    {% for bug in untracked %}
-    <tr>
-      <td>
-        {% if bug.image_path %}
-        <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}"
-             alt="{{ bug.nickname }}" style="width:36px;height:36px;object-fit:cover;border-radius:5px;">
-        {% endif %}
-      </td>
-      <td>
-        <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="fw-semibold">{{ bug.nickname }}</a>
-        <div class="text-muted small">{{ bug.common_name or bug.scientific_name or '' }}</div>
-      </td>
-      <td>
-        {% if bug.tier %}<span class="badge bg-dark">{{ bug.tier|upper }}</span>
-        {% else %}<span class="text-muted small">Pending</span>{% endif %}
-      </td>
-      <td class="small">
-        <span class="badge bg-success">{{ bug.wins }}W</span>
-        <span class="badge bg-danger">{{ bug.losses }}L</span>
-      </td>
-      <td>
-        {% if bug.tier and not bug.is_retired %}
-        <div class="d-flex gap-1 flex-wrap">
-          <form method="post" action="{{ url_for('bugs.enter_season', bug_id=bug.id) }}" class="d-inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-sm btn-outline-success"
-                    {% if not open_seasons.get(bug.tier) %}disabled title="No season open for {{ bug.tier|upper }}"{% endif %}>
-              🏆 Season
-            </button>
-          </form>
-          <form method="post" action="{{ url_for('bugs.enter_mma', bug_id=bug.id) }}" class="d-inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-sm btn-outline-warning"
-                    {% if mma_active_count.get(bug.tier, 0) >= 2 %}disabled title="2/2 MMA bugs active in {{ bug.tier|upper }}"{% endif %}>
-              🥊 Circuit
-            </button>
-          </form>
-        </div>
-        {% elif bug.is_retired %}
-          <span class="text-muted small">Retired</span>
-        {% else %}
-          <span class="text-muted small">Awaiting tier</span>
-        {% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+      {% endfor %}
+      </tbody>
+    </table>
   </div>
 </div>
-{% endif %}
-
-{# ── Tier-by-tier breakdown ────────────────────────────────────── #}
-{% for tier in tiers %}
-{%- set season_bugs = season_by_tier[tier] %}
-{%- set mma_bugs = mma_by_tier[tier] %}
-{%- if season_bugs or mma_bugs %}
-<div class="card mb-3">
-  <div class="card-header d-flex align-items-center justify-content-between">
-    <span class="fw-bold">
-      <span class="badge bg-dark me-1">{{ tier|upper }}</span>
-      {{ tier_labels[tier] }}
-    </span>
-    <span class="small text-muted">
-      {{ season_bugs|length }} season · {{ mma_bugs|length }} MMA
-      {%- if open_seasons.get(tier) %} · <span class="text-success">Season open</span>{% endif %}
-      {%- if mma_active_count[tier] >= 2 %} · <span class="text-warning">MMA full (2/2)</span>{% endif %}
-    </span>
-  </div>
-  <div class="card-body p-0">
-    <div class="row g-0">
-
-      {# Season column #}
-      <div class="col-md-6 border-end">
-        <div class="px-3 py-2 bg-light border-bottom">
-          <span class="fw-semibold small">🏆 Season Track</span>
-          {% if open_seasons.get(tier) %}
-          <span class="badge bg-success ms-1 small">Registration Open</span>
-          {% endif %}
-        </div>
-        {% if season_bugs %}
-        <ul class="list-group list-group-flush">
-          {% for bug in season_bugs %}
-          <li class="list-group-item d-flex align-items-center gap-2 py-2">
-            {% if bug.image_path %}
-            <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}"
-                 alt="{{ bug.nickname }}" style="width:32px;height:32px;object-fit:cover;border-radius:4px;">
-            {% endif %}
-            <div class="flex-grow-1 min-w-0">
-              <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="fw-semibold text-truncate d-block">{{ bug.nickname }}</a>
-              {%- set reg = bug.season_registrations.first() %}
-              {%- if reg %}
-              <span class="text-muted" style="font-size:.75rem;">{{ reg.season_wins }}W–{{ reg.season_losses }}L this season</span>
-              {%- endif %}
-            </div>
-            <div>
-              <span class="badge bg-success">{{ bug.wins }}W</span>
-              <span class="badge bg-danger">{{ bug.losses }}L</span>
-              {% if bug.is_retired %}<span class="badge bg-secondary">Retired</span>{% endif %}
-            </div>
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <div class="p-3 text-muted small text-center">No bugs on season track in this tier.</div>
-        {% endif %}
-      </div>
-
-      {# MMA column #}
-      <div class="col-md-6">
-        <div class="px-3 py-2 bg-light border-bottom d-flex align-items-center justify-content-between">
-          <span class="fw-semibold small">🥊 MMA Circuit
-            <span class="text-muted">({{ mma_active_count[tier] }}/2)</span>
-          </span>
-          {% if mma_active_count[tier] >= 2 %}
-          <span class="badge bg-warning text-dark small">Full</span>
-          {% endif %}
-        </div>
-        {% if mma_bugs %}
-        <ul class="list-group list-group-flush">
-          {% for bug in mma_bugs %}
-          {%- set ranking = bug.tier_ranking_entry %}
-          {%- set champ = bug.championship_held %}
-          <li class="list-group-item d-flex align-items-center gap-2 py-2
-              {%- if champ and champ.status == 'active' %} list-group-item-warning{% endif %}">
-            {% if bug.image_path %}
-            <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}"
-                 alt="{{ bug.nickname }}"
-                 style="width:32px;height:32px;object-fit:cover;border-radius:4px;
-                 {%- if champ and champ.status == 'active' %}border:2px solid #ffc107;{% endif %}">
-            {% endif %}
-            <div class="flex-grow-1 min-w-0">
-              <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="fw-semibold text-truncate d-block">{{ bug.nickname }}</a>
-              {% if champ and champ.status == 'active' %}
-                <span style="font-size:.75rem;" class="text-warning">🏆 Champion · {{ champ.defense_count }} def.</span>
-              {% elif ranking and ranking.rank %}
-                <span style="font-size:.75rem;" class="text-info">Rank #{{ ranking.rank }}</span>
-              {% else %}
-                <span style="font-size:.75rem;" class="text-muted">Unranked</span>
-              {% endif %}
-            </div>
-            <div>
-              <span class="badge bg-success">{{ bug.wins }}W</span>
-              <span class="badge bg-danger">{{ bug.losses }}L</span>
-            </div>
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <div class="p-3 text-muted small text-center">No bugs in the MMA Circuit for this tier.</div>
-        {% endif %}
-      </div>
-
-    </div>
-  </div>
-</div>
-{% endif %}
-{% endfor %}
-
-{# ── Bugs without a tier yet ───────────────────────────────────── #}
-{%- set pending = all_bugs|selectattr('tier', 'none')|list %}
-{% if pending %}
-<div class="card mb-3 border-secondary">
-  <div class="card-header fw-semibold text-muted">Awaiting Classification ({{ pending|length }})</div>
-  <ul class="list-group list-group-flush">
-    {% for bug in pending %}
-    <li class="list-group-item d-flex align-items-center gap-2 py-2">
-      {% if bug.image_path %}
-      <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}"
-           alt="{{ bug.nickname }}" style="width:32px;height:32px;object-fit:cover;border-radius:4px;">
-      {% endif %}
-      <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="fw-semibold">{{ bug.nickname }}</a>
-      <span class="badge bg-secondary ms-auto">No tier</span>
-    </li>
-    {% endfor %}
-  </ul>
-</div>
-{% endif %}
-
-{% if not all_bugs %}
+{% else %}
 <div class="card text-center py-5">
   <div class="card-body">
-    <div style="font-size:3rem;">🪲</div>
     <h4>No bugs yet</h4>
-    <p class="text-muted">Submit your first bug to enter the arena!</p>
+    <p class="text-muted">Submit your first bug to enter the arena.</p>
     <a href="{{ url_for('bugs.submit_bug') }}" class="btn btn-success">Submit a Bug</a>
   </div>
 </div>
 {% endif %}
 
-{# ── Open Tournaments ──────────────────────────────────────────── #}
 {% set open_tourn = tournament_eligibility | selectattr('eligible', 'defined') | list %}
 {% if open_tourn %}
-<h4 class="mt-4 mb-3">🏟️ Open Tournaments</h4>
+<h4 class="mt-4 mb-3">Open Tournaments</h4>
 {% for entry in open_tourn %}
 {%- set t = entry.tournament %}
 <div class="card mb-3">
@@ -257,33 +113,21 @@
       {% if t.tier %}<span class="badge bg-dark ms-1">{{ t.tier|upper }}</span>{% else %}<span class="badge bg-info text-dark ms-1">Open</span>{% endif %}
       <span class="badge bg-{{ 'success' if t.status == 'registration' else 'secondary' }} ms-1">{{ t.status }}</span>
     </div>
-    <a href="{{ url_for('tournaments.view_tournament', tournament_id=t.id) }}" class="btn btn-sm btn-outline-secondary">View →</a>
+    <a href="{{ url_for('tournaments.view_tournament', tournament_id=t.id) }}" class="btn btn-sm btn-outline-secondary">View</a>
   </div>
-  <div class="card-body py-2">
-    {% if t.start_date %}<div class="text-muted small mb-2">Starts {{ t.start_date.strftime('%b %d, %Y') }}</div>{% endif %}
-
-    {% if entry.already_in %}
-    <div class="mb-2">
-      <span class="text-success small fw-semibold">✓ Applied:</span>
-      {% for bug in entry.already_in %}
-      <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="badge bg-success text-white ms-1">{{ bug.nickname }}</a>
-      {% endfor %}
-    </div>
-    {% endif %}
-
+  <div class="card-body">
     {% if entry.eligible %}
-    <div class="d-flex flex-wrap gap-2 align-items-center">
-      <span class="text-muted small">Apply a bug:</span>
+    <div class="d-flex flex-wrap gap-2">
       {% for bug in entry.eligible %}
-      <a href="{{ url_for('tournaments.apply_tournament', tournament_id=t.id) }}?bug_id={{ bug.id }}"
-         class="btn btn-sm btn-outline-primary">
-        {{ bug.nickname }}
-        {% if bug.tier %}<span class="badge bg-dark ms-1" style="font-size:.6rem;">{{ bug.tier|upper }}</span>{% endif %}
-      </a>
+      <form method="post" action="{{ url_for('tournaments.apply_tournament', tournament_id=t.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="bug_id" value="{{ bug.id }}">
+        <button class="btn btn-sm btn-outline-primary" type="submit">{{ bug.nickname }}</button>
+      </form>
       {% endfor %}
     </div>
     {% else %}
-    <span class="text-muted small">No eligible bugs — all applied or no tier match.</span>
+    <p class="text-muted small mb-0">No eligible bugs for this tournament.</p>
     {% endif %}
   </div>
 </div>

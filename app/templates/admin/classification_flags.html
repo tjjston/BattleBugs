@@ -48,7 +48,7 @@
           <div class="mt-1">Order: {{ flag.bug.species_info.order or '—' }}</div>
           <div>Family: {{ flag.bug.species_info.family or '—' }}</div>
           {% endif %}
-          <div class="mt-1">AI confidence: {{ '%.0f%%' % (flag.bug.vision_confidence * 100) if flag.bug.vision_confidence else 'unknown' }}</div>
+          <div class="mt-1">Lab confidence: {{ '%.0f%%' % (flag.bug.vision_confidence * 100) if flag.bug.vision_confidence else 'unknown' }}</div>
         </div>
       </div>
 

@@ -9,6 +9,85 @@ import json
 from datetime import datetime, timedelta
 
 
+def _parse_stats_json(raw: str):
+    """Parse an LLM stat-block JSON response, tolerating truncation.
+
+    Returns the parsed dict, or None if even the salvage attempts fail.
+    Strategy: try strict json.loads, then locate the largest leading '{…}'
+    span and parse that, then attempt to repair truncated JSON by closing
+    any unmatched brackets/braces.
+    """
+    import re as _re
+
+    # 1. Strict parse.
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        pass
+
+    # 2. Locate the JSON object boundary.
+    start = raw.find('{')
+    if start < 0:
+        return None
+    candidate = raw[start:]
+
+    # 3. Strict parse on the slice.
+    try:
+        return json.loads(candidate)
+    except ValueError:
+        pass
+
+    # 4. Repair truncation: drop a trailing comma/partial token then close
+    #    unmatched braces/brackets in reverse open order.
+    text = candidate.rstrip()
+    text = _re.sub(r'[,\s]+$', '', text)
+    # Drop a trailing partial key/value like `"grip": 97` if the next token never came
+    # by trimming back to the last balanced position.
+    in_string = False
+    escape = False
+    stack = []
+    last_balanced = -1
+    for i, ch in enumerate(text):
+        if escape:
+            escape = False
+            continue
+        if ch == '\\' and in_string:
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in '{[':
+            stack.append(ch)
+        elif ch in '}]':
+            if stack:
+                stack.pop()
+            if not stack:
+                last_balanced = i
+
+    if last_balanced >= 0:
+        try:
+            return json.loads(text[:last_balanced + 1])
+        except ValueError:
+            pass
+
+    # 5. Last-ditch repair: close every open container.
+    repaired = text
+    if in_string:
+        repaired += '"'
+    # If the last meaningful char is a colon or comma, the value is missing — drop it.
+    repaired = _re.sub(r'[,:]\s*$', '', repaired)
+    closers = {'{': '}', '[': ']'}
+    for opener in reversed(stack):
+        repaired += closers[opener]
+    try:
+        return json.loads(repaired)
+    except ValueError:
+        return None
+
+
 def _fallback_stats(bug_info: dict) -> dict:
     """Deterministic varied stats when LLM is unavailable.
 
@@ -354,67 +433,132 @@ class LLMStatGenerator:
             dict with attack, defense, speed, reasoning, special_ability, tier
         """
         context = self._build_reference_context()
-        
-        prompt = f"""You are an expert entomologist and game balance designer. Generate combat stats for this bug.
 
-**Reference Dataset (for calibration):**
+        baseline = bug_info.get('species_baseline')
+        baseline_block = ""
+        if baseline and baseline.get('attack') is not None:
+            baseline_block = f"""
+**SPECIES BASELINE (from {baseline['sample_size']} previously-rated {bug_info.get('common_name') or bug_info.get('scientific_name')} bugs):**
+- attack: {baseline.get('attack')}  defense: {baseline.get('defense')}  speed: {baseline.get('speed')}
+- lethality: {baseline.get('lethality')}  grip: {baseline.get('grip')}  cunning: {baseline.get('cunning')}
+- attack_type: {baseline.get('attack_type')}  defense_type: {baseline.get('defense_type')}
+- size_category: {baseline.get('size_category')}  tier: {baseline.get('tier')}
+- typical special_ability: {baseline.get('special_ability')}
+
+ANCHORING RULE — this is the most important instruction:
+The same species must produce roughly the same archetype + tier. Default to keeping the baseline's archetype / attack_type / defense_type / size_category. Your per-stat deviations may swing up to ±15 from the archetype's base when the visual observations show a real specimen difference (unusually large/small, damaged wings, missing leg, vibrant or dull coloration, etc.) — when you do deviate noticeably, name the specific visual cue in the per-stat reasoning. Don't introduce big swings for their own sake.
+"""
+
+        visual = bug_info.get('visual_observations') or {}
+        visual_block = ""
+        if visual:
+            visual_lines = []
+            for k, v in visual.items():
+                if v is None or v == "":
+                    continue
+                visual_lines.append(f"- {k}: {v}")
+            if visual_lines:
+                visual_block = "\n**Visual observations from THIS specimen's photo (the only legitimate reason to deviate from the baseline):**\n" + "\n".join(visual_lines) + "\n"
+
+        # Archetype framework: pick (archetype, tier), then per-stat ±15 deviation.
+        from app.services import archetypes as _arch
+        archetype_block = _arch.prompt_block()
+
+        prompt = f"""You are a senior entomologist and competitive game-balance designer.
+
+Your job: classify a real-world bug into one of 16 **combat archetypes**, place it in the right **tier**, and then tune its individual stats slightly to reflect what the specimen actually looks like.
+
+The archetype determines the SHAPE of the stats (which are high, which low). The tier determines the TOTAL BUDGET. You get ±15 per-stat freedom on top — wide enough for real specimen variation (a small example differs from a large one, an injured one differs from a pristine one) but bounded enough that the archetype identity still reads.
+
+**Reference dataset (for power-level calibration only — anchors, not archetypes):**
 {context}
-
+{baseline_block}{visual_block}
 **Bug to Evaluate:**
 - Common Name: {bug_info.get('common_name', 'Unknown')}
 - Scientific Name: {bug_info.get('scientific_name', 'Unknown')}
 - Size: {bug_info.get('size_mm', 'Unknown')}mm
-- Characteristics: {bug_info.get('traits', [])}
+- Observed traits: {bug_info.get('traits', [])}
 - Species Info: {bug_info.get('species_info', 'N/A')}
 {f"- Real-world facts: {'; '.join(bug_info['species_facts'])}" if bug_info.get('species_facts') else ''}
 
-**Instructions:**
-1. Compare this bug to the reference dataset to calibrate power level
-2. Assign all six stats (1-100 scale):
-   - Attack: Raw offensive power — mandible strength, strike force, body mass used offensively
-   - Defense: Survivability — armor thickness, cuticle hardness, regenerative toughness
-   - Speed: Agility and movement — reaction time, acceleration, evasion in the open
-   - Lethality: How effectively the bug exploits type advantages — venom potency, precision strike, biological weaponry (e.g. explosive sprays, neurotoxin, acid)
-   - Grip: Engagement control — clinging ability, grapple strength, limb hooks, suction (determines who controls range)
-   - Cunning: Tactical adaptation — ability to mitigate type disadvantages through feints, terrain use, ambush timing, behavioral flexibility
-3. Six-stat total budget by tier:
-   - Legendary (Uber): 540-600 total
-   - Strong (OU): 480-539 total
-   - Average (UU): 400-479 total
-   - Below Average (RU): 320-399 total
-   - Weak (NU): 240-319 total
-   - Very Weak (ZU): 0-239 total
+**Combat archetypes — pick the ONE that best matches this bug's real-world combat identity. The weights are atk/def/spd/lth/grp/cun shares of the total budget; the engine will apply them automatically.**
 
-4. Offensive Type: piercing | crushing | slashing | venom | chemical | grappling | sonic | electric | neutral
-   - sonic: vibrational/stridulation attacks; bypasses rigid armor (crickets, some beetles)
-   - electric: bioelectric discharge; conducts through shell and hide (very rare, exotic)
-   - neutral: no dominant attack style; balanced fighter with no type advantage or weakness
-5. Defensive Type: hard_shell | segmented_armor | evasive | hairy_spiny | toxic_skin | thick_hide | unarmored | regenerative | bioluminescent
-   - unarmored: soft body with high metabolic resilience; weak to physical but somewhat resists chemical/venom
-   - regenerative: rapid wound closure; resists sustained/gradual attacks but vulnerable to crushing
-   - bioluminescent: light-flash confusion; disrupts aimed attacks (piercing, grappling) but useless vs chemical/sonic
-6. Size Category: tiny (0-5mm) | small (6-20mm) | medium (21-50mm) | large (51-150mm) | massive (151mm+)
-7. Assign a special ability based on the bug's real biological traits
-8. Provide reasoning for the stat allocation
+{archetype_block}
 
-Respond in this EXACT JSON format (no markdown):
+**Stat definitions (each 1-100):**
+- attack: raw offensive power — mandible/chelicerae strength, strike force, body mass used offensively
+- defense: survivability — cuticle hardness, armor thickness, regenerative toughness
+- speed: agility — reaction time, acceleration, evasion in the open
+- lethality: how decisively it exploits a type advantage — venom potency, precision strike, biological weaponry (sprays, neurotoxin, acid)
+- grip: engagement control — clinging, grapple strength, hooks, suction (decides who controls range)
+- cunning: tactical adaptation — feints, terrain use, ambush timing, behavioral flexibility
+
+**Total-stat budget by tier (sum of all six):**
+- uber (legendary): 540-600 — extreme predators only (large mantids, large scorpions, hornets, huge centipedes)
+- ou (strong): 480-539 — top-of-food-chain arthropods
+- uu (average): 400-479 — capable predators and large beetles
+- ru (below average): 320-399 — common adult bugs
+- nu (weak): 240-319 — small pollinators, soft larvae, common ants
+- zu (very weak): 0-239 — aphids, springtails, mites, fragile larvae
+
+**Categorical fields (these are flavor labels, not stat drivers):**
+- attack_type: piercing | crushing | slashing | venom | chemical | grappling | sonic | electric | neutral
+- defense_type: hard_shell | segmented_armor | evasive | hairy_spiny | toxic_skin | thick_hide | unarmored | regenerative | bioluminescent
+- size_category: tiny (0-5mm) | small (6-20mm) | medium (21-50mm) | large (51-150mm) | massive (151mm+)
+
+**Process — follow in order:**
+1. Identify the bug's combat identity from its anatomy + behavior. Match to ONE archetype slug from the list above.
+2. Pick a tier based on body size, weaponry, and ecological standing. Most garden bugs sit in NU/RU/UU. Don't inflate.
+3. If a SPECIES BASELINE is provided above, prefer the same archetype + tier as the baseline. Only deviate if visual observations justify it.
+4. For each of the six stats, give a per-stat deviation in **{{-15, ..., +15}}**.
+   **VARIANCE MUST BE EARNED.** Every deviation outside ±5 REQUIRES a specific
+   anchor in either:
+     (a) the photo (e.g. "specimen is unusually large", "missing one antenna",
+         "wings look pristine and intact", "abdomen is engorged"), or
+     (b) the bug's lore / description / nickname (e.g. background mentions
+         it survived a wasp attack → +cunning, -defense; nickname is
+         'Half-Eye' → -cunning -speed).
+   The per-stat reasoning MUST quote that specific cue. "A bit more attack
+   because beetles are strong" is NOT acceptable — that's archetype, not
+   specimen variance. Routine specimens deviate 0-5; a specimen with at
+   least one named cue can go up to ±15. If you can't name a cue, deviate
+   0-3 and explain that this is a typical example.
+5. Pick attack_type, defense_type, size_category, special_ability based on real biology.
+
+Respond with valid JSON only — no prose, no markdown fences — in EXACTLY this shape:
 {{
-  "attack": 1-100,
-  "defense": 1-100,
-  "speed": 1-100,
-  "lethality": 1-100,
-  "grip": 1-100,
-  "cunning": 1-100,
-  "attack_type": "piercing|crushing|slashing|venom|chemical|grappling|sonic|electric|neutral",
-  "defense_type": "hard_shell|segmented_armor|evasive|hairy_spiny|toxic_skin|thick_hide|unarmored|regenerative|bioluminescent",
-  "size_category": "tiny|small|medium|large|massive",
-  "special_ability": "Ability name based on real traits",
-  "reasoning": "Brief explanation of stat allocation",
+  "archetype":        "<one slug from the list above>",
   "tier_recommendation": "uber|ou|uu|ru|nu|zu",
-  "confidence": 0.0-1.0
+  "deviations": {{
+    "attack": <-15..+15>, "defense": <-15..+15>, "speed": <-15..+15>,
+    "lethality": <-15..+15>, "grip": <-15..+15>, "cunning": <-15..+15>
+  }},
+  "attack_type":      "<one of the attack_type values>",
+  "defense_type":     "<one of the defense_type values>",
+  "size_category":    "tiny|small|medium|large|massive",
+  "special_ability":  "Concrete ability name grounded in real biology",
+  "confidence":       0.0-1.0,
+  "reasoning": {{
+    "archetype_pick": "One sentence on why this archetype fits this bug",
+    "tier_pick":      "One sentence on why this tier",
+    "summary":        "2-4 sentence overall read of the fighter",
+    "calibration":    "Which reference bug(s) anchored the rating and why",
+    "key_factors":    ["3-6 concise biological factors that drove the choices"],
+    "per_stat": {{
+      "attack":    "one-sentence reason citing anatomy/behavior",
+      "defense":   "one-sentence reason",
+      "speed":     "one-sentence reason",
+      "lethality": "one-sentence reason",
+      "grip":      "one-sentence reason",
+      "cunning":   "one-sentence reason"
+    }},
+    "matchups": {{
+      "strong_against": "the kind of opponent this bug beats and why",
+      "weak_against":   "the kind of opponent that beats this bug and why"
+    }},
+    "baseline_deviation": "If a baseline was provided, briefly state how this specimen differs and which visual cue justified the change. Otherwise write 'first of species — sets the baseline' or 'matches species baseline'."
+  }}
 }}
-
-BE REALISTIC: Most bugs should sit in the 360-440 total range (all six stats). Only truly exceptional predators reach 540+. Most bugs encountered in the midwest USA are common species — calibrate accordingly.
 """
         
         try:
@@ -424,31 +568,51 @@ BE REALISTIC: Most bugs should sit in the 360-440 total range (all six stats). O
                 "STATS generating for %s / %s",
                 bug_info.get('common_name'), bug_info.get('scientific_name'),
             )
-            raw = llm.generate(prompt, task='stat_generation', max_tokens=4096, json_mode=True)
+            raw = llm.generate(prompt, task='stat_generation', max_tokens=6144, json_mode=True)
             if not raw:
                 current_app.logger.warning("STATS LLM returned empty — task=stat_generation common=%s scientific=%s",
                     bug_info.get('common_name'), bug_info.get('scientific_name'))
                 raise ValueError("LLM returned an empty response")
 
-            # Robust extraction: try direct parse, then find {...} in prose
-            import re as _re
-            try:
-                result = json.loads(raw)
-            except json.JSONDecodeError:
-                _m = _re.search(r'\{.*\}', raw, _re.DOTALL)
-                if _m:
-                    result = json.loads(_m.group())
-                else:
-                    raise ValueError(f"No JSON in response: {raw[:200]}")
+            result = _parse_stats_json(raw)
+            if result is None:
+                raise ValueError(f"Could not extract JSON from response: {raw[:300]}")
 
-            # Validate
-            if not all(k in result for k in ['attack', 'defense', 'speed']):
-                raise ValueError("Missing required stat fields")
+            # Resolve archetype + tier into final stats. The LLM proposes
+            # (archetype, tier, deviations); the engine computes the actual
+            # 1-100 stat values. This is the guardrail: no matter what the
+            # LLM says, we never store stats that violate the archetype shape
+            # by more than ±15 or escape the tier's total budget.
+            from app.services import archetypes as _arch
+            arch_slug = (result.get('archetype') or '').strip()
+            tier = (result.get('tier_recommendation') or 'uu').strip().lower()
+            if tier not in _arch.TIER_BANDS:
+                tier = 'uu'
+            if not _arch.get(arch_slug):
+                # Fall back to ground_sprinter if the model invented a slug.
+                current_app.logger.warning(
+                    "STATS: LLM returned unknown archetype %r — falling back to ground_sprinter",
+                    arch_slug,
+                )
+                arch_slug = 'ground_sprinter'
+            deviations = result.get('deviations') or {}
+            if not isinstance(deviations, dict):
+                deviations = {}
 
-            # Clamp all stats to valid range
-            for stat in ('attack', 'defense', 'speed', 'lethality', 'grip', 'cunning'):
-                result[stat] = max(1, min(100, result.get(stat, 50)))
-
+            stats = _arch.apply(arch_slug, tier, deviations)
+            for k in ('attack', 'defense', 'speed', 'lethality', 'grip', 'cunning'):
+                result[k] = stats[k]
+            # Persist the archetype + tier choice in the reasoning blob so
+            # the popup can show "Heavy Tank — UU".
+            reasoning = result.get('reasoning')
+            if not isinstance(reasoning, dict):
+                reasoning = {'summary': str(reasoning) if reasoning else ''}
+                result['reasoning'] = reasoning
+            reasoning['archetype_slug'] = arch_slug
+            arch = _arch.get(arch_slug)
+            if arch:
+                reasoning['archetype_name'] = arch.name
+                reasoning['archetype_flavor'] = arch.flavor
             return result
 
         except Exception as e:
@@ -489,13 +653,85 @@ BE REALISTIC: Most bugs should sit in the 360-440 total range (all six stats). O
         
         return '\n'.join(context_parts)
     
+    def _get_species_baseline(self, bug):
+        """Aggregate stats from other already-statted bugs of the same species.
+
+        Returns a dict with median per-stat values + modal categorical fields,
+        or None if there are no peers. Used to keep the LLM's output consistent
+        across submissions of the same species.
+        """
+        from collections import Counter
+
+        peers = Bug.query.filter(
+            Bug.id != bug.id,
+            Bug.stats_generated.is_(True),
+        )
+        if bug.species_id:
+            peers = peers.filter(Bug.species_id == bug.species_id)
+        elif bug.scientific_name:
+            peers = peers.filter(Bug.scientific_name == bug.scientific_name)
+        else:
+            return None
+        peers = peers.limit(25).all()
+        if not peers:
+            return None
+
+        def _median(values):
+            vs = sorted(v for v in values if v is not None)
+            if not vs:
+                return None
+            mid = len(vs) // 2
+            if len(vs) % 2 == 1:
+                return vs[mid]
+            return int(round((vs[mid - 1] + vs[mid]) / 2))
+
+        def _mode(values):
+            vs = [v for v in values if v]
+            if not vs:
+                return None
+            return Counter(vs).most_common(1)[0][0]
+
+        return {
+            'sample_size': len(peers),
+            'attack':    _median(p.attack for p in peers),
+            'defense':   _median(p.defense for p in peers),
+            'speed':     _median(p.speed for p in peers),
+            'lethality': _median(p.lethality for p in peers),
+            'grip':      _median(p.grip for p in peers),
+            'cunning':   _median(p.cunning for p in peers),
+            'attack_type':    _mode(p.attack_type for p in peers),
+            'defense_type':   _mode(p.defense_type for p in peers),
+            'size_category':  _mode(p.size_class for p in peers),
+            'special_ability': _mode(p.special_ability for p in peers),
+            'tier':           _mode(p.tier for p in peers),
+        }
+
+    def _extract_visual_observations(self, bug):
+        """Pull LLM-vision observations + physical condition from the bug record.
+
+        These are the *photo-specific* cues that should drive variance away from
+        the species baseline (e.g. an unusually large specimen, a missing limb).
+        """
+        fields = {
+            'analysis':         bug.visual_lore_analysis,
+            'items':            bug.visual_lore_items,
+            'environment':      bug.visual_lore_environment,
+            'posture':          bug.visual_lore_posture,
+            'unique_features':  bug.visual_lore_unique_features,
+            'condition':        bug.condition,
+            'condition_notes':  bug.condition_notes,
+            'vision_identified_species': bug.vision_identified_species,
+            'vision_quality_score': bug.vision_quality_score,
+        }
+        return {k: v for k, v in fields.items() if v}
+
     def regenerate_stats_for_bug(self, bug):
         """
         Regenerate stats for an existing bug using LLM
-        
+
         Args:
             bug: Bug object
-            
+
         Returns:
             Updated bug with new stats
         """
@@ -513,8 +749,10 @@ BE REALISTIC: Most bugs should sit in the 360-440 total range (all six stats). O
             'traits': self._extract_traits(bug),
             'species_info': bug.species_info.to_dict() if bug.species_info else None,
             'species_facts': facts,
+            'species_baseline': self._get_species_baseline(bug),
+            'visual_observations': self._extract_visual_observations(bug),
         }
-        
+
         stats = self.generate_stats_with_llm(bug_info)
         
         bug.attack = max(0, min(100, int(stats['attack'])))
@@ -524,6 +762,19 @@ BE REALISTIC: Most bugs should sit in the 360-440 total range (all six stats). O
         bug.grip = max(0, min(100, int(stats.get('grip', 50))))
         bug.cunning = max(0, min(100, int(stats.get('cunning', 50))))
         bug.special_ability = stats.get('special_ability')
+        # Resolve the LLM-coined ability name to a canonical catalog slug so
+        # the battle engine can apply a balanced combat modifier.
+        try:
+            from app.services import ability_catalog as _ac
+            resolved = _ac.resolve(
+                bug.special_ability,
+                attack_type=stats.get('attack_type'),
+                defense_type=stats.get('defense_type'),
+            )
+            if resolved:
+                bug.ability_slug = resolved.slug
+        except Exception:
+            pass
         # Capture combat characteristic suggestions from the LLM
         if 'attack_type' in stats:
             bug.attack_type = stats.get('attack_type')
@@ -538,6 +789,13 @@ BE REALISTIC: Most bugs should sit in the 360-440 total range (all six stats). O
             bug.size_class = sc
         bug.stats_generation_method = 'llm_contextual'
         bug.stats_generated = True
+
+        reasoning = stats.get('reasoning')
+        if reasoning is not None:
+            try:
+                bug.stats_reasoning = json.dumps(reasoning, ensure_ascii=False)
+            except (TypeError, ValueError):
+                bug.stats_reasoning = json.dumps({'summary': str(reasoning)}, ensure_ascii=False)
         
         # Assign tier
         bug.tier = TierSystem.assign_tier(bug)

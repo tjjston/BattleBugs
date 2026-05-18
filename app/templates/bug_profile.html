@@ -5,21 +5,7 @@
 {% block content %}
 <div class="row">
     <div class="col-md-4">
-        {%- set _bp_is_champ = bug.championship_held and bug.championship_held.status == 'active' -%}
-        {%- set _bp_rank = bug.tier_ranking_entry.rank if bug.tier_ranking_entry and bug.tier_ranking_entry.rank else 99 -%}
-        <div class="card"
-          style="{% if _bp_is_champ %}border: 3px solid #ffc107!important;box-shadow:0 0 18px rgba(255,193,7,0.4)!important;{% elif _bp_rank <= 3 %}border: 2px solid #6c757d!important;{% endif %}">
-          {%- if _bp_is_champ %}
-          <div class="text-center py-1" style="background:#ffc107;font-size:0.8rem;font-weight:700;color:#000;">
-            🏆 CIRCUIT CHAMPION · {{ bug.championship_held.defense_count }} defense{{ 's' if bug.championship_held.defense_count != 1 else '' }}
-          </div>
-          {%- elif _bp_rank == 1 %}
-          <div class="text-center py-1" style="background:#6c757d;font-size:0.75rem;font-weight:700;color:#fff;">🥇 CIRCUIT CONTENDER #1</div>
-          {%- elif _bp_rank == 2 %}
-          <div class="text-center py-1" style="background:#6c757d;font-size:0.75rem;font-weight:700;color:#fff;">🥈 CIRCUIT CONTENDER #2</div>
-          {%- elif _bp_rank == 3 %}
-          <div class="text-center py-1" style="background:#6c757d;font-size:0.75rem;font-weight:700;color:#fff;">🥉 CIRCUIT CONTENDER #3</div>
-          {%- endif %}
+        <div class="card">
                   <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}"
                  class="card-img-top bug-image" alt="{{ bug.name }}">
             <div class="card-body">
@@ -31,17 +17,9 @@
 
                 {# ── Retirement banner ──────────────────────────── #}
                 {% if bug.is_retired %}
-                {%- set _vet_ach = bug.achievements.filter_by(achievement_type='season_veteran').first() -%}
-                {%- set _champ_ach = bug.achievements.filter_by(achievement_type='season_champion').first() -%}
                 <div class="alert alert-warning py-2 px-3 mb-2 small">
-                  {% if _champ_ach %}
-                  🏆 <strong>Season Champion</strong> — Retired after winning the season playoffs.
-                  {% elif _vet_ach %}
-                  🎖️ <strong>Season Veteran</strong> — Retired after completing a competitive season.
-                  {% else %}
-                  🏅 <strong>Retired</strong> — This bug has been put out to pasture.
-                  {% endif %}
-                  <div class="text-muted mt-1">Now eligible for <strong>Retirement Events</strong> only.</div>
+                  <strong>Retired</strong> - This bug has been put out to pasture.
+                  <div class="text-muted mt-1">Retired bugs can appear in retirement events only.</div>
                 </div>
                 {% endif %}
 
@@ -59,16 +37,16 @@
                     {% if bug.vision_confidence %}
                     {% set pct = (bug.vision_confidence * 100)|int %}
                     {% set conf_color = 'success' if pct >= 90 else 'warning' if pct >= 70 else 'danger' %}
-                    <small class="text-muted">AI Confidence: </small>
+                    <small class="text-muted">Lab Confidence: </small>
                     <span class="badge bg-{{ conf_color }}">{{ pct }}%</span>
                     {% endif %}
                     {% if bug.vision_identified_species and bug.scientific_name and bug.vision_identified_species.lower() != bug.scientific_name.lower() %}
                     <div class="small text-muted mt-1">
-                        AI saw: <em>{{ bug.vision_identified_species }}</em><br>
+                        The lab observed: <em>{{ bug.vision_identified_species }}</em><br>
                         Filed as: <em>{{ bug.scientific_name }}</em>
                     </div>
                     {% elif bug.vision_identified_species and bug.scientific_name %}
-                    <div class="small text-success mt-1">✓ AI identification matches species record</div>
+                    <div class="small text-success mt-1">✓ Lab identification matches species record</div>
                     {% endif %}
                 </div>
                 {% endif %}
@@ -78,8 +56,15 @@
                 </div>
                 <div id="speciesEditPanel" class="mt-2 d-none">
                     <form method="POST" action="{{ url_for('bugs.correct_bug_species', bug_id=bug.id) }}">
+                        <button type="button" class="btn btn-outline-info btn-sm w-100 mb-2"
+                                id="adminSuggestSpeciesBtn"
+                                data-bug-id="{{ bug.id }}"
+                                title="Have the lab re-examine the photo">
+                          🧪 Get Lab Suggestions
+                        </button>
+                        <div id="adminLabSuggestions" class="mb-2"></div>
                         <div class="input-group mb-2">
-                            <input type="text" class="form-control" id="adminSpeciesSearch" placeholder="Search species...">
+                            <input type="text" class="form-control" id="adminSpeciesSearch" placeholder="Search species…">
                             <button type="button" class="btn btn-outline-secondary" onclick="adminSearchSpecies()">🔍</button>
                         </div>
                         <div id="adminSpeciesResults"></div>
@@ -124,6 +109,26 @@
                 };
                 </script>
 
+                {% if bug.stats_reasoning %}
+                <div class="d-grid mt-2">
+                  <button type="button" class="btn btn-sm btn-outline-info"
+                          data-bs-toggle="modal" data-bs-target="#statsReasoningModal">
+                    Why these stats?
+                  </button>
+                </div>
+                {% endif %}
+
+                {% if bug.special_ability %}
+                <div class="mt-3 p-2 rounded border border-warning-subtle bg-warning-subtle">
+                  <div class="small text-uppercase text-muted">Special Ability</div>
+                  <div class="fw-semibold">{{ bug.special_ability }}</div>
+                  {% if ability_effect %}
+                  <div class="small">{{ ability_effect.description }}</div>
+                  <div class="small text-success fw-semibold">⚙ {{ ability_effect.effect }}</div>
+                  {% endif %}
+                </div>
+                {% endif %}
+
                 {# ── Combat Typing ──────────────────────────────────────── #}
                 {%- set _atk_map = {
                   'piercing':  ('⚔️',  'Piercer',   'danger'),
@@ -147,20 +152,40 @@
                   'regenerative':    ('💚',  'Regenerative',  'success'),
                   'bioluminescent':  ('✨',  'Bioluminescent','info text-dark'),
                 } -%}
-                <div class="d-flex gap-2 mt-2 mb-1 align-items-center flex-wrap">
-                  {% if bug.attack_type and bug.attack_type in _atk_map %}
-                  {%- set _a = _atk_map[bug.attack_type] %}
-                  <span class="badge fs-6 bg-{{ _a[2] }}">{{ _a[0] }} {{ _a[1] }}</span>
-                  {% endif %}
-                  {% if bug.defense_type and bug.defense_type in _def_map %}
-                  {%- set _d = _def_map[bug.defense_type] %}
-                  <span class="badge fs-6 bg-{{ _d[2] }}">{{ _d[0] }} {{ _d[1] }}</span>
-                  {% endif %}
-                  {% if current_user.is_authenticated and current_user.role in ['MODERATOR','ADMIN','OWNER'] %}
-                  <button class="btn btn-sm btn-link p-0 ms-1 text-muted" type="button"
-                          data-bs-toggle="collapse" data-bs-target="#typingEditPanel" title="Edit typing">✏️</button>
-                  {% endif %}
+                {% if bug.attack_type or bug.defense_type %}
+                <div class="mt-3 mb-1">
+                  <div class="d-flex justify-content-between align-items-center mb-1">
+                    <h6 class="mb-0 small text-uppercase text-muted">Combat Typing</h6>
+                    {% if current_user.is_authenticated and current_user.role in ['MODERATOR','ADMIN','OWNER'] %}
+                    <button class="btn btn-sm btn-link p-0 text-muted" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#typingEditPanel" title="Edit typing">✏️</button>
+                    {% endif %}
+                  </div>
+                  <div class="row g-2">
+                    {% if bug.attack_type and bug.attack_type in _atk_map %}
+                    {%- set _a = _atk_map[bug.attack_type] %}
+                    <div class="col-6">
+                      <div class="small text-muted">Attack</div>
+                      <span class="badge fs-6 bg-{{ _a[2] }} w-100 text-truncate" title="Attack type: {{ _a[1] }}">{{ _a[0] }} {{ _a[1] }}</span>
+                    </div>
+                    {% endif %}
+                    {% if bug.defense_type and bug.defense_type in _def_map %}
+                    {%- set _d = _def_map[bug.defense_type] %}
+                    <div class="col-6">
+                      <div class="small text-muted">Defense</div>
+                      <span class="badge fs-6 bg-{{ _d[2] }} w-100 text-truncate" title="Defense type: {{ _d[1] }}">{{ _d[0] }} {{ _d[1] }}</span>
+                    </div>
+                    {% endif %}
+                  </div>
                 </div>
+                {% elif current_user.is_authenticated and current_user.role in ['MODERATOR','ADMIN','OWNER'] %}
+                <div class="mt-3 mb-1">
+                  <button class="btn btn-sm btn-outline-secondary" type="button"
+                          data-bs-toggle="collapse" data-bs-target="#typingEditPanel">
+                    Set Combat Typing
+                  </button>
+                </div>
+                {% endif %}
 
                 {# Admin typing editor #}
                 {% if current_user.is_authenticated and current_user.role in ['MODERATOR','ADMIN','OWNER'] %}
@@ -218,12 +243,48 @@
                 <p class="small text-danger">{{ bug.enrichment_error }}</p>
                 {% endif %}
 
-                {% if current_user.is_authenticated and current_user.role in ['ADMIN','OWNER'] %}
-                <div class="d-grid mt-3">
+                {% if current_user.is_authenticated and current_user.role in ['MODERATOR','ADMIN','OWNER'] %}
+                <div class="d-grid mt-3 gap-2">
+                    <form method="post" action="{{ url_for('bugs.reclassify_bug', bug_id=bug.id) }}"
+                          data-llm-loading='["The lab is re-examining the photo…","Looking at visual features…","Cross-checking against known families…","Almost done…"]'>
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="form-check form-check-sm mb-1">
+                          <input class="form-check-input" type="checkbox" id="reclassifyRestat" name="also_restat" value="1">
+                          <label class="form-check-label small" for="reclassifyRestat">
+                            Also regenerate stats to match the new ID
+                          </label>
+                        </div>
+                        <button type="submit" class="btn btn-sm btn-outline-info w-100"
+                                onclick="return confirm('Re-run the lab classifier on this photo? This may take 1-3 minutes.' + (document.getElementById('reclassifyRestat').checked ? ' Stats will also be regenerated, adding another 1-2 minutes.' : ''));">
+                          🧪 Re-classify with the Lab
+                        </button>
+                    </form>
+                    {% if bug.is_zombug %}
+                    <form method="post" action="{{ url_for('bugs.toggle_zombug', bug_id=bug.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="mode" value="remove">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary w-100"
+                                onclick="return confirm('Remove zombug status from {{ bug.nickname|e }}?');">
+                          🧟 Remove Zombug Status
+                        </button>
+                    </form>
+                    {% else %}
+                    <form method="post" action="{{ url_for('bugs.toggle_zombug', bug_id=bug.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="mode" value="add">
+                        <button type="submit" class="btn btn-sm btn-outline-success w-100"
+                                onclick="return confirm('Mark {{ bug.nickname|e }} as a Zombug? Condition will be set to dead.');">
+                          🧟 Add Zombug Status
+                        </button>
+                    </form>
+                    {% endif %}
+                    {% if current_user.role in ['ADMIN','OWNER'] %}
                     <form method="post" action="{{ url_for('bugs.recalc_bug_stats', bug_id=bug.id) }}"
                           data-llm-loading="Recalculating stats… this may take a moment.">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-sm btn-warning w-100">Recalculate Stats</button>
                     </form>
+                    {% endif %}
                 </div>
                 {% endif %}
 
@@ -306,6 +367,43 @@
     {% endif %}
 
     <div class="col-md-8">
+        {# ── "Stats are finalizing" banner ─────────────────────────────────
+           When a bug has just been submitted, it lives with fallback stats
+           and no typing for ~30-180s while the LLM stat-recalc job runs in
+           the background. Showing the placeholder values as final is
+           confusing. We poll the bug-stats endpoint and auto-refresh once
+           the real stats land. #}
+        {% if bug.stats_generation_method == 'fallback_pending_llm' %}
+        <div class="alert alert-warning d-flex align-items-center gap-2" id="statsPendingBanner">
+          <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+          <div>
+            <strong>The lab is finalizing this bug's stats.</strong>
+            What you're seeing now is a fallback placeholder. Real stats and
+            combat typing usually land within a minute or two — this page
+            will refresh automatically when they do.
+          </div>
+        </div>
+        <script>
+        (function () {
+          const bugId = {{ bug.id | tojson }};
+          let attempts = 0;
+          const poll = setInterval(() => {
+            attempts++;
+            if (attempts > 60) { clearInterval(poll); return; }    // ~3 min cap
+            fetch('/api/bug/' + bugId + '/stats-reasoning', { credentials: 'same-origin' })
+              .then(r => r.json())
+              .then(data => {
+                if (data && data.has_reasoning) {
+                  clearInterval(poll);
+                  location.reload();
+                }
+              })
+              .catch(() => {});
+          }, 3000);
+        })();
+        </script>
+        {% endif %}
+
         {# ── Tier tile ──────────────────────────────────────────────────── #}
         {% if bug.tier %}
         {%- set _tier_colors = {'uber': 'danger', 'ou': 'warning', 'uu': 'primary', 'ru': 'info', 'nu': 'secondary', 'zu': 'dark'} -%}
@@ -317,75 +415,25 @@
             <span class="badge bg-{{ _tc }} fs-3 px-3 py-2 fw-bold">{{ bug.tier.upper() }}</span>
             <div>
               <div class="fw-semibold fs-5">{{ _tier_labels.get(bug.tier, bug.tier.upper()) }} Tier</div>
-              <small class="text-muted">Power: {{ (bug.attack or 0) + (bug.defense or 0) + (bug.speed or 0) }}</small>
-            </div>
-          </div>
-        </div>
-        {% endif %}
-
-        {# ── MMA Championship status / enroll button ──────────────── #}
-        {% if bug.bug_track == 'mma' %}
-        <div class="card mb-3 border-warning shadow-sm">
-          <div class="card-header bg-warning text-dark fw-bold d-flex justify-content-between align-items-center">
-            <span>🥊 MMA Championship Track</span>
-            <a href="{{ url_for('championship.tier_detail', tier=bug.tier) }}" class="btn btn-sm btn-dark">View Belt →</a>
-          </div>
-          <div class="card-body py-2">
-            {% set ranking = bug.tier_ranking_entry %}
-            {% if ranking and ranking.rank %}
-              <div class="d-flex align-items-center gap-2 mb-1">
-                <span class="badge bg-dark fs-6">#{{ ranking.rank }}</span>
-                <span class="fw-semibold">Contender Ranking</span>
-                <span class="text-muted small ms-auto">{{ "%.0f"|format(ranking.ranking_score or 0) }} pts</span>
-              </div>
-            {% elif bug.championship_held and bug.championship_held.status == 'active' %}
-              <div class="d-flex align-items-center gap-2 mb-1">
-                <span class="badge bg-warning text-dark fs-5">🏆</span>
-                <span class="fw-semibold">Current Champion</span>
-                <span class="badge bg-secondary ms-auto">{{ bug.championship_held.defense_count }} defense{{ 's' if bug.championship_held.defense_count != 1 else '' }}</span>
-              </div>
-            {% else %}
-              <div class="text-muted small">Not yet ranked — earn {{ 5 }} wins to enter the contender rankings.</div>
-            {% endif %}
-          </div>
-        </div>
-        {% elif not bug.is_retired and current_user.is_authenticated and current_user.id == bug.user_id %}
-        {# Bug is approved but not yet enrolled in any track — offer both options #}
-        <div class="card mb-3 border-secondary">
-          <div class="card-header fw-semibold text-muted small">Choose a Competition Track</div>
-          <div class="card-body py-2">
-            <div class="row g-2">
-              <div class="col-6">
-                <div class="border rounded p-2 h-100 text-center">
-                  <div class="fw-bold small mb-1">🏆 Season Circuit</div>
-                  <div class="text-muted" style="font-size:.75rem;">Quarterly tier seasons with standings and championships.</div>
-                  <form method="post" action="{{ url_for('bugs.enter_season', bug_id=bug.id) }}" class="mt-2">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-outline-success btn-sm w-100">Join Season</button>
-                  </form>
+              <small class="text-muted">
+                Power:
+                {{ (bug.attack or 0) + (bug.defense or 0) + (bug.speed or 0)
+                  + (bug.lethality or 0) + (bug.grip or 0) + (bug.cunning or 0) }}
+                <span class="ms-1" title="Tier bands by total of all six stats: ZU <240, NU 240-319, RU 320-399, UU 400-479, OU 480-539, Uber 540+">ⓘ</span>
+              </small>
+              {# Archetype name lives in the stats_reasoning JSON; pull it
+                 out so the profile shows the combat shape without opening
+                 the popup. #}
+              {%- if bug.stats_reasoning -%}
+                {%- set _r = bug.stats_reasoning | fromjson -%}
+                {%- if _r and _r.archetype_name -%}
+                <div class="small mt-1">
+                  <span class="text-muted">Archetype:</span>
+                  <span class="badge bg-info-subtle text-info border ms-1">{{ _r.archetype_name }}</span>
                 </div>
-              </div>
-              <div class="col-6">
-                <div class="border rounded p-2 h-100 text-center">
-                  <div class="fw-bold small mb-1">🥊 MMA Circuit</div>
-                  <div class="text-muted" style="font-size:.75rem;">Contender rankings and title shots. Max 2 per tier.</div>
-                  <form method="post" action="{{ url_for('bugs.enter_mma', bug_id=bug.id) }}" class="mt-2">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-outline-warning btn-sm w-100">Enter Circuit</button>
-                  </form>
-                </div>
-              </div>
+                {%- endif -%}
+              {%- endif -%}
             </div>
-          </div>
-        </div>
-        {% elif bug.is_retired and bug.bug_track != 'mma' and current_user.is_authenticated and current_user.id == bug.user_id %}
-        <div class="card mb-3 border-secondary">
-          <div class="card-body py-2 text-center">
-            <p class="mb-2 small text-muted">This bug is retired from season competition but eligible for the MMA Championship Circuit.</p>
-            <form method="post" action="{{ url_for('bugs.enter_mma', bug_id=bug.id) }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn btn-outline-warning btn-sm">🥊 Enter MMA Circuit</button>
-            </form>
           </div>
         </div>
         {% endif %}
@@ -434,18 +482,56 @@
             </div>
             {% if _si.habitat %}<p class="small mb-1"><strong>Habitat:</strong> {{ _si.habitat }}</p>{% endif %}
             {% if _si.diet %}<p class="small mb-1"><strong>Diet:</strong> {{ _si.diet }}</p>{% endif %}
-            {% if _si.interesting_facts %}
-              {%- set _facts = _si.interesting_facts | fromjson if _si.interesting_facts is string else _si.interesting_facts -%}
-              {% if _facts %}
-              <ul class="small mb-0 ps-3">
-                {% for fact in _facts[:5] %}<li>{{ fact }}</li>{% endfor %}
+
+            {% if species_facts_sample %}
+              <div class="d-flex justify-content-between align-items-center mt-2 mb-1">
+                <strong class="small text-muted text-uppercase">Did you know?</strong>
+                <button type="button"
+                        class="btn btn-link btn-sm p-0 text-decoration-none"
+                        id="shuffleFactsBtn"
+                        data-bug-id="{{ bug.id }}"
+                        title="Show different facts">
+                  🔀 Shuffle
+                </button>
+              </div>
+              <ul class="small mb-0 ps-3" id="speciesFactsList">
+                {% for fact in species_facts_sample %}<li>{{ fact }}</li>{% endfor %}
               </ul>
-              {% endif %}
             {% elif _si.description %}
               <p class="small mb-0 text-muted">{{ _si.description[:300] }}{% if _si.description|length > 300 %}…{% endif %}</p>
             {% endif %}
           </div>
         </div>
+
+        {% if species_facts_sample %}
+        <script>
+        (function () {
+          const btn = document.getElementById('shuffleFactsBtn');
+          const list = document.getElementById('speciesFactsList');
+          if (!btn || !list) return;
+          btn.addEventListener('click', function () {
+            const bugId = btn.getAttribute('data-bug-id');
+            btn.disabled = true;
+            const orig = btn.textContent;
+            btn.textContent = '…';
+            fetch('/api/bug/' + encodeURIComponent(bugId) + '/facts/sample?count=3', { credentials: 'same-origin' })
+              .then(r => r.json())
+              .then(data => {
+                if (data && Array.isArray(data.facts) && data.facts.length) {
+                  list.replaceChildren();
+                  data.facts.forEach(f => {
+                    const li = document.createElement('li');
+                    li.textContent = f;
+                    list.appendChild(li);
+                  });
+                }
+              })
+              .catch(() => {})
+              .finally(() => { btn.textContent = orig; btn.disabled = false; });
+          });
+        })();
+        </script>
+        {% endif %}
         {% endif %}
 
         {# Rivals section — Feature 5 #}
@@ -540,6 +626,257 @@
         </div>
     </div>
 </div>
+
+{# ── Species overview modal — auto-opens on a fresh submit redirect ─── #}
+{% if bug.species_info %}
+{%- set _si = bug.species_info -%}
+{%- set _facts_raw = (_si.interesting_facts | fromjson) if _si.interesting_facts else [] -%}
+<div class="modal fade" id="speciesOverviewModal" tabindex="-1" aria-labelledby="speciesOverviewLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="speciesOverviewLabel">
+          Field Guide:
+          <strong>{{ _si.common_name or _si.scientific_name or 'Your bug' }}</strong>
+          {% if _si.scientific_name %}<span class="text-muted fst-italic small ms-2">{{ _si.scientific_name }}</span>{% endif %}
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" style="max-height:75vh; overflow-y:auto;">
+        <div class="row g-3">
+          <div class="col-md-5">
+            {% if _si.image_url %}
+            <img src="{{ _si.image_url }}" alt="{{ _si.common_name or _si.scientific_name }}"
+                 class="img-fluid rounded border"
+                 loading="lazy"
+                 style="width:100%; max-height:260px; object-fit:cover;">
+            {% else %}
+            <div class="rounded border bg-light d-flex align-items-center justify-content-center"
+                 style="height:200px;">
+              <span class="text-muted small">Reference photo not yet available</span>
+            </div>
+            {% endif %}
+            <div class="mt-2 small">
+              {% if _si.order %}<div><strong>Order:</strong> {{ _si.order }}</div>{% endif %}
+              {% if _si.family %}<div><strong>Family:</strong> {{ _si.family }}</div>{% endif %}
+              {% if _si.genus %}<div><strong>Genus:</strong> {{ _si.genus }}</div>{% endif %}
+              {% if _si.average_size_mm %}<div><strong>Avg size:</strong> {{ _si.average_size_mm }} mm</div>{% endif %}
+              {% if _si.conservation_status %}<div><span class="badge bg-info-subtle text-info border">{{ _si.conservation_status }}</span></div>{% endif %}
+              {% if _si.observation_count %}<div class="text-muted">{{ "{:,}".format(_si.observation_count) }} iNaturalist sightings</div>{% endif %}
+            </div>
+          </div>
+          <div class="col-md-7">
+            {% if _si.habitat %}
+            <div class="mb-2">
+              <div class="small text-uppercase text-muted">Habitat</div>
+              <div class="small">{{ _si.habitat }}</div>
+            </div>
+            {% endif %}
+            {% if _si.diet %}
+            <div class="mb-2">
+              <div class="small text-uppercase text-muted">Diet</div>
+              <div class="small">{{ _si.diet }}</div>
+            </div>
+            {% endif %}
+            {% if _facts_raw %}
+            <div class="mb-2">
+              <div class="small text-uppercase text-muted">Cool things about it</div>
+              <ul class="small mb-0 ps-3">
+                {% for fact in _facts_raw[:5] %}<li>{{ fact }}</li>{% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+            {% if _si.wikipedia_url %}
+            <a href="{{ _si.wikipedia_url }}" target="_blank" rel="noopener" class="small">Wikipedia article →</a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <small class="text-muted me-auto">Data drawn from iNaturalist, GBIF, and the Wikipedia knowledge base.</small>
+        <button type="button" class="btn btn-primary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('_celebrate') !== 'submit') return;
+  const el = document.getElementById('speciesOverviewModal');
+  if (!el || !window.bootstrap) return;
+  // Slight delay so the celebrate confetti renders first.
+  setTimeout(() => bootstrap.Modal.getOrCreateInstance(el).show(), 600);
+})();
+</script>
+{% endif %}
+
+{# ── Stats reasoning modal ─────────────────────────────────────────── #}
+{% if bug.stats_reasoning %}
+<div class="modal fade" id="statsReasoningModal" tabindex="-1" aria-labelledby="statsReasoningModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="statsReasoningModalLabel">
+          Why <strong>{{ bug.nickname }}</strong> got these stats
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="statsReasoningBody" style="max-height:70vh; overflow-y:auto;">
+        <div class="text-center py-4">
+          <div class="spinner-border" role="status"><span class="visually-hidden">Loading…</span></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <small class="text-muted me-auto">Generated by the stat-balance LLM. Higher confidence = closer match to reference biology.</small>
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const modal = document.getElementById('statsReasoningModal');
+  if (!modal) return;
+  let loaded = false;
+
+  const STAT_LABELS = {
+    attack: 'Attack', defense: 'Defense', speed: 'Speed',
+    lethality: 'Lethality', grip: 'Grip', cunning: 'Cunning'
+  };
+  const STAT_ORDER = ['attack','defense','speed','lethality','grip','cunning'];
+
+  function el(tag, opts) {
+    const node = document.createElement(tag);
+    if (!opts) return node;
+    if (opts.className) node.className = opts.className;
+    if (opts.text != null) node.textContent = String(opts.text);
+    if (opts.style) node.setAttribute('style', opts.style);
+    return node;
+  }
+  function sectionHeading(body, label) {
+    const h = el('h6', { className: 'text-uppercase text-muted small mt-3', text: label });
+    body.appendChild(h);
+  }
+
+  function render(body, data) {
+    body.replaceChildren();
+    if (!data || !data.has_reasoning) {
+      body.appendChild(el('p', { className: 'text-muted', text: 'No reasoning is saved for this bug yet. Regenerate stats to capture one.' }));
+      return;
+    }
+    const r = data.reasoning || {};
+    const stats = data.stats || {};
+
+    // Archetype banner at the top — the core "why these stats" answer.
+    if (r.archetype_name) {
+      const banner = el('div', { className: 'p-2 rounded mb-3 border bg-light' });
+      const title = el('div', { className: 'fw-bold' });
+      title.appendChild(document.createTextNode('Combat archetype: '));
+      const badge = el('span', { className: 'badge bg-primary me-2', text: r.archetype_name });
+      title.appendChild(badge);
+      if (data.tier) {
+        title.appendChild(el('span', { className: 'badge bg-secondary', text: String(data.tier).toUpperCase() + ' tier' }));
+      }
+      banner.appendChild(title);
+      if (r.archetype_flavor) {
+        banner.appendChild(el('div', { className: 'small text-muted mt-1', text: r.archetype_flavor }));
+      }
+      if (r.archetype_pick) {
+        banner.appendChild(el('div', { className: 'small mt-1', text: '👉 ' + r.archetype_pick }));
+      }
+      body.appendChild(banner);
+    }
+
+    if (r.summary) body.appendChild(el('p', { className: 'lead', text: r.summary }));
+
+    if (r.calibration) {
+      sectionHeading(body, 'Calibration');
+      body.appendChild(el('p', { className: 'mb-2', text: r.calibration }));
+    }
+
+    if (Array.isArray(r.key_factors) && r.key_factors.length) {
+      sectionHeading(body, 'Key biological factors');
+      const ul = el('ul', { className: 'mb-2' });
+      r.key_factors.forEach(f => ul.appendChild(el('li', { text: f })));
+      body.appendChild(ul);
+    }
+
+    if (r.per_stat && typeof r.per_stat === 'object') {
+      sectionHeading(body, 'Per-stat reasoning');
+      const table = el('table', { className: 'table table-sm align-middle' });
+      const tbody = el('tbody');
+      STAT_ORDER.forEach(key => {
+        if (!r.per_stat[key]) return;
+        const tr = el('tr');
+        tr.appendChild(el('td', { className: 'fw-semibold', text: STAT_LABELS[key], style: 'width:7rem;' }));
+        const valCell = el('td', { className: 'text-center', style: 'width:3.5rem;' });
+        valCell.appendChild(el('span', { className: 'badge bg-secondary', text: (stats[key] == null ? '?' : stats[key]) }));
+        tr.appendChild(valCell);
+        tr.appendChild(el('td', { text: r.per_stat[key] }));
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      body.appendChild(table);
+    }
+
+    if (r.baseline_deviation) {
+      sectionHeading(body, 'Species baseline');
+      body.appendChild(el('p', { className: 'mb-2', text: r.baseline_deviation }));
+    }
+
+    if (r.matchups && (r.matchups.strong_against || r.matchups.weak_against)) {
+      sectionHeading(body, 'Matchups');
+      if (r.matchups.strong_against) {
+        const p = el('p', { className: 'mb-1' });
+        p.appendChild(el('span', { className: 'badge bg-success me-1', text: 'Strong vs' }));
+        p.appendChild(document.createTextNode(' ' + r.matchups.strong_against));
+        body.appendChild(p);
+      }
+      if (r.matchups.weak_against) {
+        const p = el('p', { className: 'mb-1' });
+        p.appendChild(el('span', { className: 'badge bg-danger me-1', text: 'Weak vs' }));
+        p.appendChild(document.createTextNode(' ' + r.matchups.weak_against));
+        body.appendChild(p);
+      }
+    }
+
+    if (data.special_ability) {
+      sectionHeading(body, 'Special ability');
+      const p = el('p', { className: 'mb-1' });
+      p.appendChild(el('strong', { text: data.special_ability }));
+      body.appendChild(p);
+      if (data.ability) {
+        if (data.ability.description) {
+          body.appendChild(el('p', { className: 'mb-1 small', text: data.ability.description }));
+        }
+        if (data.ability.effect) {
+          const eff = el('p', { className: 'mb-0 small text-success fw-semibold' });
+          eff.appendChild(document.createTextNode('⚙ ' + data.ability.effect));
+          body.appendChild(eff);
+        }
+      }
+    }
+
+    if (!body.firstChild) {
+      body.appendChild(el('p', { className: 'text-muted', text: 'The model did not return a structured explanation.' }));
+    }
+  }
+
+  modal.addEventListener('show.bs.modal', function () {
+    if (loaded) return;
+    const body = document.getElementById('statsReasoningBody');
+    fetch('{{ url_for("api.get_bug_stats_reasoning", bug_id=bug.id) }}', { credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(data => { render(body, data); loaded = true; })
+      .catch(err => {
+        body.replaceChildren();
+        body.appendChild(el('p', { className: 'text-danger', text: 'Failed to load reasoning: ' + (err && err.message ? err.message : 'unknown error') }));
+      });
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -590,44 +927,191 @@ function toggleSpeciesEdit(){
     panel.classList.toggle('d-none');
 }
 
+// Build a species result card via DOM APIs (textContent only, no innerHTML)
+// so a malicious common_name or order can't inject markup. Returns an element.
+function _adminSpeciesCard(sp, onPick) {
+    const card = document.createElement('div');
+    card.className = 'species-result';
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', () => onPick(sp));
+
+    const wrap = document.createElement('div');
+    wrap.className = 'species-result-content';
+    wrap.style.display = 'flex';
+    wrap.style.gap = '8px';
+    wrap.style.alignItems = 'center';
+
+    if (sp.image_url) {
+        const img = document.createElement('img');
+        img.src = sp.image_url;
+        img.className = 'species-image';
+        img.style.width = '54px';
+        img.style.height = '54px';
+        img.style.objectFit = 'cover';
+        img.style.borderRadius = '4px';
+        img.alt = sp.common_name || sp.scientific_name || '';
+        img.loading = 'lazy';
+        img.onerror = function () {
+            const ph = document.createElement('div');
+            ph.className = 'species-image-placeholder';
+            ph.style.cssText = 'width:54px;height:54px;display:flex;align-items:center;justify-content:center;background:#f0f0f0;border-radius:4px;font-size:1.6rem;';
+            ph.textContent = '🐛';
+            img.replaceWith(ph);
+        };
+        wrap.appendChild(img);
+    } else {
+        const ph = document.createElement('div');
+        ph.className = 'species-image-placeholder';
+        ph.style.cssText = 'width:54px;height:54px;display:flex;align-items:center;justify-content:center;background:#f0f0f0;border-radius:4px;font-size:1.6rem;';
+        ph.textContent = '🐛';
+        wrap.appendChild(ph);
+    }
+
+    const info = document.createElement('div');
+    info.className = 'species-info';
+    info.style.flex = '1';
+    const title = document.createElement('h6');
+    title.style.marginBottom = '2px';
+    title.textContent = sp.common_name || sp.scientific_name || '(unnamed)';
+    info.appendChild(title);
+
+    if (sp.scientific_name && sp.common_name && sp.scientific_name !== sp.common_name) {
+        const sci = document.createElement('div');
+        sci.style.cssText = 'font-size:0.78em;color:#888;font-style:italic;';
+        sci.textContent = sp.scientific_name;
+        info.appendChild(sci);
+    }
+
+    const taxoBits = [];
+    if (sp.order) taxoBits.push(sp.order);
+    if (sp.family) taxoBits.push(sp.family);
+    if (sp.rank) taxoBits.push('rank: ' + sp.rank);
+    if (taxoBits.length) {
+        const taxo = document.createElement('div');
+        taxo.style.cssText = 'font-size:0.78em;color:#6c757d;';
+        taxo.textContent = taxoBits.join(' · ');
+        info.appendChild(taxo);
+    }
+    if (sp.reasoning) {
+        const rs = document.createElement('div');
+        rs.style.cssText = 'font-size:0.75em;color:#555;margin-top:2px;';
+        rs.textContent = sp.reasoning;
+        info.appendChild(rs);
+    }
+    if (typeof sp.confidence === 'number') {
+        const cf = document.createElement('div');
+        cf.style.cssText = 'font-size:0.7em;color:#888;';
+        cf.textContent = 'Lab confidence: ' + Math.round(sp.confidence * 100) + '%';
+        info.appendChild(cf);
+    }
+    wrap.appendChild(info);
+    card.appendChild(wrap);
+    return card;
+}
+
 function adminSearchSpecies(){
     const q = document.getElementById('adminSpeciesSearch').value;
     const container = document.getElementById('adminSpeciesResults');
-    if(!q) { container.innerHTML = '<div class="text-muted">Enter a query</div>'; return; }
-    container.innerHTML = '<div class="spinner-border" role="status"></div>';
-    fetch(`/api/species/search?q=${encodeURIComponent(q)}`)
+    if(!q) {
+        container.replaceChildren();
+        const div = document.createElement('div');
+        div.className = 'text-muted';
+        div.textContent = 'Enter a query';
+        container.appendChild(div);
+        return;
+    }
+    const spinner = document.createElement('div');
+    spinner.className = 'spinner-border';
+    spinner.setAttribute('role', 'status');
+    container.replaceChildren(spinner);
+
+    fetch(`/api/species/search?q=${encodeURIComponent(q)}`, { credentials: 'same-origin' })
         .then(r => r.json())
         .then(data => {
+            container.replaceChildren();
             if(!Array.isArray(data) || data.length === 0){
-                container.innerHTML = '<div class="alert alert-info">No species found</div>';
+                const alert = document.createElement('div');
+                alert.className = 'alert alert-info';
+                alert.textContent = 'No species found';
+                container.appendChild(alert);
                 return;
             }
-            let html = '';
-            data.forEach(sp => {
-                html += `<div class="species-result" onclick='adminSelectSpecies(${JSON.stringify(sp).replace(/'/g, "&apos;")})'>` +
-                        `<div class="species-result-content">` +
-                        (sp.image_url?`<img src="${sp.image_url}" class="species-image">`:`<div class="species-image-placeholder">🐛</div>`) +
-                        `<div class="species-info"><h6>${sp.common_name || sp.scientific_name}</h6><div style="font-size:0.9em;color:#6c757d">${sp.order||''} ${sp.family||''}</div></div>`+
-                        `</div></div>`;
-            });
-            container.innerHTML = html;
+            data.forEach(sp => container.appendChild(_adminSpeciesCard(sp, adminSelectSpecies)));
         })
-        .catch(e=>{ container.innerHTML = '<div class="alert alert-danger">Error searching</div>'; });
+        .catch(() => {
+            container.replaceChildren();
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-danger';
+            alert.textContent = 'Error searching';
+            container.appendChild(alert);
+        });
 }
 
 function adminSelectSpecies(spec){
     document.getElementById('admin_species_id').value = spec.id || '';
     document.getElementById('admin_common_name').value = spec.common_name || '';
     document.getElementById('admin_scientific_name').value = spec.scientific_name || '';
-    // Highlight selected — show confirmation using DOM (not innerHTML)
-    var res = document.getElementById('adminSpeciesResults');
+    const res = document.getElementById('adminSpeciesResults');
     if (res) {
-      var msg = document.createElement('div');
-      msg.className = 'alert alert-success';
-      msg.textContent = 'Selected: ' + (spec.common_name || spec.scientific_name);
-      res.replaceChildren(msg);
+        const msg = document.createElement('div');
+        msg.className = 'alert alert-success';
+        msg.textContent = 'Selected: ' + (spec.common_name || spec.scientific_name || '—');
+        res.replaceChildren(msg);
     }
+    const labs = document.getElementById('adminLabSuggestions');
+    if (labs) labs.replaceChildren();
 }
+
+// Lab-suggested species — re-runs the lab on the bug's existing photo.
+(function () {
+    const btn = document.getElementById('adminSuggestSpeciesBtn');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+        const bugId = btn.getAttribute('data-bug-id');
+        const target = document.getElementById('adminLabSuggestions');
+        if (!target) return;
+        target.replaceChildren();
+
+        const spinner = document.createElement('div');
+        spinner.className = 'spinner-border spinner-border-sm';
+        spinner.setAttribute('role', 'status');
+        const wait = document.createElement('div');
+        wait.className = 'small text-muted mt-1';
+        wait.textContent = 'The lab is examining the photo…';
+        target.appendChild(spinner);
+        target.appendChild(wait);
+        btn.disabled = true;
+
+        fetch(`/api/bug/${encodeURIComponent(bugId)}/suggest-species`, {
+            method: 'POST',
+            credentials: 'same-origin',
+        })
+        .then(r => r.json())
+        .then(data => {
+            target.replaceChildren();
+            if (!data || !Array.isArray(data.candidates) || data.candidates.length === 0) {
+                const alert = document.createElement('div');
+                alert.className = 'alert alert-warning small';
+                alert.textContent = (data && data.message) || 'No suggestions returned.';
+                target.appendChild(alert);
+                return;
+            }
+            const heading = document.createElement('div');
+            heading.className = 'small text-muted text-uppercase mb-1';
+            heading.textContent = 'Lab suggestions — pick one to fill the form';
+            target.appendChild(heading);
+            data.candidates.forEach(c => target.appendChild(_adminSpeciesCard(c, adminSelectSpecies)));
+        })
+        .catch(err => {
+            target.replaceChildren();
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-danger small';
+            alert.textContent = 'The lab could not analyse the photo: ' + (err && err.message ? err.message : 'unknown error');
+            target.appendChild(alert);
+        })
+        .finally(() => { btn.disabled = false; });
+    });
+})();
 
 // Release bug loading state
 (function() {

@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}The Reanimation Ritual{% endblock %}
+
+{% block content %}
+<style>
+  /* Page sets the dramatic stage. */
+  .ritual-stage {
+    text-align: center;
+    padding: 2.5rem 1rem 3rem;
+    background: radial-gradient(ellipse at center, #1a2a14 0%, #050905 75%);
+    border-radius: 12px;
+    color: #cde2bf;
+    margin-top: 1rem;
+    box-shadow: inset 0 0 40px rgba(0,0,0,0.6);
+  }
+  .ritual-title {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 1.9rem;
+    letter-spacing: 0.03em;
+    margin-bottom: 0.25rem;
+    color: #d9ff8a;
+    text-shadow: 0 0 18px rgba(143, 255, 58, 0.45);
+  }
+  .ritual-subtitle {
+    color: #9fc188;
+    margin-bottom: 1.5rem;
+  }
+
+  /* The slider strip. We translate the inner strip so it scrolls past the
+     fixed pointer at center. */
+  .ritual-wheel {
+    position: relative;
+    width: 100%;
+    max-width: 720px;
+    margin: 0 auto;
+    height: 110px;
+    overflow: hidden;
+    border: 2px solid #4a6d3a;
+    border-radius: 8px;
+    background: linear-gradient(180deg, #0c1608 0%, #1a2a14 50%, #0c1608 100%);
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.7);
+  }
+  .ritual-track {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    transform: translateX(0);
+    /* The cubic-bezier here approximates a wheel slowing from a fast spin
+       to a near-stop just at the end — heavy ease-out tail. */
+    transition: transform 4.2s cubic-bezier(0.12, 0.85, 0.18, 1.0);
+  }
+  .ritual-cell {
+    flex: 0 0 90px;
+    height: 78px;
+    margin: 0 4px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    user-select: none;
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+  }
+  .ritual-cell.success {
+    background: linear-gradient(180deg, #2d6a1e 0%, #1f4f12 100%);
+    color: #d9ff8a;
+    border: 1px solid #4eb22b;
+  }
+  .ritual-cell.fail {
+    background: linear-gradient(180deg, #6e2222 0%, #4d1313 100%);
+    color: #ffd0c4;
+    border: 1px solid #b94242;
+  }
+
+  /* Pointer — a fat downward arrow above center indicating where the
+     winning cell will be. */
+  .ritual-pointer {
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 14px solid transparent;
+    border-right: 14px solid transparent;
+    border-top: 22px solid #d9ff8a;
+    filter: drop-shadow(0 2px 6px rgba(217, 255, 138, 0.6));
+    z-index: 4;
+  }
+  /* Vertical guideline so the eye locks onto the center column. */
+  .ritual-guide {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    background: rgba(217, 255, 138, 0.25);
+    z-index: 2;
+  }
+
+  /* Result reveal — hidden until the animation finishes. */
+  .ritual-result {
+    margin-top: 1.5rem;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.6s ease 0.2s, transform 0.6s ease 0.2s;
+  }
+  .ritual-result.show { opacity: 1; transform: translateY(0); }
+  .ritual-result.success { color: #d9ff8a; }
+  .ritual-result.fail    { color: #ffb0a0; }
+  .ritual-result h3 { font-size: 1.6rem; margin-bottom: 0.4rem; }
+
+  .ritual-continue {
+    margin-top: 1rem;
+    opacity: 0;
+    transition: opacity 0.6s ease 0.6s;
+  }
+  .ritual-continue.show { opacity: 1; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ritual-track { transition: transform 0.2s linear; }
+  }
+</style>
+
+<div class="ritual-stage">
+  <div class="ritual-title">🧟 The Reanimation Ritual</div>
+  <div class="ritual-subtitle">The specimen is dead. The ritual decides whether it rises.</div>
+
+  <div class="ritual-wheel" aria-hidden="true">
+    <div class="ritual-pointer"></div>
+    <div class="ritual-guide"></div>
+    <div class="ritual-track" id="ritualTrack"></div>
+  </div>
+
+  <div class="ritual-result {{ outcome }}" id="ritualResult">
+    {% if outcome == 'success' %}
+    <h3>🧟 ZOMBUGIFIED</h3>
+    <p>The corpse twitches. The corpse rises. A new gladiator joins the arena.</p>
+    {% else %}
+    <h3>💀 RITUAL FAILED</h3>
+    <p>The specimen would not return. The image has been permanently sealed away.</p>
+    {% endif %}
+  </div>
+
+  <div class="ritual-continue" id="ritualContinue">
+    <a href="{{ next_url }}" class="btn btn-success btn-sm" id="ritualContinueLink">
+      Continue →
+    </a>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Build a long-ish strip of randomly alternating SUCCESS/FAIL cells. The
+  // strip is long enough that the scroll feels like the wheel really spun.
+  // The CENTER cell (where the pointer lands) is forced to match the outcome.
+  const OUTCOME = {{ outcome | tojson }};
+  const NEXT_URL = {{ next_url | tojson }};
+  const CELL_PX = 98;                // 90px + 2*4px margin
+  const TOTAL_CELLS = 21;            // odd, so a true center cell exists
+  const CENTER_IDX = Math.floor(TOTAL_CELLS / 2);
+
+  const track = document.getElementById('ritualTrack');
+  for (let i = 0; i < TOTAL_CELLS; i++) {
+    const cell = document.createElement('div');
+    // Force the center cell to the desired outcome; let the rest alternate
+    // mostly evenly so the strip reads as "67% chance" visually.
+    let kind;
+    if (i === CENTER_IDX) {
+      kind = (OUTCOME === 'success') ? 'success' : 'fail';
+    } else {
+      kind = (Math.random() < 0.67) ? 'success' : 'fail';
+    }
+    cell.className = 'ritual-cell ' + kind;
+    cell.textContent = (kind === 'success') ? 'ZOMBUG' : 'FAIL';
+    track.appendChild(cell);
+  }
+
+  // Compute the translate so the CENTER cell lines up under the pointer.
+  // The wheel is centered, so we need translateX such that cell index
+  // CENTER_IDX (offset by extra cells we want to scroll PAST first) sits
+  // at the wheel's horizontal center.
+  const wheel = track.parentElement;
+  const wheelW = wheel.clientWidth || 720;
+
+  // Land the chosen cell at center. We add ~10 extra cell-widths of
+  // "spin" so the animation has runway to slow down through.
+  const SPIN_OFFSET_CELLS = 7;
+  const targetCellIdx = CENTER_IDX;
+  const targetCellLeft = (targetCellIdx + SPIN_OFFSET_CELLS) * CELL_PX + (CELL_PX / 2);
+  const finalTranslate = -(targetCellLeft - wheelW / 2);
+
+  // Make the strip wide enough that the long scroll never runs out of cells
+  // on the left side. We add buffer cells to the FRONT.
+  for (let i = 0; i < SPIN_OFFSET_CELLS; i++) {
+    const cell = document.createElement('div');
+    const kind = (Math.random() < 0.67) ? 'success' : 'fail';
+    cell.className = 'ritual-cell ' + kind;
+    cell.textContent = (kind === 'success') ? 'ZOMBUG' : 'FAIL';
+    track.insertBefore(cell, track.firstChild);
+  }
+
+  // Kick off the animation on the next frame so the transition applies.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      track.style.transform = 'translateX(' + finalTranslate + 'px)';
+    });
+  });
+
+  // Reveal the result + continue button after the slide.
+  const totalMs = 4500;
+  setTimeout(() => {
+    document.getElementById('ritualResult').classList.add('show');
+    document.getElementById('ritualContinue').classList.add('show');
+  }, totalMs);
+
+  // Auto-redirect a couple seconds after the reveal in case the user
+  // doesn't click. Skip if user has navigated away.
+  setTimeout(() => {
+    if (!document.hidden) window.location.href = NEXT_URL;
+  }, totalMs + 3500);
+})();
+</script>
+{% endblock %}

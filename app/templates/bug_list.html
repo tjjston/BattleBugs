@@ -95,11 +95,18 @@
     {%- set _is_champ = bug.championship_held and bug.championship_held.status == 'active' -%}
     {%- set _rank_entry = bug.tier_ranking_entry -%}
     {%- set _contender_rank = _rank_entry.rank if _rank_entry and _rank_entry.rank else 99 -%}
+    {%- set _tier_colors = {'uber': 'danger', 'ou': 'warning', 'uu': 'primary', 'ru': 'info', 'nu': 'secondary', 'zu': 'dark'} -%}
     <div class="col-md-4 mb-4">
         <div class="card h-100 bug-card
           {%- if _is_champ %} border-warning shadow-warning{% elif _contender_rank == 1 %} border-secondary{% elif _contender_rank <= 3 %} border-secondary{% endif %}"
           style="{% if _is_champ %}border: 3px solid #ffc107!important;box-shadow:0 0 14px rgba(255,193,7,0.35)!important;{% elif _contender_rank <= 3 %}border: 2px solid #6c757d!important;{% endif %}">
           {%- if _is_champ %}<div style="position:absolute;top:8px;left:8px;z-index:2;font-size:1.2rem;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));">🏆</div>{% elif _contender_rank == 1 %}<div style="position:absolute;top:8px;left:8px;z-index:2;font-size:1rem;">🥇</div>{% elif _contender_rank == 2 %}<div style="position:absolute;top:8px;left:8px;z-index:2;font-size:1rem;">🥈</div>{% elif _contender_rank == 3 %}<div style="position:absolute;top:8px;left:8px;z-index:2;font-size:1rem;">🥉</div>{% endif %}
+          {%- if bug.tier %}
+          {%- set _tc = _tier_colors.get(bug.tier, 'secondary') -%}
+          <span class="badge bg-{{ _tc }} fw-bold"
+                style="position:absolute;top:8px;right:8px;z-index:2;font-size:0.85rem;padding:6px 10px;letter-spacing:0.04em;box-shadow:0 1px 4px rgba(0,0,0,.45);"
+                title="Tier: {{ bug.tier.upper() }}">{{ bug.tier.upper() }}</span>
+          {%- endif %}
             <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}">
                  <img src="{{ url_for('main.uploaded_file', filename=bug.image_path) }}"
                      class="card-img-top bug-image"
@@ -114,7 +121,7 @@
                 </h5>
                 
                 <!-- Species info -->
-                <p class="card-text text-muted small mb-2">
+                <p class="card-text text-muted small mb-1">
                     {% if bug.common_name %}
                         <em>{{ bug.common_name }}</em>
                     {% elif bug.scientific_name %}
@@ -123,6 +130,13 @@
                         <em>Species Unknown</em>
                     {% endif %}
                 </p>
+                {% if bug.archetype_name %}
+                <p class="card-text mb-2">
+                  <span class="badge bg-info-subtle text-info border" style="font-size:0.7rem;">
+                    {{ bug.archetype_name }}
+                  </span>
+                </p>
+                {% endif %}
 
                 <!-- Stats display -->
                 <div class="mb-2">
@@ -134,12 +148,7 @@
                     </div>
                 </div>
 
-                <!-- Tier badge -->
-                {% if bug.tier %}
-                <div class="mb-2">
-                    <span class="badge bg-info">{{ bug.tier.upper() }} Tier</span>
-                </div>
-                {% endif %}
+                {# Tier badge now lives as an overlay on the image — see top of card. #}
 
                 <!-- Owner and record -->
                 <p class="card-text small">

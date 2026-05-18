@@ -266,10 +266,12 @@ class Bug(db.Model):
     xfactor_reason = db.Column(db.Text)
     
     special_ability = db.Column(db.String(200))
+    ability_slug = db.Column(db.String(80))  # canonical ability_catalog key
     
     # Stats metadata
     stats_generated = db.Column(db.Boolean, default=False)
     stats_generation_method = db.Column(db.String(50))
+    stats_reasoning = db.Column(db.Text)  # JSON: per-stat justification + summary from LLM
     
     # Flair system
     flair = db.Column(db.String(100))
@@ -326,6 +328,40 @@ class Bug(db.Model):
     
     def __repr__(self):
         return f'<Bug {self.nickname}>'
+
+    @property
+    def archetype_slug(self) -> str | None:
+        """Extract the combat-archetype slug from stats_reasoning JSON.
+
+        Cheap to call from templates — parses the JSON once per access and
+        catches malformed blobs silently.
+        """
+        if not self.stats_reasoning:
+            return None
+        import json as _j
+        try:
+            r = _j.loads(self.stats_reasoning)
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(r, dict):
+            return None
+        slug = r.get('archetype_slug')
+        return slug if isinstance(slug, str) and slug else None
+
+    @property
+    def archetype_name(self) -> str | None:
+        """Human-readable archetype name for templates."""
+        if not self.stats_reasoning:
+            return None
+        import json as _j
+        try:
+            r = _j.loads(self.stats_reasoning)
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(r, dict):
+            return None
+        name = r.get('archetype_name')
+        return name if isinstance(name, str) and name else None
 
     @property
     def combat_badges(self):

@@ -4,8 +4,7 @@ from app import db
 from app.models import Bug, Battle, Tournament, User, Notification, BugAchievement, Species
 from sqlalchemy import desc, func
 from app.services.permission_system import AdminUserManager
-from app.services.news_service import get_current_season, get_recent_activity, get_cached_briefing
-from app.services.seasonal_tournament import get_active_seasonal_tournament
+from app.services.news_service import get_recent_activity, get_cached_briefing
 from app.services.ecosystem_service import get_ecosystem_data
 from flask_login import current_user, login_required
 import json
@@ -14,9 +13,7 @@ bp = Blueprint('main', __name__)
 
 @bp.route('/')
 def index():
-    """Homepage — current season, active events, standings, and LLM news briefing."""
-    season = get_current_season()
-
+    """Homepage — active events, standings, recent battles, and LLM news briefing."""
     # Active + upcoming events
     active_tournaments = Tournament.query.filter(
         Tournament.status.in_(['registration', 'active', 'in_progress'])
@@ -26,7 +23,7 @@ def index():
         Tournament.status.in_(['upcoming', 'registration'])
     ).order_by(Tournament.start_date).limit(5).all()
 
-    # Season standings — active (non-retired) bugs ordered by wins
+    # Arena standings — active (non-retired) bugs ordered by wins
     top_bugs = Bug.query.filter_by(is_retired=False).order_by(
         desc(Bug.wins)
     ).limit(10).all()
@@ -36,33 +33,12 @@ def index():
     # LLM news briefing (cached 1 h)
     news_briefing = get_cached_briefing()
 
-    # Seasonal flagship tournament
-    seasonal_tournament = get_active_seasonal_tournament()
-
     # Quick arena stats
     total_bugs = Bug.query.count()
     total_battles = Battle.query.count()
     total_retired = Bug.query.filter_by(is_retired=True).count()
 
-    # Championship Circuit — current belt holders for dashboard tiles
-    circuit_champions = []
-    try:
-        from app.models import TierChampionship
-        CIRCUIT_TIERS = ['uber', 'ou', 'uu', 'ru', 'nu', 'zu']
-        CIRCUIT_LABELS = {'uber': 'Legendary', 'ou': 'Elite', 'uu': 'Strong',
-                          'ru': 'Rising', 'nu': 'Newcomer', 'zu': 'Zero'}
-        for t in CIRCUIT_TIERS:
-            belt = TierChampionship.query.filter_by(tier=t).first()
-            circuit_champions.append({
-                'tier': t,
-                'label': CIRCUIT_LABELS[t],
-                'belt': belt,
-            })
-    except Exception:
-        pass
-
     return render_template('index.html',
-                           season=season,
                            active_tournaments=active_tournaments,
                            upcoming_tournaments=upcoming_tournaments,
                            tournaments=upcoming_tournaments,       # backwards compat
@@ -71,11 +47,9 @@ def index():
                            recent_battles=recent_battles,
                            battles=recent_battles,                 # backwards compat
                            news_briefing=news_briefing,
-                           seasonal_tournament=seasonal_tournament,
                            total_bugs=total_bugs,
                            total_battles=total_battles,
-                           total_retired=total_retired,
-                           circuit_champions=circuit_champions)
+                           total_retired=total_retired)
 
 @bp.route('/hall-of-fame')
 def hall_of_fame():
@@ -117,44 +91,10 @@ def leaderboards():
      .order_by(desc('count')).limit(20).all()
     pioneer_users = [{'user': u, 'count': count} for u, count in pioneer_rows]
 
-    # Season standings by tier — top bugs ranked by season wins in the most recent active season
-    from app.models import Season, SeasonRegistration
-    TIERS = ['uber', 'ou', 'uu', 'ru', 'nu', 'zu']
-    TIER_LABELS = {'uber': 'Legendary', 'ou': 'Elite', 'uu': 'Strong',
-                   'ru': 'Rising', 'nu': 'Newcomer', 'zu': 'Zero'}
-    season_standings = {}
-    for tier in TIERS:
-        latest_season = Season.query.filter_by(tier=tier)\
-            .order_by(Season.registration_opens.desc()).first()
-        if not latest_season:
-            continue
-        rows = db.session.query(SeasonRegistration, Bug)\
-            .join(Bug, SeasonRegistration.bug_id == Bug.id)\
-            .filter(SeasonRegistration.season_id == latest_season.id)\
-            .order_by(
-                desc(SeasonRegistration.season_wins),
-                SeasonRegistration.season_losses.asc(),
-            ).limit(10).all()
-        if rows:
-            season_standings[tier] = {
-                'season': latest_season,
-                'label': TIER_LABELS.get(tier, tier.upper()),
-                'rows': [{'reg': reg, 'bug': bug} for reg, bug in rows],
-            }
-
-    # P4P preview (top 5 for leaderboard tab)
-    try:
-        from app.services.championship_service import get_pfp_rankings
-        pfp_preview = get_pfp_rankings(limit=10)
-    except Exception:
-        pfp_preview = []
-
     return render_template('leaderboards.html',
                            top_wins=top_wins, top_win_rate=top_win_rate,
                            top_collectors=top_collectors, top_tournament=top_tournament,
-                           top_elo=top_elo, top_ap=top_ap, pioneer_users=pioneer_users,
-                           season_standings=season_standings, tier_order=TIERS,
-                           pfp_preview=pfp_preview)
+                           top_elo=top_elo, top_ap=top_ap, pioneer_users=pioneer_users)
 
 
 @bp.route('/collection')
@@ -170,47 +110,10 @@ def collection():
 @bp.route('/my-bugs')
 @login_required
 def my_bugs():
-    """Bug manager — competition track enrollment and tier overview."""
-    from app.models import Season, SeasonRegistration, TierRanking, TierChampionship
+    """Current user's submitted bugs and eligible open tournaments."""
 
     all_bugs = Bug.query.filter_by(user_id=current_user.id)\
         .order_by(Bug.submission_date.desc()).all()
-
-    TIERS = ['uber', 'ou', 'uu', 'ru', 'nu', 'zu']
-    TIER_LABELS = {'uber': 'Legendary', 'ou': 'Elite', 'uu': 'Strong',
-                   'ru': 'Rising', 'nu': 'Newcomer', 'zu': 'Zero'}
-
-    # Build per-tier buckets — season and MMA separately
-    season_by_tier = {t: [] for t in TIERS}
-    mma_by_tier = {t: [] for t in TIERS}
-    untracked = []
-
-    for bug in all_bugs:
-        if not bug.tier:
-            continue
-        if bug.bug_track == 'mma':
-            mma_by_tier[bug.tier].append(bug)
-        elif bug.bug_track == 'season':
-            season_by_tier[bug.tier].append(bug)
-        else:
-            untracked.append(bug)
-
-    # Active seasons open for registration per tier
-    open_seasons = {}
-    for t in TIERS:
-        s = Season.query.filter_by(tier=t, phase='registration').first()
-        if s:
-            open_seasons[t] = s
-
-    # MMA active-count per tier (for limit display)
-    mma_active_count = {}
-    for t in TIERS:
-        mma_active_count[t] = Bug.query.filter(
-            Bug.user_id == current_user.id,
-            Bug.bug_track == 'mma',
-            Bug.tier == t,
-            Bug.is_retired == False,
-        ).count()
 
     # Eligible open tournaments for the user's bugs
     from app.models import Tournament, TournamentApplication
@@ -250,23 +153,67 @@ def my_bugs():
 
     return render_template('my_bugs.html',
                            all_bugs=all_bugs,
-                           season_by_tier=season_by_tier,
-                           mma_by_tier=mma_by_tier,
-                           untracked=untracked,
-                           open_seasons=open_seasons,
-                           mma_active_count=mma_active_count,
-                           tier_labels=TIER_LABELS,
-                           tiers=TIERS,
                            tournament_eligibility=tournament_eligibility)
 
 
 @bp.route('/ecosystem')
 def ecosystem():
-    """Combat type matchup matrix and species relationship graph."""
+    """Combat type matchup matrix, species relationships, and the full
+    abilities catalog — all under one Ecosystem tab.
+    """
     import json
+    from app.services import ability_catalog as _ac
+
     data = get_ecosystem_data()
     graph_json = json.dumps(data['species_graph'])
-    return render_template('ecosystem.html', data=data, graph_json=graph_json)
+
+    # Group every ability by effect kind for display.
+    ability_groups: dict[str, list[dict]] = {
+        'Stat Buffs (+)':       [],
+        'Stat Debuffs (-)':     [],
+        'Mixed (+/-)':          [],
+        'Power Multiplier':     [],
+        'Type Advantage Mods':  [],
+        'Dodge / Counter':      [],
+        'Vs Specific Type':     [],
+        'Flavor':               [],
+    }
+    for a in _ac.all_abilities():
+        k = a.effect['kind']
+        if k == 'stat_bonus':
+            label = 'Stat Buffs (+)' if a.effect.get('amount', 0) >= 0 else 'Stat Debuffs (-)'
+        elif k == 'mixed':
+            label = 'Mixed (+/-)'
+        elif k == 'power_mult':
+            label = 'Power Multiplier'
+        elif k in ('type_adv_amp', 'type_disadv_dampen', 'size_disadv_dampen'):
+            label = 'Type Advantage Mods'
+        elif k in ('proc_dodge', 'counter'):
+            label = 'Dodge / Counter'
+        elif k in ('vs_attack_type', 'vs_defense_type'):
+            label = 'Vs Specific Type'
+        elif k == 'flavor':
+            label = 'Flavor'
+        else:
+            continue
+        ability_groups[label].append({
+            'slug': a.slug,
+            'name': a.name,
+            'description': a.description,
+            'effect': _ac.describe_effect(a),
+            'keywords': list(a.keywords),
+        })
+    for label in ability_groups:
+        ability_groups[label].sort(key=lambda x: x['name'])
+    ability_total = sum(len(v) for v in ability_groups.values())
+
+    return render_template(
+        'ecosystem.html',
+        data=data,
+        graph_json=graph_json,
+        ability_groups=ability_groups,
+        ability_total=ability_total,
+    )
 
 
 @bp.route('/uploads/<path:filename>')

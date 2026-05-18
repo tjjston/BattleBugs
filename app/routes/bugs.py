@@ -7,7 +7,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
-from app.models import Bug, Species, Comment, BugLore, CommentVote, BugLoreVote, Job, BugRival, ClassificationFlag, BlockedImageHash, RejectedSubmission, Season, SeasonRegistration, User
+from app.models import Bug, Species, Comment, BugLore, CommentVote, BugLoreVote, Job, BugRival, ClassificationFlag, BlockedImageHash, RejectedSubmission, User
 from sqlalchemy import func
 from app.services.vision_service import comprehensive_bug_verification
 from app.services.tier_system import LLMStatGenerator, TierSystem, assign_tier_and_generate_stats
@@ -221,13 +221,46 @@ def view_bug(bug_id):
         (current_user.id == bug.user_id or
          current_user.role in ('MODERATOR', 'ADMIN', 'OWNER'))
     )
+
+    species_facts_sample = _sample_species_facts(bug, count=3)
+
+    ability_effect = None
+    if bug.ability_slug:
+        from app.services import ability_catalog as _ac
+        a = _ac.get(bug.ability_slug)
+        if a:
+            ability_effect = {
+                'slug': a.slug,
+                'name': a.name,
+                'description': a.description,
+                'effect': _ac.describe_effect(a),
+            }
+
     return render_template('bug_profile.html',
                          bug=bug,
                          comments=comments,
                          lore=lore,
                          jobs=jobs,
                          rivals=rivals,
-                         show_exact_stats=show_exact_stats)
+                         show_exact_stats=show_exact_stats,
+                         species_facts_sample=species_facts_sample,
+                         ability_effect=ability_effect)
+
+
+def _sample_species_facts(bug, count=3):
+    """Return up to `count` random facts from the bug's species fact pool."""
+    if not bug.species_info or not bug.species_info.interesting_facts:
+        return []
+    try:
+        pool = json.loads(bug.species_info.interesting_facts) or []
+    except Exception:
+        return []
+    pool = [f for f in pool if isinstance(f, str) and f.strip()]
+    if not pool:
+        return []
+    import random as _r
+    _r.shuffle(pool)
+    return pool[:count]
 
 def handle_submission():
     """Process bug submission with LLM-controlled classification"""
@@ -383,8 +416,10 @@ def handle_submission():
         condition = getattr(classification, 'condition', 'alive') or 'alive'
         condition_notes = getattr(classification, 'condition_notes', None) or None
 
+        zombug_attempted = False  # marks the submission as ritual-bound
         if condition == 'dead':
             from app.services.condition_system import roll_zombug_success
+            zombug_attempted = True
             if not roll_zombug_success():
                 os.remove(temp_path)
                 # Permanently block this hash so the image can't be resubmitted
@@ -399,7 +434,9 @@ def handle_submission():
                     'this specimen did not survive the process. The image has been permanently blocked.',
                     'danger',
                 )
-                return redirect(url_for('bugs.submit_bug'))
+                # Redirect through the ritual animation so the user sees the
+                # reveal before landing back on the submit page.
+                return redirect(url_for('bugs.zombug_ritual', outcome='fail'))
 
         final_filename = f"{current_user.id}_{timestamp}_{filename}"
         final_path = os.path.join(current_app.config['UPLOAD_FOLDER'], final_filename)
@@ -447,28 +484,6 @@ def handle_submission():
                         pass
                 _threading.Thread(target=_enrich_bg, args=(_app, _species_id), daemon=True).start()
 
-        # --- Season/species uniqueness check ---
-        if species_info and getattr(species_info, 'id', None):
-            from app.services.seasonal_tournament import get_season_for_date, get_season_date_range
-            _sn, _sy = get_season_for_date()
-            _ss, _se = get_season_date_range(_sn, _sy)
-            existing_this_season = Bug.query.filter(
-                Bug.user_id == current_user.id,
-                Bug.species_id == species_info.id,
-                Bug.is_retired.isnot(True),
-                Bug.submission_date.between(_ss, _se),
-            ).first()
-            if existing_this_season:
-                os.remove(final_path)
-                db.session.rollback()
-                species_label = classification.common_name or species_info.common_name or 'this species'
-                flash(
-                    f'You already have an active {species_label} this season. '
-                    'Each user can only enter one bug per species per season.',
-                    'danger',
-                )
-                return redirect(url_for('bugs.submit_bug'))
-
         # Second hash check: re-validate uniqueness immediately before writing,
         # narrowing the race window that exists between the pre-LLM check and now.
         for (existing_h,) in db.session.query(Bug.image_hash).filter(Bug.image_hash.isnot(None)).all():
@@ -510,20 +525,20 @@ def handle_submission():
             lore_rivals=lore_data.get('rivals'),
             
             image_hash=str(candidate_hash),
-            requires_manual_review=(classification.confidence < 0.90)
+            # 0.80 matches the confidence range where the classifier is
+            # actually trustworthy. The previous 0.90 cutoff was too strict
+            # and flagged routine clean IDs (e.g. Aedes @ 0.85) for admin
+            # review unnecessarily.
+            requires_manual_review=(classification.confidence < 0.80)
         )
         
         db.session.add(bug)
         db.session.flush()  # Get bug.id before proceeding
         
-        # Generate stats using LLM
-        from app.services.tier_system import LLMStatGenerator, TierSystem, TIER_DEFINITIONS
+        # Assign fast fallback stats immediately so submission never blocks on the LLM.
+        # A STAT_RECALC_JOB queued below will upgrade these to LLM-generated values.
+        from app.services.tier_system import _fallback_stats, TierSystem, TIER_DEFINITIONS
 
-        current_app.logger.info(
-            "SUBMIT [user=%s] generating stats for bug#%s (%s / %s)",
-            current_user.id, bug.id, bug.common_name, bug.scientific_name,
-        )
-        stat_generator = LLMStatGenerator()
         bug_info = {
             'scientific_name': bug.scientific_name,
             'common_name': bug.common_name,
@@ -532,11 +547,10 @@ def handle_submission():
             'species_info': bug.species_info.to_dict() if bug.species_info else None
         }
 
-        stats = stat_generator.generate_stats_with_llm(bug_info)
+        stats = _fallback_stats(bug_info)
         current_app.logger.info(
-            "SUBMIT [user=%s] stats — ATK=%s DEF=%s SPD=%s tier_rec=%s",
-            current_user.id, stats.get('attack'), stats.get('defense'),
-            stats.get('speed'), stats.get('tier_recommendation'),
+            "SUBMIT [user=%s] fallback stats — ATK=%s DEF=%s SPD=%s (LLM recalc queued)",
+            current_user.id, stats.get('attack'), stats.get('defense'), stats.get('speed'),
         )
         bug.attack = stats['attack']
         bug.defense = stats['defense']
@@ -545,7 +559,7 @@ def handle_submission():
         bug.grip = stats.get('grip', 50)
         bug.cunning = stats.get('cunning', 50)
         bug.special_ability = stats.get('special_ability')
-        bug.stats_generation_method = 'llm_contextual'
+        bug.stats_generation_method = 'fallback_pending_llm'
         bug.stats_generated = True
 
         # Apply condition modifiers (dead, squashed, damaged, etc.)
@@ -602,6 +616,9 @@ def handle_submission():
         db.session.commit()
 
         # NOW redirect (bug.id exists!)
+        if zombug_attempted and bug.is_zombug:
+            # Route through the ritual animation for the dramatic reveal.
+            return redirect(url_for('bugs.zombug_ritual', outcome='success', bug_id=bug.id))
         return redirect(url_for('bugs.view_bug', bug_id=bug.id, _celebrate='submit'))
         
     except Exception as e:
@@ -646,10 +663,110 @@ def recalc_bug_stats(bug_id):
     try:
         generator = LLMStatGenerator()
         generator.regenerate_stats_for_bug(bug)
-        flash('Stats recalculated and applied by AI.', 'success')
+        flash('Stats recalculated and applied by the lab.', 'success')
     except Exception as e:
         db.session.rollback()
         flash(f'Stat recalculation failed: {e}', 'danger')
+    return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+
+@bp.route('/bug/<int:bug_id>/reclassify', methods=['POST'])
+@login_required
+def reclassify_bug(bug_id):
+    """Admin/mod-only: re-run the lab on this bug's saved photo and update
+    its scientific_name, common_name, order, family, and species_id from the
+    fresh classification. Uses the two-pass + feature-consistency pipeline.
+    """
+    bug = db.get_or_404(Bug, bug_id)
+    if current_user.role not in ('MODERATOR', 'ADMIN', 'OWNER'):
+        flash('Only moderators and admins can re-classify a bug.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    image_path = os.path.join(current_app.config['UPLOAD_FOLDER'], bug.image_path)
+    if not os.path.exists(image_path):
+        flash('Image file is missing on disk — cannot re-classify.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    from app.services.bug_classifier import LLMBugClassifier
+    classifier = LLMBugClassifier()
+
+    try:
+        result = classifier._llm_comprehensive_analysis(
+            image_path=image_path,
+            nickname=bug.nickname,
+            description=bug.description,
+            user_species_guess=None,
+            preflight_warnings=[],
+        )
+        # Run GBIF backbone normalisation so we end up with canonical names.
+        result = classifier._normalize_species_via_backbone(result)
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Re-classification failed: {e}', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    if not result.approved:
+        flash('The lab still cannot identify this bug confidently.', 'warning')
+        for r in (result.rejection_reasons or [])[:3]:
+            flash(f'• {r}', 'info')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    old_label = f"{bug.scientific_name or bug.common_name or 'Unknown'}"
+
+    # Update names and confidence.
+    if result.scientific_name:
+        bug.scientific_name = result.scientific_name
+    if result.common_name:
+        bug.common_name = result.common_name
+    bug.vision_confidence = result.confidence
+    bug.vision_identified_species = result.identified_species or result.scientific_name
+    bug.requires_manual_review = result.confidence < 0.70
+
+    # Resolve / cache the species and link the bug to it.
+    species_info = None
+    if result.scientific_name:
+        from app.services.taxonomy import TaxonomyService
+        taxonomy = TaxonomyService()
+        try:
+            species_info = taxonomy.get_species_details(scientific_name=result.scientific_name)
+        except Exception as exc:
+            current_app.logger.warning("Re-classify taxonomy lookup failed: %s", exc)
+        if not species_info and result.order:
+            from app.models import Species
+            species_info = Species(
+                scientific_name=result.scientific_name,
+                common_name=result.common_name,
+                order=result.order,
+                family=result.family,
+                data_source='reclassify_llm',
+            )
+            db.session.add(species_info)
+            db.session.flush()
+        if species_info:
+            bug.species_id = species_info.id
+
+    db.session.commit()
+
+    new_label = f"{bug.scientific_name or bug.common_name or 'Unknown'}"
+    if old_label.lower() == new_label.lower():
+        flash(f'Re-classification confirmed: still {new_label} (confidence {result.confidence:.0%}).', 'info')
+    else:
+        flash(f'Re-classified: {old_label} → {new_label} (confidence {result.confidence:.0%}).', 'success')
+    for w in (result.warnings or [])[:3]:
+        flash(w, 'warning')
+
+    # Optional: same admin gesture also re-runs the LLM stat generator
+    # so attack/defense/stats reflect the new species. Without this the
+    # bug keeps the stats it had from its original (possibly wrong) ID.
+    if request.form.get('also_restat') == '1':
+        try:
+            from app.services.tier_system import LLMStatGenerator
+            LLMStatGenerator().regenerate_stats_for_bug(bug)
+            flash('Stats also regenerated to match the new classification.', 'success')
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Re-classification succeeded but stat regeneration failed: {e}', 'warning')
+
     return redirect(url_for('bugs.view_bug', bug_id=bug.id))
 
 
@@ -659,6 +776,139 @@ def deny_recalc_bug_stats(bug_id):
     bug = db.get_or_404(Bug, bug_id)
     flash('No changes applied.', 'info')
     return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+
+@bp.route('/zombug-ritual')
+@login_required
+def zombug_ritual():
+    """Animated reveal for the zombug roll outcome.
+
+    Query params:
+        outcome: 'success' or 'fail'
+        bug_id: numeric — only meaningful when outcome=success
+    The page plays a ~4-second slider animation and then auto-redirects.
+    The actual roll already happened server-side before redirecting here;
+    this view is purely cosmetic.
+    """
+    outcome = (request.args.get('outcome') or '').strip().lower()
+    if outcome not in ('success', 'fail'):
+        return redirect(url_for('bugs.submit_bug'))
+    bug_id = request.args.get('bug_id', type=int)
+    next_url = (
+        url_for('bugs.view_bug', bug_id=bug_id, _celebrate='submit')
+        if outcome == 'success' and bug_id else url_for('bugs.submit_bug')
+    )
+    return render_template('zombug_ritual.html', outcome=outcome, next_url=next_url)
+
+
+@bp.route('/bug/<int:bug_id>/archetype', methods=['POST'])
+@login_required
+def set_bug_archetype(bug_id):
+    """Admin/mod-only: force a different combat archetype on a bug.
+
+    Re-derives the six stats from the new (archetype, tier) pair using the
+    same engine as fresh stat generation, then writes them back along with
+    an updated reasoning blob. No LLM call — instant.
+    """
+    bug = db.get_or_404(Bug, bug_id)
+    if current_user.role not in ('MODERATOR', 'ADMIN', 'OWNER'):
+        flash('Only moderators and admins can change a bug\'s archetype.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    from app.services import archetypes as _arch
+    new_slug = (request.form.get('archetype_slug') or '').strip()
+    new_arch = _arch.get(new_slug)
+    if not new_arch:
+        flash(f'Unknown archetype: {new_slug!r}.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    tier = (bug.tier or 'uu').lower()
+    if tier not in _arch.TIER_BANDS:
+        tier = 'uu'
+
+    # Apply with no per-stat deviation — admin overrides reset the bug to
+    # the archetype's canonical shape at its current tier.
+    stats = _arch.apply(new_slug, tier, deviations=None)
+    bug.attack    = stats['attack']
+    bug.defense   = stats['defense']
+    bug.speed     = stats['speed']
+    bug.lethality = stats['lethality']
+    bug.grip      = stats['grip']
+    bug.cunning   = stats['cunning']
+
+    # Update typing if the bug doesn't already have something the new
+    # archetype wouldn't predict — but DON'T overwrite a deliberate setting.
+    if new_arch.typical_attack_types and bug.attack_type not in new_arch.typical_attack_types:
+        bug.attack_type = new_arch.typical_attack_types[0]
+    if new_arch.typical_defense_types and bug.defense_type not in new_arch.typical_defense_types:
+        bug.defense_type = new_arch.typical_defense_types[0]
+
+    # Patch reasoning to reflect the override.
+    import json as _j
+    try:
+        reasoning = _j.loads(bug.stats_reasoning) if bug.stats_reasoning else {}
+    except (TypeError, ValueError):
+        reasoning = {}
+    if not isinstance(reasoning, dict):
+        reasoning = {}
+    reasoning['archetype_slug']   = new_slug
+    reasoning['archetype_name']   = new_arch.name
+    reasoning['archetype_flavor'] = new_arch.flavor
+    reasoning['archetype_pick']   = f'Manually set by {current_user.username}.'
+    bug.stats_reasoning = _j.dumps(reasoning, ensure_ascii=False)
+    bug.stats_generation_method = 'admin_archetype_override'
+
+    db.session.commit()
+    flash(f'Archetype set to {new_arch.name}. Stats reshaped to the new profile.', 'success')
+    return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+
+@bp.route('/bug/<int:bug_id>/zombug', methods=['POST'])
+@login_required
+def toggle_zombug(bug_id):
+    """Admin/mod-only: flip the zombug status on a bug.
+
+    Mode is taken from the 'mode' form field: 'add' or 'remove'. Toggling on
+    sets is_zombug=True and condition='dead'; toggling off sets both back to
+    their alive defaults (and clears condition_notes mentioning zombug).
+    """
+    bug = db.get_or_404(Bug, bug_id)
+    if current_user.role not in ('MODERATOR', 'ADMIN', 'OWNER'):
+        flash('Only moderators and admins can change zombug status.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    mode = (request.form.get('mode') or '').strip().lower()
+    if mode not in ('add', 'remove'):
+        # Default to a toggle if mode is missing — useful for a single-button UI.
+        mode = 'remove' if bug.is_zombug else 'add'
+
+    if mode == 'add':
+        bug.is_zombug = True
+        if bug.condition not in ('dead', 'squashed'):
+            bug.condition = 'dead'
+        if not bug.condition_notes:
+            bug.condition_notes = 'Marked as a zombug by an administrator.'
+        flash(f'{bug.nickname} is now a 🧟 Zombug.', 'success')
+    else:
+        bug.is_zombug = False
+        if bug.condition == 'dead':
+            bug.condition = 'alive'
+        # Strip a likely auto-generated zombug note; preserve a custom one.
+        if bug.condition_notes and 'zombug' in bug.condition_notes.lower():
+            bug.condition_notes = None
+        flash(f'{bug.nickname}\'s zombug status was removed.', 'info')
+
+    db.session.commit()
+    return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+
+@bp.route('/abilities')
+def abilities_ecosystem():
+    """Alias kept for backward-compatibility — the abilities listing now
+    lives inside the Ecosystem tab. Redirect with a fragment so old links
+    deep-link to the section.
+    """
+    return redirect(url_for('main.ecosystem') + '#abilities-ecosystem')
 
 
 @bp.route('/insectidex')
@@ -720,6 +970,26 @@ def insectidex():
      .order_by(_desc('discoveries'))\
      .limit(10).all()
     discovery_leaders = [{'user_id': r.id, 'username': r.username, 'count': r.discoveries} for r in leader_rows]
+
+    # Kick a background re-enrichment for species missing an iNat image so
+    # the field-guide view backfills over time. We don't block the request.
+    _missing_img_ids = [r.id for r in species_rows if not r.image_url][:8]
+    if _missing_img_ids:
+        import threading as _threading
+        _app = current_app._get_current_object()
+        def _bg_enrich(app, ids):
+            try:
+                with app.app_context():
+                    from app.services.taxonomy import TaxonomyService
+                    svc = TaxonomyService()
+                    for sid in ids:
+                        try:
+                            svc.enrich_species(sid)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        _threading.Thread(target=_bg_enrich, args=(_app, _missing_img_ids), daemon=True).start()
 
     entries = []
     for row in species_rows:
@@ -1238,39 +1508,6 @@ def approve_rejected_submission(submission_id):
     return redirect(url_for('bugs.review_rejected_submissions'))
 
 
-@bp.route('/bug/<int:bug_id>/enter-season', methods=['POST'])
-@login_required
-def enter_season(bug_id):
-    """Enroll an approved bug in the active Season for its tier."""
-    bug = db.get_or_404(Bug, bug_id)
-    if bug.user_id != current_user.id:
-        flash('Only the owner can enroll this bug.', 'danger')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-    if not bug.tier:
-        flash('Bug must have a tier assigned before joining a season.', 'warning')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-    if bug.bug_track == 'mma':
-        flash('This bug is already in the MMA Championship Circuit. It cannot also join a season.', 'warning')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-
-    active_season = Season.query.filter_by(tier=bug.tier, phase='registration').first()
-    if not active_season:
-        flash(f'No season is currently open for registration in the {bug.tier.upper()} tier.', 'warning')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-
-    existing = SeasonRegistration.query.filter_by(season_id=active_season.id, bug_id=bug.id).first()
-    if existing:
-        flash('This bug is already registered for the active season.', 'info')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-
-    reg = SeasonRegistration(season_id=active_season.id, bug_id=bug.id, user_id=current_user.id)
-    bug.bug_track = 'season'
-    db.session.add(reg)
-    db.session.commit()
-    flash(f'{bug.nickname} registered for {active_season.name}!', 'success')
-    return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-
-
 @bp.route('/bug/<int:bug_id>/release', methods=['POST'])
 @login_required
 def release_bug(bug_id):
@@ -1384,43 +1621,3 @@ def _do_release_bug(bug):
     db.session.delete(bug)  # cascade: comments, lore, achievements
     db.session.commit()
 
-
-@bp.route('/bug/<int:bug_id>/enter-mma', methods=['POST'])
-@login_required
-def enter_mma(bug_id):
-    """Enroll an approved bug in the MMA Championship Circuit."""
-    bug = db.get_or_404(Bug, bug_id)
-    if bug.user_id != current_user.id:
-        flash('Only the owner can enroll this bug.', 'danger')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-    if not bug.tier:
-        flash('Bug must have a tier assigned before entering the Circuit.', 'warning')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-    if bug.bug_track == 'mma':
-        flash('This bug is already in the MMA Championship Circuit.', 'info')
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-
-    # 2-active-per-tier limit
-    active_count = Bug.query.filter(
-        Bug.user_id == current_user.id,
-        Bug.bug_track == 'mma',
-        Bug.tier == bug.tier,
-        Bug.is_retired == False,
-    ).count()
-    if active_count >= 2:
-        flash(
-            f'You already have 2 active MMA bugs in the {(bug.tier or "").upper()} tier. '
-            'Retire one before entering another.',
-            'danger',
-        )
-        return redirect(url_for('bugs.view_bug', bug_id=bug_id))
-
-    bug.bug_track = 'mma'
-    db.session.commit()
-    try:
-        from app.services.championship_service import recalculate_tier_rankings
-        recalculate_tier_rankings(bug.tier)
-    except Exception:
-        pass
-    flash(f'{bug.nickname} has entered the MMA Championship Circuit!', 'success')
-    return redirect(url_for('bugs.view_bug', bug_id=bug_id))

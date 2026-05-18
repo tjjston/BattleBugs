@@ -37,6 +37,13 @@ instance/
 *.sqlite
 *.sqlite3
 database/*.db
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
+
+# Runtime caches
+database/news_cache.json
 
 # Uploads
 uploads/*
@@ -55,3 +62,5 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+# Claude Code runtime scratch (session locks, ephemeral state)
+.claude/

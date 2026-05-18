@@ -465,6 +465,33 @@ def determine_winner_with_xfactor(bug1: Bug, bug2: Bug, venue: Optional[dict] = 
         attack_type_a=atk1,
         attack_type_b=atk2,
     )
+
+    # Special ability effects — slight, catalog-defined modifiers.
+    try:
+        from app.services import ability_catalog as _ac
+        eff1 = _ac.apply_effects(
+            bug1, bug2,
+            base_power=bug1_power,
+            type_multiplier=m1,
+            size_multiplier=s1,
+        )
+        eff2 = _ac.apply_effects(
+            bug2, bug1,
+            base_power=bug2_power,
+            type_multiplier=m2,
+            size_multiplier=s2,
+        )
+        bug1_power = eff1['base_power']
+        bug2_power = eff2['base_power']
+        m1, s1 = eff1['type_multiplier'], eff1['size_multiplier']
+        m2, s2 = eff2['type_multiplier'], eff2['size_multiplier']
+        bug1_modifier = m1
+        bug2_modifier = m2
+        _extra_pct1 = eff1['extra_power_pct'] + eff2['counter_pct'] * max(0.0, m2 - 1.0)
+        _extra_pct2 = eff2['extra_power_pct'] + eff1['counter_pct'] * max(0.0, m1 - 1.0)
+    except Exception:
+        _extra_pct1 = _extra_pct2 = 0.0
+
     bug1_modifier *= s1
     bug2_modifier *= s2
 
@@ -498,6 +525,10 @@ def determine_winner_with_xfactor(bug1: Bug, bug2: Bug, venue: Optional[dict] = 
 
     bug1_power *= bug1_modifier
     bug2_power *= bug2_modifier
+
+    # Apply ability power_mult / vs_type / counter bonuses captured above.
+    bug1_power *= 1.0 + _extra_pct1
+    bug2_power *= 1.0 + _extra_pct2
 
     # XFactor: hidden ±10% (admin-only knowledge)
     bug1_power *= 1.0 + (bug1.xfactor * 0.02)

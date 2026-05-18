@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Leaderboards — Bug Arena{% endblock %}
+{% block title %}Leaderboards - Battle Bugs{% endblock %}
 {% block content %}
 <h1>Leaderboards</h1>
 
@@ -11,18 +11,14 @@
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-elo">ELO</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-pioneers">Pioneers</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-ap">Accolade Points</button></li>
-  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-season">🏅 Season Standings</button></li>
-  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-pfp">⚖️ Pound-for-Pound</button></li>
 </ul>
 
 <div class="tab-content">
-
   <div class="tab-pane fade show active" id="tab-wins">
-    <h5 class="text-muted mb-3">Most Wins — Active Bugs</h5>
+    <h5 class="text-muted mb-3">Most Wins - Active Bugs</h5>
     {% for bug in top_wins %}
-    {% set rank = loop.index %}
     <div class="d-flex align-items-center border-bottom py-2 gap-3">
-      <span class="text-muted fw-bold" style="min-width:2rem">{{ rank }}.</span>
+      <span class="text-muted fw-bold" style="min-width:2rem">{{ loop.index }}.</span>
       <div class="flex-grow-1">
         <a href="{{ url_for('bugs.view_bug', bug_id=bug.id) }}" class="fw-bold text-decoration-none">{{ bug.nickname }}</a>
         <div class="text-muted small">{{ bug.common_name or bug.scientific_name or 'Unknown' }}</div>
@@ -73,7 +69,7 @@
       <div class="flex-grow-1">
         <a href="{{ url_for('main.user_profile', user_id=user.id) }}" class="fw-bold text-decoration-none">{{ user.username }}</a>
       </div>
-      <span class="badge bg-warning text-dark">🏆 {{ user.tournaments_won }} win{{ 's' if user.tournaments_won != 1 else '' }}</span>
+      <span class="badge bg-warning text-dark">{{ user.tournaments_won }} win{{ 's' if user.tournaments_won != 1 else '' }}</span>
     </div>
     {% else %}<p class="text-muted">No tournament winners yet.</p>{% endfor %}
   </div>
@@ -92,14 +88,14 @@
   </div>
 
   <div class="tab-pane fade" id="tab-pioneers">
-    <h5 class="text-muted mb-3">Species Pioneers <span class="small">(🌍 World Firsts)</span></h5>
+    <h5 class="text-muted mb-3">Species Pioneers <span class="small">(World Firsts)</span></h5>
     {% for entry in pioneer_users %}
     <div class="d-flex align-items-center border-bottom py-2 gap-3">
       <span class="text-muted fw-bold" style="min-width:2rem">{{ loop.index }}.</span>
       <div class="flex-grow-1">
         <a href="{{ url_for('main.user_profile', user_id=entry.user.id) }}" class="fw-bold text-decoration-none">{{ entry.user.username }}</a>
       </div>
-      <span class="badge bg-success">🌍 {{ entry.count }}</span>
+      <span class="badge bg-success">{{ entry.count }}</span>
     </div>
     {% else %}<p class="text-muted">No pioneers yet.</p>{% endfor %}
   </div>
@@ -116,95 +112,5 @@
     </div>
     {% else %}<p class="text-muted">No AP earned yet.</p>{% endfor %}
   </div>
-
-  {# ── Season Standings by Tier ──────────────────────────────── #}
-  <div class="tab-pane fade" id="tab-season">
-    <h5 class="text-muted mb-3">Season Standings — Current Season by Tier</h5>
-    {% if season_standings %}
-      {% for tier in tier_order %}
-        {% if tier in season_standings %}
-          {% set s = season_standings[tier] %}
-          <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-              <strong>{{ s.label }} ({{ tier|upper }})</strong>
-              <small class="text-muted">{{ s.season.name }}</small>
-            </div>
-            <table class="table table-sm mb-0">
-              <thead class="table-secondary">
-                <tr><th>#</th><th colspan="2">Bug</th><th>Owner</th><th>Season W</th><th>Season L</th><th>Win%</th></tr>
-              </thead>
-              <tbody>
-              {% for row in s.rows %}
-              <tr>
-                <td>{{ loop.index }}</td>
-                <td style="width:40px;padding-right:0;">
-                  {% if row.bug.image_path %}
-                  <img src="{{ url_for('main.uploaded_file', filename=row.bug.image_path) }}"
-                       style="width:32px;height:32px;object-fit:cover;border-radius:4px;
-                         {% if row.bug.championship_held and row.bug.championship_held.status == 'active' %}border:2px solid #ffc107;{% elif row.bug.tier_ranking_entry and row.bug.tier_ranking_entry.rank == 1 %}border:2px solid #adb5bd;{% endif %}">
-                  {% endif %}
-                </td>
-                <td><a href="{{ url_for('bugs.view_bug', bug_id=row.bug.id) }}" class="fw-semibold">{{ row.bug.nickname }}</a></td>
-                <td class="text-muted small">{{ row.bug.owner.username }}</td>
-                <td><span class="badge bg-success">{{ row.reg.season_wins }}</span></td>
-                <td><span class="badge bg-danger">{{ row.reg.season_losses }}</span></td>
-                <td class="text-muted small">
-                  {% set total = row.reg.season_wins + row.reg.season_losses %}
-                  {% if total > 0 %}{{ "%.0f"|format(row.reg.season_wins / total * 100) }}%{% else %}—{% endif %}
-                </td>
-              </tr>
-              {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        {% endif %}
-      {% endfor %}
-    {% else %}
-      <p class="text-muted">No active seasons yet. <a href="{{ url_for('bugs.submit_bug') }}">Submit a bug</a> to get started!</p>
-    {% endif %}
-  </div>
-
-  {# ── Pound-for-Pound ────────────────────────────────────────── #}
-  <div class="tab-pane fade" id="tab-pfp">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h5 class="text-muted mb-0">⚖️ Pound-for-Pound Rankings</h5>
-      <a href="{{ url_for('championship.pfp') }}" class="btn btn-sm btn-outline-warning">Full P4P Board →</a>
-    </div>
-    {% if pfp_preview %}
-    <table class="table table-hover">
-      <thead class="table-dark">
-        <tr><th>#</th><th colspan="2">Bug</th><th>Tier</th><th>Status</th><th>Record</th><th>Score</th></tr>
-      </thead>
-      <tbody>
-      {% for r in pfp_preview %}
-      <tr>
-        <td><strong>{{ r.rank }}</strong></td>
-        <td style="width:40px;padding-right:0;">
-          {% if r.bug.image_path %}
-          <img src="{{ url_for('main.uploaded_file', filename=r.bug.image_path) }}"
-               style="width:36px;height:36px;object-fit:cover;border-radius:4px;
-                 {% if r.bug.championship_held and r.bug.championship_held.status == 'active' %}border:2px solid #ffc107;{% elif r.bug.tier_ranking_entry and r.bug.tier_ranking_entry.rank == 1 %}border:2px solid #adb5bd;{% elif r.bug.tier_ranking_entry and r.bug.tier_ranking_entry.rank and r.bug.tier_ranking_entry.rank <= 3 %}border:2px solid #cd7f32;{% endif %}">
-          {% endif %}
-        </td>
-        <td><a href="{{ url_for('bugs.view_bug', bug_id=r.bug.id) }}" class="fw-semibold">{{ r.bug.nickname }}</a></td>
-        <td><span class="badge bg-dark">{{ (r.bug.tier or '?')|upper }}</span></td>
-        <td>
-          {% if r.bug.championship_held and r.bug.championship_held.status == 'active' %}
-            <span class="badge bg-warning text-dark">🏆 Champion</span>
-          {% elif r.bug.tier_ranking_entry and r.bug.tier_ranking_entry.rank %}
-            <span class="badge bg-info text-dark">Rank #{{ r.bug.tier_ranking_entry.rank }}</span>
-          {% else %}—{% endif %}
-        </td>
-        <td><span class="badge bg-success">{{ r.bug.wins }}W</span> <span class="badge bg-danger">{{ r.bug.losses }}L</span></td>
-        <td><strong>{{ "%.1f"|format(r.score) }}</strong></td>
-      </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <p class="text-muted">No MMA-track bugs yet. Enroll bugs in the Championship track to appear here.</p>
-    {% endif %}
-  </div>
-
 </div>
 {% endblock %}

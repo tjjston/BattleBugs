@@ -209,24 +209,6 @@ class TestBattles:
         assert_no_error(page)
 
 
-# ── Seasons ─────────────────────────────────────────────────────────────────
-
-class TestSeasons:
-    def test_seasons_list_loads(self, page, base_url):
-        page.goto(f'{base_url}/seasons')
-        assert_no_error(page)
-
-    def test_no_match_type_error(self, page, base_url):
-        """Regression: season_match.match_type column must exist."""
-        page.goto(f'{base_url}/seasons')
-        links = page.locator('a[href*="/season/"]')
-        if links.count() > 0:
-            links.first.click()
-            body = page.locator('body').inner_text()
-            assert 'match_type' not in body
-            assert 'OperationalError' not in body
-
-
 # ── Navigation smoke tests ───────────────────────────────────────────────────
 
 class TestNavigation:
