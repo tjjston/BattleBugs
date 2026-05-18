@@ -13,7 +13,7 @@ from app.services.permission_system import (
 )
 from app.services.tournament_system import TournamentManager
 import sqlalchemy as sa
-from sqlalchemy import text
+from sqlalchemy import text, func
 
 bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -182,16 +182,21 @@ def user_profile(user_id):
 @login_required
 @require_role(UserRole.ADMIN)
 def update_user(user_id):
-    """Update user properties (role, elo, ban). Role assignment enforces Owner permission inside AdminUserManager."""
+    """Admin user editor. Handles role, ELO, ban, and (for ADMIN/OWNER) free
+    rename of username + email — no validation cooldowns, no rate limit, just
+    a uniqueness check. Role assignment still enforces Owner-only promotions
+    via AdminUserManager.
+    """
     user = User.query.get_or_404(user_id)
 
     new_role_name = request.form.get('role')
     new_elo = request.form.get('elo')
     is_banned = True if request.form.get('is_banned') == '1' else False
+    new_username = (request.form.get('username') or '').strip()
+    new_email = (request.form.get('email') or '').strip()
 
     try:
         if new_role_name and new_role_name != user.role:
-            # AdminUserManager.assign_role enforces Owner-only promotions to ADMIN/OWNER
             AdminUserManager.assign_role(user, UserRole[new_role_name], current_user)
 
         if new_elo is not None and new_elo != '':
@@ -199,6 +204,32 @@ def update_user(user_id):
                 user.elo = int(new_elo)
             except ValueError:
                 flash('Invalid ELO value; not changed.', 'warning')
+
+        # Username rename — free for admins/owners. Validation is intentionally
+        # only "must not collide". No length / character / cooldown rules so
+        # admins can fix typos, ban-evade rotations, etc. without ceremony.
+        if new_username and new_username != user.username:
+            collision = User.query.filter(
+                func.lower(User.username) == new_username.lower(),
+                User.id != user.id,
+            ).first()
+            if collision:
+                flash(f'Username "{new_username}" is taken by another user.', 'warning')
+            else:
+                old = user.username
+                user.username = new_username
+                flash(f'Username changed: {old} → {new_username}.', 'success')
+
+        if new_email and new_email.lower() != (user.email or '').lower():
+            collision = User.query.filter(
+                func.lower(User.email) == new_email.lower(),
+                User.id != user.id,
+            ).first()
+            if collision:
+                flash(f'Email "{new_email}" is in use by another user.', 'warning')
+            else:
+                user.email = new_email
+                flash('Email updated.', 'success')
 
         user.is_banned = is_banned
         db.session.commit()

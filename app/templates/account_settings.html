@@ -7,6 +7,17 @@
 
 <form method="post" class="mt-3" autocomplete="off">
   <div class="mb-3">
+    <label for="username" class="form-label">Username</label>
+    <input id="username" name="username" type="text" class="form-control"
+           value="{{ user.username }}"
+           pattern="[A-Za-z][A-Za-z0-9_\-]{2,31}"
+           title="3-32 chars, start with a letter, letters/digits/underscore/dash only"
+           required>
+    <div class="form-text small">
+      3-32 characters, must start with a letter. This is your public name across the arena.
+    </div>
+  </div>
+  <div class="mb-3">
     <label for="email" class="form-label">Email</label>
     <input id="email" name="email" type="email" class="form-control" value="{{ user.email }}" required>
   </div>

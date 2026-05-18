@@ -17,6 +17,25 @@ def _safe_next(next_url):
     return None
 
 
+import re as _re
+
+# Usernames: 3-32 chars, letters/digits/underscore/dash, must start with letter.
+# Conservative enough to keep URLs clean and avoid impersonation games.
+_USERNAME_RE = _re.compile(r'^[A-Za-z][A-Za-z0-9_-]{2,31}$')
+
+
+def _validate_username(candidate):
+    """Return an error string or None if username is acceptable."""
+    if not candidate:
+        return 'Username is required.'
+    if not _USERNAME_RE.match(candidate):
+        return (
+            'Username must be 3-32 characters, start with a letter, and contain '
+            'only letters, digits, underscores, or dashes.'
+        )
+    return None
+
+
 def _validate_password(password):
     """Return an error string or None if password is acceptable."""
     if not password or len(password) < 8:
@@ -99,15 +118,28 @@ def logout():
 @bp.route('/settings', methods=['GET', 'POST'])
 @login_required
 def account_settings():
-    """Self-service account settings: update email, password."""
+    """Self-service account settings: update username, email, password."""
     user = current_user
     if request.method == 'POST':
+        new_username = (request.form.get('username') or '').strip()
         new_email = (request.form.get('email') or '').strip()
         new_password = request.form.get('new_password', '')
         confirm_password = request.form.get('confirm_password', '')
 
+        if new_username and new_username != user.username:
+            err = _validate_username(new_username)
+            if err:
+                flash(err, 'danger')
+            elif User.query.filter(func.lower(User.username) == new_username.lower(),
+                                   User.id != user.id).first():
+                flash('That username is already taken.', 'warning')
+            else:
+                user.username = new_username
+                flash(f'Username changed to {new_username}.', 'success')
+
         if new_email and new_email.lower() != user.email.lower():
-            if User.query.filter(func.lower(User.email) == new_email.lower()).first():
+            if User.query.filter(func.lower(User.email) == new_email.lower(),
+                                 User.id != user.id).first():
                 flash('That email is already in use.', 'warning')
             else:
                 user.email = new_email
