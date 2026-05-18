@@ -904,63 +904,11 @@ def toggle_zombug(bug_id):
 
 @bp.route('/abilities')
 def abilities_ecosystem():
-    """Public page listing every ability in the catalog with its effect.
-
-    Categorised by effect kind: stat bonuses (+), stat debuffs (-),
-    mixed (+/-), power multipliers, type-advantage modifiers, dodge/counter
-    procs, vs-type bonuses, and pure flavor. Search box does a JS-side
-    substring match against name / description / effect.
+    """Alias kept for backward-compatibility — the abilities listing now
+    lives inside the Ecosystem tab. Redirect with a fragment so old links
+    deep-link to the section.
     """
-    from app.services import ability_catalog as _ac
-    abilities = _ac.all_abilities()
-
-    # Group by effect category for display.
-    groups: dict[str, list] = {
-        'Stat Buffs (+)':       [],
-        'Stat Debuffs (-)':     [],
-        'Mixed (+/-)':          [],
-        'Power Multiplier':     [],
-        'Type Advantage Mods':  [],
-        'Dodge / Counter':      [],
-        'Vs Specific Type':     [],
-        'Flavor':               [],
-    }
-    for a in abilities:
-        k = a.effect['kind']
-        if k == 'stat_bonus':
-            if a.effect.get('amount', 0) >= 0:
-                groups['Stat Buffs (+)'].append(a)
-            else:
-                groups['Stat Debuffs (-)'].append(a)
-        elif k == 'mixed':
-            groups['Mixed (+/-)'].append(a)
-        elif k == 'power_mult':
-            groups['Power Multiplier'].append(a)
-        elif k in ('type_adv_amp', 'type_disadv_dampen', 'size_disadv_dampen'):
-            groups['Type Advantage Mods'].append(a)
-        elif k in ('proc_dodge', 'counter'):
-            groups['Dodge / Counter'].append(a)
-        elif k in ('vs_attack_type', 'vs_defense_type'):
-            groups['Vs Specific Type'].append(a)
-        elif k == 'flavor':
-            groups['Flavor'].append(a)
-
-    # Pre-render each ability with its effect description so the template
-    # doesn't have to call back into the catalog.
-    rendered = {}
-    for label, abs_ in groups.items():
-        rendered[label] = [
-            {
-                'slug': a.slug,
-                'name': a.name,
-                'description': a.description,
-                'effect': _ac.describe_effect(a),
-                'keywords': a.keywords,
-            }
-            for a in sorted(abs_, key=lambda x: x.name)
-        ]
-    total = sum(len(v) for v in rendered.values())
-    return render_template('abilities_ecosystem.html', groups=rendered, total=total)
+    return redirect(url_for('main.ecosystem') + '#abilities-ecosystem')
 
 
 @bp.route('/insectidex')

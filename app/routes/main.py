@@ -158,11 +158,62 @@ def my_bugs():
 
 @bp.route('/ecosystem')
 def ecosystem():
-    """Combat type matchup matrix and species relationship graph."""
+    """Combat type matchup matrix, species relationships, and the full
+    abilities catalog — all under one Ecosystem tab.
+    """
     import json
+    from app.services import ability_catalog as _ac
+
     data = get_ecosystem_data()
     graph_json = json.dumps(data['species_graph'])
-    return render_template('ecosystem.html', data=data, graph_json=graph_json)
+
+    # Group every ability by effect kind for display.
+    ability_groups: dict[str, list[dict]] = {
+        'Stat Buffs (+)':       [],
+        'Stat Debuffs (-)':     [],
+        'Mixed (+/-)':          [],
+        'Power Multiplier':     [],
+        'Type Advantage Mods':  [],
+        'Dodge / Counter':      [],
+        'Vs Specific Type':     [],
+        'Flavor':               [],
+    }
+    for a in _ac.all_abilities():
+        k = a.effect['kind']
+        if k == 'stat_bonus':
+            label = 'Stat Buffs (+)' if a.effect.get('amount', 0) >= 0 else 'Stat Debuffs (-)'
+        elif k == 'mixed':
+            label = 'Mixed (+/-)'
+        elif k == 'power_mult':
+            label = 'Power Multiplier'
+        elif k in ('type_adv_amp', 'type_disadv_dampen', 'size_disadv_dampen'):
+            label = 'Type Advantage Mods'
+        elif k in ('proc_dodge', 'counter'):
+            label = 'Dodge / Counter'
+        elif k in ('vs_attack_type', 'vs_defense_type'):
+            label = 'Vs Specific Type'
+        elif k == 'flavor':
+            label = 'Flavor'
+        else:
+            continue
+        ability_groups[label].append({
+            'slug': a.slug,
+            'name': a.name,
+            'description': a.description,
+            'effect': _ac.describe_effect(a),
+            'keywords': list(a.keywords),
+        })
+    for label in ability_groups:
+        ability_groups[label].sort(key=lambda x: x['name'])
+    ability_total = sum(len(v) for v in ability_groups.values())
+
+    return render_template(
+        'ecosystem.html',
+        data=data,
+        graph_json=graph_json,
+        ability_groups=ability_groups,
+        ability_total=ability_total,
+    )
 
 
 @bp.route('/uploads/<path:filename>')
