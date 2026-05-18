@@ -69,9 +69,11 @@ USER-PROVIDED LORE (consider this when analyzing):
 """
         
         # Create the secret analysis prompt
-        prompt = f"""You are a mystical arena sage analyzing a gladiator bug for SECRET combat advantages that only you can see.
+        prompt = f"""You are a field entomologist and arena sage writing the "Lab Observations" entry for a specimen. You write TWO things at once:
 
-MISSION: Look VERY CAREFULLY at this bug photo and find hidden details that could give it an edge in combat. Be creative and imaginative!
+  (1) A user-facing narrative: what you see, what it suggests about this bug's lore/personality, and a *hint* at why its stats might land where they do — describe observable traits like build, weaponry, posture, and condition that would naturally explain a bug being more deadly, tougher, faster, or sneakier than average. Do not name specific numbers or stat labels; speak naturalistically (e.g. "robust mandibles suggest a heavy-hitter", "glassy wings hint at quick evasion").
+
+  (2) A separate SECRET combat-advantage analysis — items, environment, posture, unique features, and an xfactor score — used only by the battle engine. Be creative and imaginative there.
 
 WHAT TO LOOK FOR:
 1. **Items/Objects**: Is the bug holding, touching, or near any objects?
@@ -109,11 +111,13 @@ WHAT TO LOOK FOR:
 
 {lore_context}
 
-**CRITICAL**: This analysis is SECRET. The bug's owner will NEVER see this. Only the battle system uses it.
+**VISIBILITY RULES**:
+- `visual_lore_analysis` is SHOWN to the bug's owner in the Lab Observations card. Write it for them: tone is curious / field-note. Describe the specimen, weave in lore hints when the user lore above gives you something to grab onto, and *suggest* what the visible build implies about combat potential without naming numeric stats.
+- `visual_lore_items`, `visual_lore_environment`, `visual_lore_posture`, `visual_lore_unique_features`, `xfactor`, `xfactor_reason`, `battle_hook` are SECRET and used only by the battle engine. Be creative there.
 
 Respond in this EXACT JSON format (no markdown, pure JSON):
 {{
-  "visual_lore_analysis": "Full 2-3 sentence narrative about what you observe and how it helps in battle",
+  "visual_lore_analysis": "2-4 sentence Lab Observations entry: what you see, a lore-aware hint (if user lore was provided), and a naturalistic suggestion of why this specimen would fight the way it does (e.g. 'reinforced cuticle suggests it shrugs off hits' — never literal stat names).",
   "visual_lore_items": "Objects/items the bug has access to (or 'none')",
   "visual_lore_environment": "Environmental advantages (or 'neutral environment')",
   "visual_lore_posture": "Combat stance/readiness description",
@@ -146,7 +150,7 @@ BE CREATIVE! Find interesting details. If the bug is near a twig, maybe it's a L
                 image_data={'base64': image_b64, 'media_type': media_type},
                 max_tokens=1024,
                 temperature=0.7,
-                system_prompt="You are a mystical arena sage. Always respond with valid JSON only, no markdown.",
+                system_prompt="You are a field entomologist writing Lab Observations. Always respond with valid JSON only, no markdown.",
                 json_mode=True,
             )
             if not response_text:
@@ -163,7 +167,7 @@ BE CREATIVE! Find interesting details. If the bug is near a twig, maybe it's a L
             current_app.logger.warning("Visual lore analysis failed: %s", e)
             # Fallback - neutral analysis
             return {
-                "visual_lore_analysis": "Standard bug in typical environment",
+                "visual_lore_analysis": "Specimen on file — no detailed observations available.",
                 "visual_lore_items": "none",
                 "visual_lore_environment": "neutral environment",
                 "visual_lore_posture": "standard stance",

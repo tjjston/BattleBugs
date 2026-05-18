@@ -290,21 +290,54 @@ def flagged_bugs():
     return render_template('admin/flagged_bugs.html', bugs=bugs)
 
 
+def _safe_admin_referrer(fallback_endpoint: str = 'admin.flagged_bugs') -> str:
+    """Return request.referrer if it points back into our app, else a sane fallback.
+
+    Used so an admin who approves/rejects from the moderation queue lands back
+    on the moderation queue (not jumped to the flagged-bugs list), and an admin
+    who approves from flagged-bugs stays there. Falls back to flagged_bugs when
+    the referrer is missing (e.g. direct API hits) or external.
+    """
+    ref = request.referrer or ''
+    host = request.host_url.rstrip('/')
+    if ref and ref.startswith(host):
+        return ref
+    return url_for(fallback_endpoint)
+
+
 @bp.route('/bug/<int:bug_id>/approve-review', methods=['POST'])
 @login_required
 @require_role(UserRole.MODERATOR)
 def approve_bug_review(bug_id):
     """Approve a flagged bug"""
     bug = Bug.query.get_or_404(bug_id)
-    
+
     bug.requires_manual_review = False
     bug.is_verified = True
     bug.review_notes = request.form.get('notes', f'Approved by {current_user.username}')
-    
+
     db.session.commit()
-    
-    flash(f'{bug.nickname} approved!', 'success')
-    return redirect(url_for('admin.flagged_bugs'))
+
+    flash(f'✅ {bug.nickname} approved and released to the arena.', 'success')
+    return redirect(_safe_admin_referrer())
+
+
+@bp.route('/bug/<int:bug_id>/reject-review', methods=['POST'])
+@login_required
+@require_role(UserRole.MODERATOR)
+def reject_bug_review(bug_id):
+    """Reject a flagged bug — keep it out of the arena but preserve the record."""
+    bug = Bug.query.get_or_404(bug_id)
+
+    bug.requires_manual_review = True
+    bug.is_verified = False
+    note = request.form.get('notes') or f'Rejected by {current_user.username}'
+    bug.review_notes = note
+
+    db.session.commit()
+
+    flash(f'⛔ {bug.nickname} rejected. Reason: {note}', 'warning')
+    return redirect(_safe_admin_referrer())
 
 
 @bp.route('/tournaments/applications')

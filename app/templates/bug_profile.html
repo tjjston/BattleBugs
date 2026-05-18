@@ -462,15 +462,15 @@
         </div>
         {% endif %}
 
-        {# ── Pokédex Entry: LLM-generated visual + lore description ───────── #}
+        {# ── Lab Observations: LLM-generated visual + lore description ───── #}
         {% set _has_visual = bug.visual_lore_analysis or bug.visual_lore_items or bug.visual_lore_environment or bug.visual_lore_posture or bug.visual_lore_unique_features %}
         {% set _has_lore = bug.lore_background or bug.lore_motivation or bug.lore_personality or bug.lore_interests or bug.lore_fears or bug.lore_allies or bug.lore_rivals or bug.lore_religion %}
         {% if _has_visual or _has_lore %}
         <div class="card mb-3 border-0 shadow-sm">
             <div class="card-header bg-transparent border-bottom fw-semibold d-flex align-items-center gap-2">
-                <span style="font-size:1.1rem;">📘</span>
-                <span>Pokédex Entry</span>
-                <span class="text-muted fw-normal small ms-auto">No. {{ "%04d"|format(bug.id) }}</span>
+                <span style="font-size:1.1rem;">🔬</span>
+                <span>Lab Observations</span>
+                <span class="text-muted fw-normal small ms-auto">Specimen #{{ "%04d"|format(bug.id) }}</span>
             </div>
             <div class="card-body">
                 {% if bug.visual_lore_analysis %}

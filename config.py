@@ -23,7 +23,7 @@ class Config:
     # (token then lives only as long as the session cookie).
     WTF_CSRF_TIME_LIMIT = _csrf_time_limit()
     
-    # Database — resolve relative sqlite paths against the project root so the
+    # Database — r9esolve relative sqlite paths against the project root so the
     # app works regardless of the working directory it is launched from.
     _db_url = os.environ.get('DATABASE_URL') or \
         'sqlite:///' + os.path.join(basedir, 'database', 'bug_arena.db')

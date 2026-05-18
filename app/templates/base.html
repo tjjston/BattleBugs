@@ -101,18 +101,37 @@
         </div>
     </nav>
 
-    <main class="container mt-4">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                    {{ message }}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
+    {# ── Flash toast stack (top-right, auto-dismiss) ────────────────── #}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-toast-stack position-fixed top-0 end-0 p-3"
+             style="z-index:1080;max-width:min(420px, 90vw);">
+            {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show shadow flash-toast" role="alert"
+                 data-bs-autohide="true" data-bs-delay="6000">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            {% endfor %}
+        </div>
+        <script>
+        // Auto-dismiss toasts after 6s so they don't pile up after admin actions.
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('.flash-toast').forEach(function (el) {
+                setTimeout(function () {
+                    if (window.bootstrap && bootstrap.Alert) {
+                        bootstrap.Alert.getOrCreateInstance(el).close();
+                    } else {
+                        el.classList.remove('show');
+                    }
+                }, 6000);
+            });
+        });
+        </script>
+        {% endif %}
+    {% endwith %}
 
+    <main class="container mt-4">
         {% block content %}{% endblock %}
     </main>
 

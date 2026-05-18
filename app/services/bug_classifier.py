@@ -592,8 +592,10 @@ class LLMBugClassifier:
     # between just the listed candidates. The order of the value list
     # doesn't matter — we always include all of them in the choices.
     _CONFUSION_FAMILIES = {
-        'cantharidae': ['lampyridae', 'cantharidae'],     # firefly vs soldier beetle
+        'cantharidae': ['lampyridae', 'cantharidae', 'rhopalidae'],  # firefly vs soldier beetle vs boxelder
         'lampyridae':  ['lampyridae', 'cantharidae'],
+        'rhopalidae':  ['rhopalidae', 'cantharidae', 'lygaeidae', 'cerambycidae'],  # boxelder vs lookalikes
+        'lygaeidae':   ['lygaeidae', 'rhopalidae', 'cantharidae'],
         'syrphidae':   ['syrphidae', 'apidae', 'vespidae'], # hover fly vs bee vs wasp
         'apidae':      ['apidae', 'syrphidae'],
         'vespidae':    ['vespidae', 'syrphidae'],
@@ -641,6 +643,13 @@ class LLMBugClassifier:
         ('coiled tongue',            {'lepidoptera'},                                 set()),
         ('scaled wings',             {'lepidoptera'},                                 set()),
 
+        # True bugs (Hemiptera) — piercing mouthparts + hemelytra exclude beetles.
+        ('piercing proboscis',       {'hemiptera'},                                   set()),
+        ('sucking proboscis',        {'hemiptera'},                                   set()),
+        ('proboscis tucked',         {'hemiptera'},                                   set()),
+        ('hemelytra',                {'hemiptera'},                                   set()),
+        ('scutellum',                {'hemiptera', 'coleoptera'},                     set()),
+
         # Beetles / wasps / flies.
         ('hard elytra',              {'coleoptera'},                                  set()),
         ('two pairs of clear wings', {'hymenoptera', 'odonata', 'neuroptera'},        set()),
@@ -667,16 +676,21 @@ class LLMBugClassifier:
             "Write 5-8 short bullet points covering, in plain English:\n"
             "  • body shape and segmentation\n"
             "  • how many legs are visible\n"
-            "  • wings (hard elytra? clear membranes? scaled? folded? none?)\n"
+            "  • wings — call out whether they are HARD ELYTRA (uniformly stiff, straight seam down the back, fully cover abdomen), "
+            "HEMELYTRA (leathery base + clear membrane tip, often forming a clear X over the abdomen — diagnostic of true bugs / Hemiptera), "
+            "clear membranes, scaled, folded, or none\n"
             "  • antennae (long thin / clubbed / feathered / none)\n"
-            "  • mouthparts (needle proboscis / chewing mandibles / pincers / coiled tongue / not visible)\n"
+            "  • mouthparts — call out CHEWING MANDIBLES (visible jaws at front of head — beetles, ants, mantises), "
+            "NEEDLE PROBOSCIS (long forward-pointing stylet — mosquitoes), "
+            "PIERCING PROBOSCIS TUCKED under the head and folded back along the underside (true bugs / Hemiptera — boxelder, milkweed, assassin bugs), "
+            "pincers, coiled tongue, or not visible\n"
             "  • abdomen — IS THERE A GLOWING OR LIGHT-PRODUCING ORGAN at the tip? state it explicitly if yes\n"
-            "  • dominant colors and any striking patterns\n"
+            "  • dominant colors and any striking patterns — if you see narrow red/orange LINES outlining the pronotum or forming an X/V on the folded wings, say so explicitly\n"
             "  • posture and the surface the bug is on\n\n"
-            "Use simple phrases like 'glowing abdomen', 'hard elytra', 'needle proboscis', "
-            "'raptorial forelegs', 'eight legs', 'narrow waist', 'feathered antennae'. "
-            "These exact phrases are checked against a feature-to-family rule table — "
-            "if the bug has a glowing tail, SAY 'glowing abdomen' or 'light organ at tip'."
+            "Use these EXACT trigger phrases when applicable: 'glowing abdomen', 'hard elytra', 'hemelytra', "
+            "'needle proboscis', 'piercing proboscis', 'sucking proboscis', 'proboscis tucked', "
+            "'chewing mandibles', 'raptorial forelegs', 'eight legs', 'narrow waist', 'feathered antennae'. "
+            "They are matched against a feature-to-family rule table — naming them correctly prevents miss-classification."
         )
 
         # Retry on empty — cold loads on a big vision GGUF often return ""
@@ -1386,6 +1400,15 @@ Both are soft-bodied Coleoptera with elongate bodies and similar coloration. Tel
 - Context clues from the submission: photos taken **at dusk, near porch lights, with luminous activity mentioned, or with "firefly"/"lightning bug" in the description** strongly indicate Lampyridae.
 - Pattern: fireflies often have a red/orange pronotum with a dark central spot; soldier beetles have more uniformly colored pronota.
 If ANY of these firefly signals are present, return `scientific_name: "Lampyridae"` (or the genus like `Photinus`/`Photuris` if you can read it), NOT `Cantharidae`.
+
+🪲 **TRUE BUG (Hemiptera) vs. BEETLE (Coleoptera) for red/orange-marked specimens — VERY common miss:**
+Bugs like the **boxelder bug** (Boisea trivittata, family Rhopalidae) and **milkweed bug** (Lygaeidae) are TRUE BUGS, not beetles, even though they share red/orange-and-black coloration with **soldier beetles** (Cantharidae) and **milkweed beetles** (Cerambycidae). Get the ORDER right first:
+- **Mouthparts** are the decisive cue: a long needle-like **piercing/sucking proboscis** tucked under the head and folded back along the underside = Hemiptera (true bug). **Chewing mandibles** visible at the front of the head = Coleoptera (beetle). Boxelder bugs do NOT have visible mandibles.
+- **Wings at rest**: true bugs have **hemelytra** — the basal half of the forewing is leathery/opaque and the distal half is membranous, often forming a clear X pattern over the abdomen. Beetles have uniformly **hard elytra** that fully cover the abdomen with a straight seam down the middle.
+- **Body shape**: boxelder bugs have a **flat, narrow, elongate-oval body** with a distinct **scutellum (triangular plate)** between the wing bases. Soldier beetles are more cylindrical/elongate with no scutellum.
+- **Coloration pattern**: boxelder bugs are **dark/black with thin bright RED-ORANGE lines outlining the pronotum and forming a clear pattern (often "V" or "X") on the folded wings**. Soldier beetles have larger blocks of red/orange on the pronotum or elytra without the line-pattern look.
+- **Antennae**: boxelder antennae are 4-segmented, moderately long and thread-like. Soldier-beetle antennae are 11-segmented and filiform.
+If you see a flat red-and-black bug with the proboscis tucked under it or a clear X/V red-line pattern on the back, return `scientific_name: "Boisea trivittata"` (or family `Rhopalidae`), order **Hemiptera** — NOT Cantharidae and NOT Coleoptera.
 
 🐝 **HOVER FLY (Syrphidae) vs. BEE/WASP — Batesian mimic confusion:**
 Hover flies are flies (order Diptera, family Syrphidae) that mimic bees and wasps with yellow-black banding. Distinguishing features:

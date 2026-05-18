@@ -667,8 +667,14 @@ def recalc_bug_stats(bug_id):
         generator.regenerate_stats_for_bug(bug)
         flash('Stats recalculated and applied by the lab.', 'success')
     except Exception as e:
+        # Log the full traceback so prod crashes ("LLM unreachable", DB
+        # constraint, etc.) actually leave a fingerprint in the logs instead
+        # of evaporating into the user-facing flash message.
+        current_app.logger.exception(
+            "recalc_bug_stats failed for bug_id=%s (%s)", bug.id, bug.nickname,
+        )
         db.session.rollback()
-        flash(f'Stat recalculation failed: {e}', 'danger')
+        flash(f'Stat recalculation failed: {type(e).__name__}: {e}', 'danger')
     return redirect(url_for('bugs.view_bug', bug_id=bug.id))
 
 
@@ -703,8 +709,11 @@ def reclassify_bug(bug_id):
         # Run GBIF backbone normalisation so we end up with canonical names.
         result = classifier._normalize_species_via_backbone(result)
     except Exception as e:
+        current_app.logger.exception(
+            "reclassify_bug failed for bug_id=%s (%s)", bug.id, bug.nickname,
+        )
         db.session.rollback()
-        flash(f'Re-classification failed: {e}', 'danger')
+        flash(f'Re-classification failed: {type(e).__name__}: {e}', 'danger')
         return redirect(url_for('bugs.view_bug', bug_id=bug.id))
 
     if not result.approved:

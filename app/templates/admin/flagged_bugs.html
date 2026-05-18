@@ -47,6 +47,12 @@
         <input type="hidden" name="notes" value="Approved by {{ current_user.username }}">
         <button type="submit" class="btn btn-sm btn-success">Approve</button>
       </form>
+      <form method="post" action="{{ url_for('admin.reject_bug_review', bug_id=bug.id) }}" class="d-inline ms-1"
+            onsubmit="this.notes.value = prompt('Reason for rejection?', 'Rejected by {{ current_user.username }}') || ''; return this.notes.value !== '';">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="notes" value="">
+        <button type="submit" class="btn btn-sm btn-outline-danger">Reject</button>
+      </form>
       <a href="{{ url_for('admin.edit_bug', bug_id=bug.id) }}" class="btn btn-sm btn-outline-secondary ms-1">Edit</a>
     </td>
   </tr>
