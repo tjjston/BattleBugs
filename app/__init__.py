@@ -94,6 +94,10 @@ def create_app(config_class=Config):
             'is_owner': lambda: is_owner(current_user)
         }
 
+    # Within-tier flavor title for bug cards/profiles.
+    from app.services.tier_system import within_tier_title
+    app.jinja_env.globals['within_tier_title'] = within_tier_title
+
     if not app.config.get('TESTING'):
         from app.services.job_queue import start_scheduler
         start_scheduler(app)

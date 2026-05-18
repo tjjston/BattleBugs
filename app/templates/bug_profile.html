@@ -414,7 +414,13 @@
                style="background: var(--bs-{{ _tc }}-bg-subtle, rgba(0,0,0,.04));">
             <span class="badge bg-{{ _tc }} fs-3 px-3 py-2 fw-bold">{{ bug.tier.upper() }}</span>
             <div>
-              <div class="fw-semibold fs-5">{{ _tier_labels.get(bug.tier, bug.tier.upper()) }} Tier</div>
+              <div class="fw-semibold fs-5">
+                {{ _tier_labels.get(bug.tier, bug.tier.upper()) }} Tier
+                {%- set _wt = within_tier_title(bug) -%}
+                {%- if _wt -%}
+                  <span class="badge bg-{{ _tc }}-subtle text-{{ _tc }} border border-{{ _tc }}-subtle ms-2 align-middle" style="font-size:.65em;letter-spacing:.03em;">{{ _wt.split('·')[1].strip() }}</span>
+                {%- endif -%}
+              </div>
               <small class="text-muted">
                 Power:
                 {{ (bug.attack or 0) + (bug.defense or 0) + (bug.speed or 0)

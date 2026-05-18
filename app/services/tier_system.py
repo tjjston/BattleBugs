@@ -224,6 +224,64 @@ class TierSystem:
 
         tier_order = ['zu', 'nu', 'ru', 'uu', 'ou', 'uber']
         return max(tier_by_power, danger_floor, key=tier_order.index)
+
+
+def within_tier_title(bug):
+    """Flavor title that highlights a bug's standout stat within its tier.
+
+    Most submissions cluster in NU/ZU because the world is full of small
+    bugs. This gives those bugs a way to feel distinct: "NU · Speed Demon"
+    for a fast fruit fly reads differently from "NU · Mastermind" for a
+    clever ant. Returns None when nothing notable stands out.
+
+    Special cases:
+      - Uber bugs get no title (tier itself is the title).
+      - A bug whose stat sum is below its tier's normal band — meaning
+        the danger floor lifted it — earns "Tiny But Mighty" regardless
+        of standout stat.
+    """
+    if not bug or not getattr(bug, 'tier', None):
+        return None
+    tier = bug.tier
+    if tier == 'uber':
+        return None
+
+    lethality = getattr(bug, 'lethality', 0) or 0
+    grip = getattr(bug, 'grip', 0) or 0
+    cunning = getattr(bug, 'cunning', 0) or 0
+    power = (
+        (bug.attack or 0) + (bug.defense or 0) + (bug.speed or 0)
+        + lethality + grip + cunning
+    )
+
+    tier_min = {'zu': 0, 'nu': 240, 'ru': 320, 'uu': 400, 'ou': 480}
+    if power < tier_min.get(tier, 0) and lethality >= 80:
+        return f'{tier.upper()} · Tiny But Mighty'
+
+    stats = {
+        'attack':    bug.attack or 0,
+        'defense':   bug.defense or 0,
+        'speed':     bug.speed or 0,
+        'lethality': lethality,
+        'grip':      grip,
+        'cunning':   cunning,
+    }
+    top_stat, top_val = max(stats.items(), key=lambda kv: kv[1])
+
+    # Higher tiers need genuinely standout stats to merit a title.
+    threshold = {'zu': 55, 'nu': 60, 'ru': 65, 'uu': 85, 'ou': 90}
+    if top_val < threshold.get(tier, 60):
+        return None
+
+    titles = {
+        'attack':    'Heavy Hitter',
+        'defense':   'Wall',
+        'speed':     'Speed Demon',
+        'lethality': 'Toxin Specialist',
+        'grip':      'Iron Grip',
+        'cunning':   'Mastermind',
+    }
+    return f'{tier.upper()} · {titles[top_stat]}'
     
     @staticmethod
     def can_battle(bug1, bug2, allow_tier_difference=None, tournament_tier_restriction=None):
