@@ -11,6 +11,106 @@
     <a href="{{ url_for('bugs.insectidex') }}" class="btn btn-outline-secondary">← Species Index</a>
 </div>
 
+{# ── Tier System Explainer ──────────────────────────────────────── #}
+<div class="card mb-5 border-info-subtle shadow-sm">
+    <div class="card-header bg-info-subtle d-flex align-items-center gap-2">
+        <h4 class="mb-0">🏷️ Tier System — How Bugs Are Ranked</h4>
+    </div>
+    <div class="card-body">
+        <p class="mb-3">
+            Every bug is assigned to one of <strong>six tiers</strong> based on its
+            <em>total combat footprint</em>. Tier is determined by the higher of two paths:
+            <strong>(1) the sum of all six stats</strong> (attack, defense, speed, lethality, grip, cunning),
+            or <strong>(2) a "danger floor"</strong> that elevates a bug when it has class-leading lethality —
+            so a small but deadly spider isn't trapped in a low tier just because her body is fragile.
+        </p>
+
+        <div class="table-responsive">
+        <table class="table table-sm align-middle mb-3" style="font-size:0.92em;">
+            <thead class="table-light">
+                <tr>
+                    <th style="width:90px;">Tier</th>
+                    <th style="width:110px;">Power Range</th>
+                    <th>What it means</th>
+                    <th>Examples</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="badge bg-danger fs-6">UBER</span><br><small class="text-muted">Legendary</small></td>
+                    <td><strong>540-600</strong></td>
+                    <td>Rare, apex combat threats. Either physical apex predator OR class-leading lethality + supporting trait.</td>
+                    <td>Asian giant hornet, large emperor scorpion, goliath beetle, Sydney funnel-web spider, Brazilian wandering spider, deathstalker scorpion</td>
+                </tr>
+                <tr>
+                    <td><span class="badge bg-warning text-dark fs-6">OU</span><br><small class="text-muted">Overused</small></td>
+                    <td><strong>480-539</strong></td>
+                    <td>Top-tier hunters, or single-dimension class-leading killers (small body + extreme venom).</td>
+                    <td>Tarantula, wolf spider, large stag beetle, brown recluse, black widow, tarantula hawk wasp, Indian red scorpion</td>
+                </tr>
+                <tr>
+                    <td><span class="badge bg-primary fs-6">UU</span><br><small class="text-muted">Underused</small></td>
+                    <td><strong>400-479</strong></td>
+                    <td>Capable adults — solid generalists, large beetles, mid-size mantises, jumping spiders.</td>
+                    <td>Paper wasp, large grasshopper, orb weaver, mid-size mantis, Portia jumping spider, velvet ant, bombardier beetle</td>
+                </tr>
+                <tr>
+                    <td><span class="badge bg-info fs-6">RU</span><br><small class="text-muted">Rarely Used</small></td>
+                    <td><strong>320-399</strong></td>
+                    <td>Common adults of moderate ability. Predators with a single strong dimension.</td>
+                    <td>Bumblebee, garden spider, June beetle, tiger beetle, pseudoscorpion, honeybee worker</td>
+                </tr>
+                <tr>
+                    <td><span class="badge bg-secondary fs-6">NU</span><br><small class="text-muted">Never Used</small></td>
+                    <td><strong>240-319</strong></td>
+                    <td>Small, short-lived, no signature weaponry. The "garden bug" middle.</td>
+                    <td>Ladybug, common ant worker, small moth, fruit fly, lacewing, leafhopper, pill bug, stink bug</td>
+                </tr>
+                <tr>
+                    <td><span class="badge bg-dark fs-6">ZU</span><br><small class="text-muted">Zero Used</small></td>
+                    <td><strong>0-239</strong></td>
+                    <td>Fragile or microscopic. Often pre-adult or extremely specialized scavengers.</td>
+                    <td>Aphid, springtail, mite, soft larva, gnat, mosquito larva</td>
+                </tr>
+            </tbody>
+        </table>
+        </div>
+
+        <div class="row g-3 mt-1">
+            <div class="col-md-6">
+                <div class="border rounded p-3 h-100 bg-light">
+                    <h6 class="mb-2">🪲 Why might a bug be in <em>multiple</em> tiers?</h6>
+                    <p class="small mb-2">
+                        Some bugs <strong>qualify for two tiers at once</strong> and the system takes the higher of the two:
+                    </p>
+                    <ul class="small mb-0">
+                        <li><strong>Brown recluse</strong> — ~8mm body, fragile, slow. By stat sum she lands in <span class="badge bg-secondary">NU</span>. But necrotic venom is class-leading, so the danger floor pulls her to <span class="badge bg-warning text-dark">OU</span>. Final tier: <strong>OU</strong>.</li>
+                        <li><strong>Black widow</strong> — small + delicate, but α-latrotoxin is among the most potent arachnid venoms. Sum says NU; floor says OU. <strong>OU</strong>.</li>
+                        <li><strong>Sydney funnel-web</strong> — venom + aggression + repeated bites. Triggers Uber-level danger floor even if her stat sum lands in UU. <strong>Uber</strong>.</li>
+                        <li><strong>Goliath beetle</strong> — no venom, but mass + crushing jaws push her sum into OU/Uber territory without any danger floor needed. <strong>Uber by sum alone</strong>.</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="border rounded p-3 h-100 bg-light">
+                    <h6 class="mb-2">⚖️ Two principles to remember</h6>
+                    <p class="small mb-2"><strong>1. Mass bounds force.</strong> Body size limits attack, defense, and grip (mass-bound stats). A 10mm bug can't punch like a 50mm bug, no matter how hard its shell looks.</p>
+                    <p class="small mb-2"><strong>2. Biology bounds danger.</strong> Speed, lethality, and cunning are <em>not</em> size-capped. A 10mm spider with neurotoxin can drop a target 100× her size; a 6mm Portia jumping spider out-thinks bugs twice her age.</p>
+                    <p class="small mb-0 text-muted">This is why ladybugs sit in NU (no venom, no signature defense → nothing earns elevation) while brown recluses sit in OU (necrotic venom earns the floor).</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="alert alert-secondary mt-3 mb-0 small">
+            <strong>Danger Floor cheat sheet:</strong>
+            lethality ≥ 95 <em>and</em> cunning ≥ 75 → Uber ·
+            lethality ≥ 90 → OU ·
+            lethality ≥ 80 → UU ·
+            lethality ≥ 65 or cunning ≥ 80 → RU
+        </div>
+    </div>
+</div>
+
 {# ── Combat Type Matchup Matrix ─────────────────────────────────── #}
 <div class="card mb-5">
     <div class="card-header">
