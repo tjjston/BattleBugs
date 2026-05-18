@@ -4,9 +4,24 @@ from dotenv import load_dotenv
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv()
 
+def _csrf_time_limit():
+    raw = os.environ.get('WTF_CSRF_TIME_LIMIT')
+    if raw is None:
+        return 8 * 60 * 60
+    raw = raw.strip().lower()
+    if raw in ('', '0', 'none', 'null', 'off', 'false'):
+        return None
+    return int(raw)
+
+
 class Config:
     # Flask
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
+
+    # CSRF token lifetime in seconds. Default 8h so a form left open during a
+    # long LLM call doesn't expire. Set to 0/none/empty to disable expiry
+    # (token then lives only as long as the session cookie).
+    WTF_CSRF_TIME_LIMIT = _csrf_time_limit()
     
     # Database — resolve relative sqlite paths against the project root so the
     # app works regardless of the working directory it is launched from.
@@ -22,7 +37,7 @@ class Config:
     # File uploads (use absolute path inside project to avoid cwd issues)
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER') or os.path.join(basedir, 'uploads')
     MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH', 16 * 1024 * 1024))  # 16MB
-    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif', 'tiff', 'tif', 'bmp'}
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif', 'tiff', 'tif', 'bmp', 'mpo'}
     
     # Anthropic API
     ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')

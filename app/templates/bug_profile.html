@@ -447,6 +447,71 @@
         </div>
         {% endif %}
 
+        {# ── Pokédex Entry: LLM-generated visual + lore description ───────── #}
+        {% set _has_visual = bug.visual_lore_analysis or bug.visual_lore_items or bug.visual_lore_environment or bug.visual_lore_posture or bug.visual_lore_unique_features %}
+        {% set _has_lore = bug.lore_background or bug.lore_motivation or bug.lore_personality or bug.lore_interests or bug.lore_fears or bug.lore_allies or bug.lore_rivals or bug.lore_religion %}
+        {% if _has_visual or _has_lore %}
+        <div class="card mb-3 border-0 shadow-sm">
+            <div class="card-header bg-transparent border-bottom fw-semibold d-flex align-items-center gap-2">
+                <span style="font-size:1.1rem;">📘</span>
+                <span>Pokédex Entry</span>
+                <span class="text-muted fw-normal small ms-auto">No. {{ "%04d"|format(bug.id) }}</span>
+            </div>
+            <div class="card-body">
+                {% if bug.visual_lore_analysis %}
+                <p class="mb-3">{{ bug.visual_lore_analysis }}</p>
+                {% endif %}
+
+                {% if bug.visual_lore_items or bug.visual_lore_environment or bug.visual_lore_posture or bug.visual_lore_unique_features %}
+                <div class="row g-2 small mb-3">
+                    {% if bug.visual_lore_unique_features %}
+                    <div class="col-md-6"><strong class="text-muted text-uppercase d-block" style="font-size:.7rem;letter-spacing:.05em;">Unique Features</strong>{{ bug.visual_lore_unique_features }}</div>
+                    {% endif %}
+                    {% if bug.visual_lore_posture %}
+                    <div class="col-md-6"><strong class="text-muted text-uppercase d-block" style="font-size:.7rem;letter-spacing:.05em;">Posture</strong>{{ bug.visual_lore_posture }}</div>
+                    {% endif %}
+                    {% if bug.visual_lore_environment %}
+                    <div class="col-md-6"><strong class="text-muted text-uppercase d-block" style="font-size:.7rem;letter-spacing:.05em;">Environment</strong>{{ bug.visual_lore_environment }}</div>
+                    {% endif %}
+                    {% if bug.visual_lore_items %}
+                    <div class="col-md-6"><strong class="text-muted text-uppercase d-block" style="font-size:.7rem;letter-spacing:.05em;">Notable Items</strong>{{ bug.visual_lore_items }}</div>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                {% if _has_lore %}
+                <hr class="my-3">
+                <div class="row g-2 small">
+                    {% if bug.lore_background %}
+                    <div class="col-md-6"><strong class="text-muted text-uppercase d-block" style="font-size:.7rem;letter-spacing:.05em;">Background</strong>{{ bug.lore_background }}</div>
+                    {% endif %}
+                    {% if bug.lore_motivation %}
+                    <div class="col-md-6"><strong class="text-muted text-uppercase d-block" style="font-size:.7rem;letter-spacing:.05em;">Motivation</strong>{{ bug.lore_motivation }}</div>
+                    {% endif %}
+                    {% if bug.lore_personality %}
+                    <div class="col-md-6"><strong class="text-muted text-uppercase d-block" style="font-size:.7rem;letter-spacing:.05em;">Personality</strong>{{ bug.lore_personality }}</div>
+                    {% endif %}
+                    {% if bug.lore_interests %}
+                    <div class="col-md-6"><strong class="text-muted text-uppercase d-block" style="font-size:.7rem;letter-spacing:.05em;">Interests</strong>{{ bug.lore_interests }}</div>
+                    {% endif %}
+                    {% if bug.lore_fears %}
+                    <div class="col-md-6"><strong class="text-muted text-uppercase d-block" style="font-size:.7rem;letter-spacing:.05em;">Fears</strong>{{ bug.lore_fears }}</div>
+                    {% endif %}
+                    {% if bug.lore_religion %}
+                    <div class="col-md-6"><strong class="text-muted text-uppercase d-block" style="font-size:.7rem;letter-spacing:.05em;">Beliefs</strong>{{ bug.lore_religion }}</div>
+                    {% endif %}
+                    {% if bug.lore_allies %}
+                    <div class="col-md-6"><strong class="text-muted text-uppercase d-block" style="font-size:.7rem;letter-spacing:.05em;">Allies</strong>{{ bug.lore_allies }}</div>
+                    {% endif %}
+                    {% if bug.lore_rivals %}
+                    <div class="col-md-6"><strong class="text-muted text-uppercase d-block" style="font-size:.7rem;letter-spacing:.05em;">Rivals</strong>{{ bug.lore_rivals }}</div>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
         {% if bug.achievements.count() %}
         <div class="card mb-3">
             <div class="card-header">

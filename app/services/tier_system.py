@@ -494,12 +494,22 @@ The archetype determines the SHAPE of the stats (which are high, which low). The
 - cunning: tactical adaptation — feints, terrain use, ambush timing, behavioral flexibility
 
 **Total-stat budget by tier (sum of all six):**
-- uber (legendary): 540-600 — extreme predators only (large mantids, large scorpions, hornets, huge centipedes)
-- ou (strong): 480-539 — top-of-food-chain arthropods
-- uu (average): 400-479 — capable predators and large beetles
-- ru (below average): 320-399 — common adult bugs
-- nu (weak): 240-319 — small pollinators, soft larvae, common ants
-- zu (very weak): 0-239 — aphids, springtails, mites, fragile larvae
+- uber (legendary): 540-600 — apex arthropods only. Examples: Asian giant hornet, giant desert centipede, large emperor scorpion, large praying mantis, goliath beetle.
+- ou (strong): 480-539 — top-tier hunters. Examples: tarantula, large dragonfly, wolf spider, large stag beetle, jumping spider (apex of its niche).
+- uu (average): 400-479 — capable adults. Examples: large ground beetle, paper wasp, large grasshopper, mid-size mantis, orb weaver.
+- ru (below average): 320-399 — common adults of moderate ability. Examples: common bumblebee, large housefly, garden spider, June beetle.
+- nu (weak): 240-319 — small soft/short-lived bugs. Examples: **ladybug, common ant worker, small moth, fruit fly, lacewing, small leafhopper**.
+- zu (very weak): 0-239 — fragile or microscopic. Examples: aphid, springtail, mite, soft larva, gnat, newly-hatched anything.
+
+**Size-anchored tier ceiling (HARD RULE — do not violate):**
+- size_category=tiny (≤5mm)   → max tier is ZU. Single stat ceiling 45.
+- size_category=small (6-20mm) → max tier is NU. Single stat ceiling 60.
+- size_category=medium (21-50mm) → max tier is UU. Single stat ceiling 80.
+- size_category=large/massive → no ceiling.
+A ladybug is ~6-10mm. It is NU, not UU/RU. No individual ladybug stat should
+exceed ~60 even with the +15 deviation; a "tanky" ladybug means defense
+~50-55, not 90+. Real-world bite force and cuticle thickness don't scale
+with how round/armored the bug LOOKS in a photo.
 
 **Categorical fields (these are flavor labels, not stat drivers):**
 - attack_type: piercing | crushing | slashing | venom | chemical | grappling | sonic | electric | neutral

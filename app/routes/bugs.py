@@ -311,9 +311,11 @@ def handle_submission():
         flash(f'Could not save upload. Check UPLOAD_FOLDER permissions: {e}', 'danger')
         return redirect(url_for('bugs.submit_bug'))
 
-    # Convert HEIC/HEIF/TIFF/BMP → JPEG so downstream tools (imagehash, LLM) work
+    # Convert HEIC/HEIF/TIFF/BMP/MPO → JPEG so downstream tools (imagehash,
+    # LLM) work. MPO is multi-frame JPEG (phone HDR/burst); Pillow reads the
+    # first frame, which is what we want.
     ext_raw = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
-    if ext_raw in ('heic', 'heif', 'tiff', 'tif', 'bmp'):
+    if ext_raw in ('heic', 'heif', 'tiff', 'tif', 'bmp', 'mpo'):
         try:
             if ext_raw in ('heic', 'heif'):
                 try:

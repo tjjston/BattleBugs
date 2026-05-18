@@ -22,4 +22,8 @@ ENV FLASK_ENV=production
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000')" || exit 1
 
-CMD ["gunicorn", "--workers", "2", "--bind", "0.0.0.0:5000", "--timeout", "900", "run:app"]
+# --timeout must exceed the longest in-process urllib timeout (LLM call in
+# llm_manager.py is 1200s) so urllib fails gracefully instead of gunicorn
+# killing the worker mid-call. 4 workers so one slow LLM call doesn't lock
+# out the rest of the app.
+CMD ["gunicorn", "--workers", "4", "--bind", "0.0.0.0:5000", "--timeout", "1500", "run:app"]

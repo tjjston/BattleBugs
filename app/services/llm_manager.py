@@ -520,13 +520,18 @@ class LLMService:
             # 1200s tolerates: VRAM-eviction-driven cold load on big GGUFs
             # (can be 90-180s when another model is resident) + vision token
             # encoding + slow inference. User has explicitly OK'd long waits
-            # in exchange for accuracy.
+            # in exchange for accuracy. Gunicorn --timeout in the Dockerfile
+            # must stay > this value or the worker dies before urllib does.
             with _urllib.urlopen(req, timeout=1200) as resp:
                 result = json.loads(resp.read())
             return result.get("message", {}).get("content", "") or ""
         except _urlerr.HTTPError as exc:
             body = exc.read().decode(errors='replace')
             raise RuntimeError(f"Ollama /api/chat {exc.code}: {body}") from exc
+        except _urlerr.URLError as exc:
+            raise RuntimeError(f"Ollama unreachable at {base_url}: {exc.reason}") from exc
+        except (TimeoutError, OSError) as exc:
+            raise RuntimeError(f"Ollama /api/chat timed out or socket error: {exc}") from exc
     
     def generate_stream(
         self,

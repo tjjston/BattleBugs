@@ -15,79 +15,98 @@ Welcome to Bug Arena! A web application where you and your friends can submit bu
 
 ### Prerequisites
 
-- Python 3.10 or higher
-- Docker Desktop (optional, for containerized deployment)
-- Anthropic API key (for AI battle narratives)
+- Python 3.10 or higher (only needed for non-Docker setups)
+- Docker + Docker Compose (optional, for containerized deployment)
+- At least one LLM provider:
+  - **Ollama** (default — local, no API key needed; set `OLLAMA_API_URL` to your host)
+  - **Anthropic**, **OpenAI**, or **DeepSeek** (set the corresponding `*_API_KEY`)
 
 ### Local Development Setup
 
-1. **Clone or download this repository**
+1. **Clone the repository and `cd` into it**
 
-```bash
-cd bug-arena
-```
+2. **Install dependencies** — pick one of the following:
 
-2. **Create a virtual environment**
+   **Option A — virtual environment (recommended):**
 
-```bash
-python -m venv .venv
+   ```bash
+   python -m venv .venv
+   # Activate it:
+   source .venv/bin/activate          # Mac/Linux
+   .venv\Scripts\activate             # Windows
+   pip install -r requirements.txt
+   ```
 
-# Activate it:
-# Mac/Linux:
-source .venv/bin/activate
-# Windows:
-.venv\Scripts\activate
-```
+   **Option B — user install (no venv):**
 
-3. **Install dependencies**
+   ```bash
+   pip install --user -r requirements.txt
+   ```
 
-```bash
-pip install -r requirements.txt
-```
+   **Option C — system install on PEP 668 distros (Arch, Debian 12+, Ubuntu 23.04+):**
 
-4. **Set up environment variables**
+   ```bash
+   pip install --break-system-packages -r requirements.txt
+   ```
 
-```bash
-cp .env.example .env
-```
+   **Option D — skip Python entirely and use Docker** (see next section).
 
-Edit `.env` and add your Anthropic API key:
-```
-SECRET_KEY=your-secret-key-here
-ANTHROPIC_API_KEY=your-anthropic-api-key
-```
+3. **Set up environment variables**
 
-Get an Anthropic API key at: https://console.anthropic.com/
+   ```bash
+   cp .env.example .env
+   ```
+
+   Edit `.env` — at minimum set `SECRET_KEY` and configure one LLM provider. Defaults
+   point at Ollama (`LLM_DEFAULT_PROVIDER=ollama`, `OLLAMA_API_URL=...`). For hosted
+   providers, fill in the matching API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or
+   `DEEPSEEK_API_KEY`).
+
+4. **Initialize / migrate the database**
+
+   ```bash
+   flask db upgrade
+   ```
 
 5. **Run the application**
 
-```bash
-python run.py
-```
+   ```bash
+   python run.py
+   ```
 
-Visit `http://localhost:5000` in your browser
+   Visit `http://localhost:5000` in your browser.
 
-1. **Build and start the container**
+### Docker Setup
 
-```bash
-docker-compose up -d --build
-```
+1. **Create your `.env` file** (same as step 3 above — `docker-compose.yml` reads it).
 
-2. **Access the app**
+2. **Build and start the container**
 
-Visit `http://your-server-ip:5000`
+   ```bash
+   docker compose up -d --build
+   ```
 
-3. **View logs**
+3. **Apply migrations** (required after pulling new code that changes models):
 
-```bash
-docker-compose logs -f
-```
+   ```bash
+   docker compose exec web flask db upgrade
+   ```
 
-4. **Stop the container**
+4. **Access the app**
 
-```bash
-docker-compose down
-```
+   Visit `http://localhost:5000` (or `http://your-server-ip:5000`).
+
+5. **View logs**
+
+   ```bash
+   docker compose logs -f
+   ```
+
+6. **Stop the container**
+
+   ```bash
+   docker compose down
+   ```
 
 ## Project Structure
 
@@ -217,13 +236,24 @@ pytest tests/
 
 ### Database Migrations
 
-```bash
-# Create all tables
-python -c "from app import create_app, db; app = create_app(); app.app_context().push(); db.create_all()"
+This project uses Alembic via Flask-Migrate. Migrations live in `migrations/versions/`.
 
-# Drop all tables (careful!)
-python -c "from app import create_app, db; app = create_app(); app.app_context().push(); db.drop_all()"
+```bash
+# Apply all pending migrations (run this after every pull that touches models)
+flask db upgrade
+
+# Inside the docker container
+docker compose exec web flask db upgrade
+
+# Create a new migration after changing a model
+flask db migrate -m "describe the change"
+
+# Roll back the most recent migration
+flask db downgrade -1
 ```
+
+If you ever hit `sqlite3.OperationalError: no such column: …`, your DB is behind
+the model. Back up `database/bug_arena.db`, then run `flask db upgrade`.
 
 ### Backup Database
 
@@ -268,9 +298,24 @@ cp database/bug_arena.db database/bug_arena_backup.db
 - Confirm ANTHROPIC_API_KEY is set correctly
 - Check API quota/rate limits
 
-**Issue**: Database errors
-- Delete `database/bug_arena.db` and restart
-- Run database creation commands
+**Issue**: Database errors (e.g. `no such column: …`)
+- Almost always means migrations are out of date — run `flask db upgrade`
+  (or `docker compose exec web flask db upgrade`)
+- Back up `database/bug_arena.db` first if the DB has real data
+
+**Issue**: "Bad Request — The CSRF token has expired"
+- Default token lifetime is 8h (configurable via `WTF_CSRF_TIME_LIMIT` in `.env`)
+- Refresh the page to get a fresh token
+- If it expires immediately, your session cookie isn't surviving a round-trip
+  — check for `SESSION_COOKIE_SECURE`/`SESSION_COOKIE_SAMESITE` mismatches if
+  you're behind a reverse proxy
+
+**Issue**: Gunicorn `WORKER TIMEOUT` on LLM-bound routes
+- The LLM call is taking longer than gunicorn's `--timeout` (1500s by default)
+- Verify Ollama (or your provider) is reachable from the container:
+  `docker compose exec web python -c "import urllib.request; print(urllib.request.urlopen('http://YOUR_OLLAMA_HOST:11434/api/tags', timeout=10).status)"`
+- For models with cold-load times >25 min, raise gunicorn `--timeout` in the
+  `Dockerfile` (and keep urllib timeout in `llm_manager.py` below it)
 
 **Issue**: Port 5000 already in use
 - Change port in `run.py` and `docker-compose.yml`

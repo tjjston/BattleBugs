@@ -291,7 +291,7 @@ class ImageQualityChecker:
             img = Image.open(image_path)
             format = img.format
             
-            supported_formats = ['JPEG', 'PNG', 'GIF', 'WEBP', 'TIFF', 'BMP', 'HEIF', 'HEIC']
+            supported_formats = ['JPEG', 'PNG', 'GIF', 'WEBP', 'TIFF', 'BMP', 'HEIF', 'HEIC', 'MPO']
 
             return {
                 'passes': format in supported_formats,
