@@ -254,18 +254,26 @@ def generate_lore_enhanced_battle_narrative(bug1, bug2, winner, venue=None):
     """
     Enhanced battle narrative routed through LLMService (defaults to Ollama/Qwen).
     Secretly incorporates visual lore without revealing it to users.
+
+    Tries twice on empty response — Ollama frequently returns empty content
+    while the model is cold-loading. The retry usually succeeds against the
+    now-warm model, which is the difference between every tournament match
+    showing the same canned 'ARENA TREMBLES' fallback and showing real prose.
     """
     from app.services.llm_manager import LLMService
     prompt = _build_battle_prompt(bug1, bug2, winner, venue=venue)
+    llm = LLMService()
 
-    try:
-        llm = LLMService()
-        result = llm.generate(prompt, task='battle_narrative', max_tokens=800, temperature=0.85)
-        if not result or not result.strip():
-            raise ValueError("LLM returned empty narrative")
-        return result
-    except Exception as e:
-        current_app.logger.warning("Battle narrative failed: %s", e)
+    for attempt in range(2):
+        try:
+            result = llm.generate(prompt, task='battle_narrative', max_tokens=800, temperature=0.85)
+            if result and result.strip():
+                return result
+            current_app.logger.warning(
+                "Battle narrative empty on attempt %d/2 — retrying", attempt + 1)
+        except Exception as e:
+            current_app.logger.warning(
+                "Battle narrative attempt %d/2 failed: %s", attempt + 1, e)
 
     return (
         f"THE ARENA TREMBLES\n\n"

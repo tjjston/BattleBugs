@@ -26,20 +26,33 @@ def list_tournaments():
 @bp.route('/tournament/<int:tournament_id>')
 def view_tournament(tournament_id):
     tournament = db.get_or_404(Tournament, tournament_id)
-    # Prefer TournamentMatch bracket structure and build columns server-side
+    # Build a {bug_id: seed_number} map from the tournament's approved
+    # applications. seed_number lives on TournamentApplication, not Bug.
+    from app.models import TournamentApplication as _TA
+    seed_map = {
+        a.bug_id: a.seed_number
+        for a in _TA.query.filter_by(tournament_id=tournament_id).all()
+        if a.bug_id and a.seed_number
+    }
+
     matches = TournamentMatch.query.filter_by(tournament_id=tournament_id).order_by(TournamentMatch.round_number, TournamentMatch.match_number).all()
     if matches:
         matches_by_round = {}
         for m in matches:
             rn = m.round_number or 1
             matches_by_round.setdefault(rn, []).append(m)
-        # sort rounds
         rounds_sorted = sorted(matches_by_round.keys())
-        return render_template('tournament_view.html', tournament=tournament, matches_by_round=matches_by_round, rounds_sorted=rounds_sorted)
+        return render_template(
+            'tournament_view.html',
+            tournament=tournament,
+            matches_by_round=matches_by_round,
+            rounds_sorted=rounds_sorted,
+            seed_map=seed_map,
+        )
 
     # Fallback: if no TournamentMatch entries, show Battle rows (older flow)
     battles = Battle.query.filter_by(tournament_id=tournament_id).order_by(Battle.round_number, Battle.battle_date).all()
-    return render_template('tournament_view.html', tournament=tournament, battles=battles)
+    return render_template('tournament_view.html', tournament=tournament, battles=battles, seed_map=seed_map)
 
 
 @bp.route('/tournament/<int:tournament_id>/bracket_data')

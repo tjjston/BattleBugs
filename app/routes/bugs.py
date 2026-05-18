@@ -801,6 +801,68 @@ def zombug_ritual():
     return render_template('zombug_ritual.html', outcome=outcome, next_url=next_url)
 
 
+@bp.route('/bug/<int:bug_id>/archetype', methods=['POST'])
+@login_required
+def set_bug_archetype(bug_id):
+    """Admin/mod-only: force a different combat archetype on a bug.
+
+    Re-derives the six stats from the new (archetype, tier) pair using the
+    same engine as fresh stat generation, then writes them back along with
+    an updated reasoning blob. No LLM call — instant.
+    """
+    bug = db.get_or_404(Bug, bug_id)
+    if current_user.role not in ('MODERATOR', 'ADMIN', 'OWNER'):
+        flash('Only moderators and admins can change a bug\'s archetype.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    from app.services import archetypes as _arch
+    new_slug = (request.form.get('archetype_slug') or '').strip()
+    new_arch = _arch.get(new_slug)
+    if not new_arch:
+        flash(f'Unknown archetype: {new_slug!r}.', 'danger')
+        return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+    tier = (bug.tier or 'uu').lower()
+    if tier not in _arch.TIER_BANDS:
+        tier = 'uu'
+
+    # Apply with no per-stat deviation — admin overrides reset the bug to
+    # the archetype's canonical shape at its current tier.
+    stats = _arch.apply(new_slug, tier, deviations=None)
+    bug.attack    = stats['attack']
+    bug.defense   = stats['defense']
+    bug.speed     = stats['speed']
+    bug.lethality = stats['lethality']
+    bug.grip      = stats['grip']
+    bug.cunning   = stats['cunning']
+
+    # Update typing if the bug doesn't already have something the new
+    # archetype wouldn't predict — but DON'T overwrite a deliberate setting.
+    if new_arch.typical_attack_types and bug.attack_type not in new_arch.typical_attack_types:
+        bug.attack_type = new_arch.typical_attack_types[0]
+    if new_arch.typical_defense_types and bug.defense_type not in new_arch.typical_defense_types:
+        bug.defense_type = new_arch.typical_defense_types[0]
+
+    # Patch reasoning to reflect the override.
+    import json as _j
+    try:
+        reasoning = _j.loads(bug.stats_reasoning) if bug.stats_reasoning else {}
+    except (TypeError, ValueError):
+        reasoning = {}
+    if not isinstance(reasoning, dict):
+        reasoning = {}
+    reasoning['archetype_slug']   = new_slug
+    reasoning['archetype_name']   = new_arch.name
+    reasoning['archetype_flavor'] = new_arch.flavor
+    reasoning['archetype_pick']   = f'Manually set by {current_user.username}.'
+    bug.stats_reasoning = _j.dumps(reasoning, ensure_ascii=False)
+    bug.stats_generation_method = 'admin_archetype_override'
+
+    db.session.commit()
+    flash(f'Archetype set to {new_arch.name}. Stats reshaped to the new profile.', 'success')
+    return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+
 @bp.route('/bug/<int:bug_id>/zombug', methods=['POST'])
 @login_required
 def toggle_zombug(bug_id):
@@ -838,6 +900,67 @@ def toggle_zombug(bug_id):
 
     db.session.commit()
     return redirect(url_for('bugs.view_bug', bug_id=bug.id))
+
+
+@bp.route('/abilities')
+def abilities_ecosystem():
+    """Public page listing every ability in the catalog with its effect.
+
+    Categorised by effect kind: stat bonuses (+), stat debuffs (-),
+    mixed (+/-), power multipliers, type-advantage modifiers, dodge/counter
+    procs, vs-type bonuses, and pure flavor. Search box does a JS-side
+    substring match against name / description / effect.
+    """
+    from app.services import ability_catalog as _ac
+    abilities = _ac.all_abilities()
+
+    # Group by effect category for display.
+    groups: dict[str, list] = {
+        'Stat Buffs (+)':       [],
+        'Stat Debuffs (-)':     [],
+        'Mixed (+/-)':          [],
+        'Power Multiplier':     [],
+        'Type Advantage Mods':  [],
+        'Dodge / Counter':      [],
+        'Vs Specific Type':     [],
+        'Flavor':               [],
+    }
+    for a in abilities:
+        k = a.effect['kind']
+        if k == 'stat_bonus':
+            if a.effect.get('amount', 0) >= 0:
+                groups['Stat Buffs (+)'].append(a)
+            else:
+                groups['Stat Debuffs (-)'].append(a)
+        elif k == 'mixed':
+            groups['Mixed (+/-)'].append(a)
+        elif k == 'power_mult':
+            groups['Power Multiplier'].append(a)
+        elif k in ('type_adv_amp', 'type_disadv_dampen', 'size_disadv_dampen'):
+            groups['Type Advantage Mods'].append(a)
+        elif k in ('proc_dodge', 'counter'):
+            groups['Dodge / Counter'].append(a)
+        elif k in ('vs_attack_type', 'vs_defense_type'):
+            groups['Vs Specific Type'].append(a)
+        elif k == 'flavor':
+            groups['Flavor'].append(a)
+
+    # Pre-render each ability with its effect description so the template
+    # doesn't have to call back into the catalog.
+    rendered = {}
+    for label, abs_ in groups.items():
+        rendered[label] = [
+            {
+                'slug': a.slug,
+                'name': a.name,
+                'description': a.description,
+                'effect': _ac.describe_effect(a),
+                'keywords': a.keywords,
+            }
+            for a in sorted(abs_, key=lambda x: x.name)
+        ]
+    total = sum(len(v) for v in rendered.values())
+    return render_template('abilities_ecosystem.html', groups=rendered, total=total)
 
 
 @bp.route('/insectidex')

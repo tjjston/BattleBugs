@@ -121,7 +121,7 @@
                 </h5>
                 
                 <!-- Species info -->
-                <p class="card-text text-muted small mb-2">
+                <p class="card-text text-muted small mb-1">
                     {% if bug.common_name %}
                         <em>{{ bug.common_name }}</em>
                     {% elif bug.scientific_name %}
@@ -130,6 +130,13 @@
                         <em>Species Unknown</em>
                     {% endif %}
                 </p>
+                {% if bug.archetype_name %}
+                <p class="card-text mb-2">
+                  <span class="badge bg-info-subtle text-info border" style="font-size:0.7rem;">
+                    {{ bug.archetype_name }}
+                  </span>
+                </p>
+                {% endif %}
 
                 <!-- Stats display -->
                 <div class="mb-2">

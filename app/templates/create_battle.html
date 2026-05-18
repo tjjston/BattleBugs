@@ -213,6 +213,20 @@
           {% for o in owners | sort %}<option value="{{ o }}">{{ o }}</option>{% endfor %}
         </select>
       </div>
+      {%- set arch_slugs = bugs | map(attribute='archetype_slug') | reject('none') | unique | list -%}
+      {%- if arch_slugs -%}
+      {%- set arch_names = bugs | map(attribute='archetype_name') | reject('none') | unique | list -%}
+      <div class="col-sm-3 col-6">
+        <label class="form-label small mb-0">Archetype</label>
+        <select class="form-select form-select-sm" id="filterArchetype">
+          <option value="">All archetypes</option>
+          {%- for slug in arch_slugs | sort -%}
+            {%- set _name = (bugs | selectattr('archetype_slug', 'equalto', slug) | list | first).archetype_name -%}
+            <option value="{{ slug }}">{{ _name or slug }}</option>
+          {%- endfor -%}
+        </select>
+      </div>
+      {%- endif -%}
     </div>
     <div class="small text-muted mt-1" id="sparCount"></div>
   </div>
@@ -254,7 +268,8 @@
          data-tier="{{ bug.tier or '' }}"
          data-attack-type="{{ bug.attack_type or '' }}"
          data-defense-type="{{ bug.defense_type or '' }}"
-         data-owner="{{ bug.owner.username }}">
+         data-owner="{{ bug.owner.username }}"
+         data-archetype="{{ bug.archetype_slug or '' }}">
       {% if bug.tier %}
       <span class="spar-tile-tier" style="background:{{ _tier_colors.get(bug.tier, '#666') }};">{{ bug.tier|upper }}</span>
       {% endif %}
@@ -279,6 +294,9 @@
             <span class="badge bg-{{ _d[2] }}">{{ _d[0] }} {{ _d[1] }}</span>
           {% endif %}
         </div>
+        {% if bug.archetype_name %}
+        <div class="small text-muted mt-1" style="font-size:0.68rem; font-style:italic;">{{ bug.archetype_name }}</div>
+        {% endif %}
         <div class="spar-tile-record">{{ _record }}W · {{ _losses }}L</div>
       </div>
     </div>
@@ -298,10 +316,11 @@
   const countEl  = document.getElementById('sparCount');
 
   const filters = {
-    tier:    document.getElementById('filterTier'),
-    attack:  document.getElementById('filterAttack'),
-    defense: document.getElementById('filterDefense'),
-    owner:   document.getElementById('filterOwner'),
+    tier:      document.getElementById('filterTier'),
+    attack:    document.getElementById('filterAttack'),
+    defense:   document.getElementById('filterDefense'),
+    owner:     document.getElementById('filterOwner'),
+    archetype: document.getElementById('filterArchetype'),
   };
 
   // selection: ordered array of bug ids
@@ -385,19 +404,21 @@
     const av = filters.attack.value;
     const dv = filters.defense.value;
     const ov = filters.owner.value;
+    const rv = filters.archetype ? filters.archetype.value : '';
     let visible = 0;
     tiles.forEach(t => {
       const ok = (!tv || t.dataset.tier === tv)
               && (!av || t.dataset.attackType === av)
               && (!dv || t.dataset.defenseType === dv)
-              && (!ov || t.dataset.owner === ov);
+              && (!ov || t.dataset.owner === ov)
+              && (!rv || t.dataset.archetype === rv);
       t.classList.toggle('hidden', !ok);
       if (ok) visible++;
     });
     countEl.textContent = visible + ' of ' + tiles.length + ' bug' + (tiles.length === 1 ? '' : 's') + ' shown';
   }
 
-  Object.values(filters).forEach(sel => sel.addEventListener('change', applyFilters));
+  Object.values(filters).forEach(sel => sel && sel.addEventListener('change', applyFilters));
 
   // Guard against the loading overlay flashing on an invalid submit.
   document.getElementById('sparForm').addEventListener('submit', function (e) {

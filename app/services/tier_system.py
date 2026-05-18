@@ -446,7 +446,7 @@ class LLMStatGenerator:
 - typical special_ability: {baseline.get('special_ability')}
 
 ANCHORING RULE — this is the most important instruction:
-The same species must produce roughly the same stats. Stay within ±8 points of every baseline stat AND keep the same attack_type / defense_type / size_category as the baseline, UNLESS the visual observations below give a concrete biological reason to deviate (e.g. unusually large specimen, missing limb, distinctive coloration, damaged wings). When you do deviate, name the visual cue explicitly in the per-stat reasoning. Do not introduce variance for its own sake.
+The same species must produce roughly the same archetype + tier. Default to keeping the baseline's archetype / attack_type / defense_type / size_category. Your per-stat deviations may swing up to ±15 from the archetype's base when the visual observations show a real specimen difference (unusually large/small, damaged wings, missing leg, vibrant or dull coloration, etc.) — when you do deviate noticeably, name the specific visual cue in the per-stat reasoning. Don't introduce big swings for their own sake.
 """
 
         visual = bug_info.get('visual_observations') or {}
@@ -460,7 +460,7 @@ The same species must produce roughly the same stats. Stay within ±8 points of 
             if visual_lines:
                 visual_block = "\n**Visual observations from THIS specimen's photo (the only legitimate reason to deviate from the baseline):**\n" + "\n".join(visual_lines) + "\n"
 
-        # Archetype framework: pick (archetype, tier), then per-stat ±8 deviation.
+        # Archetype framework: pick (archetype, tier), then per-stat ±15 deviation.
         from app.services import archetypes as _arch
         archetype_block = _arch.prompt_block()
 
@@ -468,7 +468,7 @@ The same species must produce roughly the same stats. Stay within ±8 points of 
 
 Your job: classify a real-world bug into one of 16 **combat archetypes**, place it in the right **tier**, and then tune its individual stats slightly to reflect what the specimen actually looks like.
 
-The archetype determines the SHAPE of the stats (which are high, which low). The tier determines the TOTAL BUDGET. You get ±8 per-stat freedom on top.
+The archetype determines the SHAPE of the stats (which are high, which low). The tier determines the TOTAL BUDGET. You get ±15 per-stat freedom on top — wide enough for real specimen variation (a small example differs from a large one, an injured one differs from a pristine one) but bounded enough that the archetype identity still reads.
 
 **Reference dataset (for power-level calibration only — anchors, not archetypes):**
 {context}
@@ -510,7 +510,19 @@ The archetype determines the SHAPE of the stats (which are high, which low). The
 1. Identify the bug's combat identity from its anatomy + behavior. Match to ONE archetype slug from the list above.
 2. Pick a tier based on body size, weaponry, and ecological standing. Most garden bugs sit in NU/RU/UU. Don't inflate.
 3. If a SPECIES BASELINE is provided above, prefer the same archetype + tier as the baseline. Only deviate if visual observations justify it.
-4. For each of the six stats, give a per-stat deviation in **{{-8, ..., +8}}** explaining what about THIS specimen pushes it off the archetype's typical shape. Most stats should deviate 0-3 unless you see a real reason.
+4. For each of the six stats, give a per-stat deviation in **{{-15, ..., +15}}**.
+   **VARIANCE MUST BE EARNED.** Every deviation outside ±5 REQUIRES a specific
+   anchor in either:
+     (a) the photo (e.g. "specimen is unusually large", "missing one antenna",
+         "wings look pristine and intact", "abdomen is engorged"), or
+     (b) the bug's lore / description / nickname (e.g. background mentions
+         it survived a wasp attack → +cunning, -defense; nickname is
+         'Half-Eye' → -cunning -speed).
+   The per-stat reasoning MUST quote that specific cue. "A bit more attack
+   because beetles are strong" is NOT acceptable — that's archetype, not
+   specimen variance. Routine specimens deviate 0-5; a specimen with at
+   least one named cue can go up to ±15. If you can't name a cue, deviate
+   0-3 and explain that this is a typical example.
 5. Pick attack_type, defense_type, size_category, special_ability based on real biology.
 
 Respond with valid JSON only — no prose, no markdown fences — in EXACTLY this shape:
@@ -518,8 +530,8 @@ Respond with valid JSON only — no prose, no markdown fences — in EXACTLY thi
   "archetype":        "<one slug from the list above>",
   "tier_recommendation": "uber|ou|uu|ru|nu|zu",
   "deviations": {{
-    "attack": <-8..+8>, "defense": <-8..+8>, "speed": <-8..+8>,
-    "lethality": <-8..+8>, "grip": <-8..+8>, "cunning": <-8..+8>
+    "attack": <-15..+15>, "defense": <-15..+15>, "speed": <-15..+15>,
+    "lethality": <-15..+15>, "grip": <-15..+15>, "cunning": <-15..+15>
   }},
   "attack_type":      "<one of the attack_type values>",
   "defense_type":     "<one of the defense_type values>",
@@ -570,7 +582,7 @@ Respond with valid JSON only — no prose, no markdown fences — in EXACTLY thi
             # (archetype, tier, deviations); the engine computes the actual
             # 1-100 stat values. This is the guardrail: no matter what the
             # LLM says, we never store stats that violate the archetype shape
-            # by more than ±8 or escape the tier's total budget.
+            # by more than ±15 or escape the tier's total budget.
             from app.services import archetypes as _arch
             arch_slug = (result.get('archetype') or '').strip()
             tier = (result.get('tier_recommendation') or 'uu').strip().lower()

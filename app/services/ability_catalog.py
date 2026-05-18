@@ -58,6 +58,21 @@ def _vs_atk(t: str, pct: float) -> dict:
 def _vs_def(t: str, pct: float) -> dict:
     return {'kind': 'vs_defense_type', 'type': t, 'pct': pct}
 
+def _mixed(plus_stat: str, plus_amt: int, minus_stat: str, minus_amt: int) -> dict:
+    """+N to one stat, -M to another. Net effect can be zero or slightly
+    positive/negative — these abilities express shape, not power."""
+    return {'kind': 'mixed', 'plus_stat': plus_stat, 'plus_amount': plus_amt,
+            'minus_stat': minus_stat, 'minus_amount': minus_amt}
+
+def _debuff(stat: str, amount: int) -> dict:
+    """Pure penalty — for damaged / scarred / injured specimens. The amount
+    must be negative (e.g. -5 for a wounded leg cost)."""
+    return {'kind': 'stat_bonus', 'stat': stat, 'amount': amount}
+
+def _flavor() -> dict:
+    """No mechanical effect. Purely cosmetic / lore-flavor abilities."""
+    return {'kind': 'flavor'}
+
 
 @dataclass(frozen=True)
 class Ability:
@@ -359,6 +374,49 @@ _ABILITIES: list[Ability] = [
     Ability('night_eye',           'Night Eye',             'Adapted to low-light fights against bioluminescent bluffs.',       _vs_def('bioluminescent', 0.04), ('night', 'eye'),),
     Ability('heat_seek',           'Heat-Seek',             'IR-pit-style heat detection locates camouflaged opponents.',       _vs_def('evasive', 0.04), ('heat', 'seek', 'pit'),),
     Ability('water_strider',       'Water Strider',         'Skates on water tension; immune to surface-pin grapples.',         _vs_atk('grappling', 0.05), ('water', 'strider'),),
+
+    # ── Mixed (good + bad) ─────────────────────────────────────────────
+    # High-risk / high-reward abilities. +N to one stat, -M to another.
+    # The net power swing is small or zero; what changes is the SHAPE.
+    Ability('berserk_frenzy',      'Berserk Frenzy',        'All-in offense at the cost of tactical control.',                  _mixed('attack', 8, 'cunning', 6),     ('berserk', 'frenzy', 'rage'),),
+    Ability('reckless_lunge',      'Reckless Lunge',        'Commits to the strike, leaving the flank exposed.',                _mixed('attack', 6, 'defense', 6),     ('reckless', 'lunge'),),
+    Ability('glass_cannon',        'Glass Cannon',          'Lethal venom, but the body that carries it is brittle.',           _mixed('lethality', 9, 'defense', 7), ('glass', 'cannon'),),
+    Ability('overdrive_wings',     'Overdrive Wings',       'Wing exertion burns out the bug\'s grip on the ground.',           _mixed('speed', 8, 'grip', 6),         ('overdrive', 'wings'),),
+    Ability('iron_stance',         'Iron Stance',           'Plants the legs for a brace — moves like a brick.',                _mixed('defense', 8, 'speed', 7),      ('iron', 'stance'),),
+    Ability('hairline_focus',      'Hairline Focus',        'Picks the perfect angle, but only one — broad strikes suffer.',    _mixed('cunning', 8, 'attack', 4),     ('hairline', 'focus'),),
+    Ability('one_eyed_aim',        'One-Eyed Aim',          'Lost an eye; what\'s left aims true through pure tactical reads.', _mixed('cunning', 7, 'speed', 5),      ('one-eyed', 'one-eye'),),
+    Ability('engorged',            'Engorged',              'A recent blood meal slowed reactions but stiffened the cuticle.',  _mixed('defense', 7, 'speed', 8),      ('engorged', 'fed', 'bloated'),),
+    Ability('molting_brittle',     'Molting Brittle',       'Fresh out of molt — new mandibles bite hard, the body is soft.',   _mixed('attack', 9, 'defense', 8),     ('molting', 'molted'),),
+    Ability('venom_addict',        'Venom-Addicted',        'Venom potency increases when it deplaes its own grip strength.',   _mixed('lethality', 7, 'grip', 6),     ('venom', 'addict'),),
+    Ability('webcaster_no_dodge',  'Webcaster',             'Trades agility for line-of-sight web traps that pin opponents.',   _mixed('grip', 8, 'speed', 6),         ('webcaster', 'silk', 'spinneret'),),
+    Ability('alpha_intimidator',   'Alpha Intimidator',     'Threat display intimidates; the long posture ruins escape speed.', _mixed('cunning', 6, 'speed', 5),      ('alpha', 'intimidator'),),
+
+    # ── Pure debuffs ──────────────────────────────────────────────────
+    # For damaged / scarred / starved / aged specimens. Stat penalties
+    # with no offsetting upside. Reasonable in moderation — they keep
+    # weak specimens honest without dragging the catalog into misery.
+    Ability('missing_leg',         'Missing Leg',           'One leg gone — balance and pursuit suffer.',                       _debuff('speed', -6),                  ('missing', 'leg', 'amputee'),),
+    Ability('torn_wing',           'Torn Wing',             'A tear in the wing limits aerial maneuver.',                       _debuff('speed', -7),                  ('torn', 'wing', 'damaged'),),
+    Ability('cracked_mandible',    'Cracked Mandible',      'A fissure in the jaw bleeds bite force.',                          _debuff('attack', -6),                 ('cracked', 'mandible'),),
+    Ability('blunted_chelicerae',  'Blunted Chelicerae',    'Worn fangs — venom delivery is patchy.',                           _debuff('lethality', -7),              ('blunted', 'chelicerae'),),
+    Ability('scarred_cuticle',     'Scarred Cuticle',       'Old wounds leave thin spots in the armor.',                        _debuff('defense', -6),                ('scarred', 'cuticle'),),
+    Ability('senile_drift',        'Senile Drift',          'Late-life decline; reactions are slower and reads weaker.',        _debuff('cunning', -7),                ('senile', 'old', 'aged'),),
+    Ability('exhausted',           'Exhausted',             'Hasn\'t fed in days. Everything is harder.',                       _debuff('attack', -5),                 ('exhausted', 'starved', 'starving'),),
+    Ability('parasitized',         'Parasitized',           'A parasitoid is hollowing the bug from the inside.',               _debuff('defense', -8),                ('parasitized', 'parasitoid'),),
+    Ability('fungal_infection',    'Fungal Infection',      'Cordyceps spores have begun to grow — control slips.',             _debuff('cunning', -8),                ('cordyceps', 'fungal', 'infected'),),
+    Ability('limp_grip',           'Limp Grip',             'A tendon injury — claws can\'t latch.',                            _debuff('grip', -7),                   ('limp', 'tendon'),),
+
+    # ── Flavor (no mechanical effect) ─────────────────────────────────
+    # Pure cosmetic abilities for distinctive specimens. Combat engine
+    # treats them as no-op; the popup says "flavor only".
+    Ability('rare_coloration',     'Rare Coloration',       'A striking color morph remarked on by collectors.',                _flavor(),                             ('rare', 'coloration'),),
+    Ability('arena_legend',        'Arena Legend',          'A name spoken in hushed tones around the pit.',                    _flavor(),                             ('legend', 'famous'),),
+    Ability('omen_marked',         'Omen-Marked',           'Pattern on the elytra reads like an old prophecy.',                _flavor(),                             ('omen', 'marked'),),
+    Ability('cult_following',      'Cult Following',        'A small but devoted fan base follows this bug from tournament to tournament.', _flavor(),                  ('cult', 'fans', 'following'),),
+    Ability('unsettling',          'Unsettling',            'Something about its gait is wrong, in a way that\'s hard to describe.', _flavor(),                          ('unsettling', 'uncanny'),),
+    Ability('storied_lineage',     'Storied Lineage',       'The egg case it came from has been documented in three field guides.', _flavor(),                          ('storied', 'lineage'),),
+    Ability('photogenic',          'Photogenic',            'Camera-ready; always looks the camera straight in the lens.',      _flavor(),                             ('photogenic', 'camera'),),
+    Ability('weathered',           'Weathered',             'Has seen things. Hard to say what.',                               _flavor(),                             ('weathered', 'veteran'),),
 ]
 
 
@@ -440,7 +498,13 @@ def describe_effect(ability: Ability) -> str:
     e = ability.effect
     k = e['kind']
     if k == 'stat_bonus':
-        return f"+{e['amount']} {e['stat']}"
+        amt = e['amount']
+        sign = '+' if amt > 0 else ''   # negative naturally prints '-'
+        return f"{sign}{amt} {e['stat']}"
+    if k == 'mixed':
+        return f"+{e['plus_amount']} {e['plus_stat']} but -{e['minus_amount']} {e['minus_stat']}"
+    if k == 'flavor':
+        return "Flavor only — no combat effect"
     if k == 'power_mult':
         return f"+{int(round(e['pct'] * 100))}% effective power"
     if k == 'type_adv_amp':
@@ -513,9 +577,25 @@ def apply_effects(
 
     if kind == 'stat_bonus':
         weight = _STAT_WEIGHT.get(e['stat'], 1.0)
-        base_power += e['amount'] * weight
+        amt = e['amount']
+        base_power += amt * weight
         if log is not None:
-            log.append(f"{ability.name}: +{e['amount']} {e['stat']}")
+            sign = '+' if amt > 0 else ''
+            log.append(f"{ability.name}: {sign}{amt} {e['stat']}")
+
+    elif kind == 'mixed':
+        plus_w  = _STAT_WEIGHT.get(e['plus_stat'], 1.0)
+        minus_w = _STAT_WEIGHT.get(e['minus_stat'], 1.0)
+        base_power += e['plus_amount'] * plus_w - e['minus_amount'] * minus_w
+        if log is not None:
+            log.append(
+                f"{ability.name}: +{e['plus_amount']} {e['plus_stat']} / "
+                f"-{e['minus_amount']} {e['minus_stat']}")
+
+    elif kind == 'flavor':
+        # Purely cosmetic — no power adjustment.
+        if log is not None:
+            log.append(f"{ability.name}: flavor only")
 
     elif kind == 'power_mult':
         extra_power_pct += e['pct']

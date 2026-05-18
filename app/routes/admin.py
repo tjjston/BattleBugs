@@ -777,6 +777,11 @@ def edit_tournament(tournament_id):
 
     if request.method == 'POST':
         tournament.name = request.form.get('name', tournament.name).strip() or tournament.name
+        # Capture status BEFORE assignment so we can detect a flip into 'active'
+        # — if it's the first time the tournament becomes active, we auto-fire
+        # the bracket generator. Without this, an admin could set status=active
+        # via the edit form and end up with an active tournament with 0 matches.
+        _prev_status = tournament.status
         tournament.status = request.form.get('status', tournament.status)
         tournament.tier = request.form.get('tier', '').strip() or None
         tournament.max_participants = request.form.get('max_participants', type=int) or tournament.max_participants
@@ -799,6 +804,19 @@ def edit_tournament(tournament_id):
         tournament.format = request.form.get('format', tournament.format or 'single_elimination')
         tournament.submissions_per_user = request.form.get('submissions_per_user', type=int) or 2
         db.session.commit()
+
+        # If the admin just promoted the tournament to 'active' and it has no
+        # matches yet, generate the bracket now. Otherwise the user ends up
+        # with an 'active' tournament and an empty bracket page.
+        if (_prev_status != 'active' and tournament.status == 'active'
+                and not tournament.matches.first()):
+            try:
+                from app.services.tournament_system import TournamentManager
+                matches = TournamentManager.generate_bracket(tournament.id)
+                flash(f'Bracket generated: {len(matches)} round-1 matches.', 'success')
+            except Exception as exc:
+                flash(f'Tournament saved as active, but bracket generation failed: {exc}', 'warning')
+
         flash(f'Tournament "{tournament.name}" updated.', 'success')
         return redirect(url_for('admin.edit_tournament', tournament_id=tournament.id))
 

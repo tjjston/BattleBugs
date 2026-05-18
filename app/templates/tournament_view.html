@@ -84,7 +84,7 @@
 
         {%- if matches_by_round is defined -%}
             <div class="theme theme-dark">
-                <div class="bracket disable-image">
+                <div class="bracket disable-image bracket-vars">
                                                 {%- for rn in rounds_sorted -%}
                                                 <div class="column {{ loop.index }}">
                                                     {%- for m in matches_by_round[rn] -%}
@@ -98,16 +98,48 @@
                                                                                  data-scheduled-for="{{ m.scheduled_for.isoformat() if m.scheduled_for else '' }}"
                                                                                  data-completed-at="{{ m.completed_at.isoformat() if m.completed_at else '' }}">
                                                                         <div class="match-header">Match {{ match_number }}</div>
-                                                                        <div class="match-top team" data-b1-nickname="{{ m.bug1.nickname if m.bug1 else '' }}" data-b1-species="{{ (m.bug1.common_name or m.bug1.scientific_name) if m.bug1 else '' }}" data-b1-seed="{{ m.bug1.seed_number if m.bug1 else '' }}" data-b1-wins="{{ m.bug1.wins if m.bug1 else 0 }}" data-b1-losses="{{ m.bug1.losses if m.bug1 else 0 }}" data-b1-attack="{{ m.bug1.attack if m.bug1 else 0 }}" data-b1-defense="{{ m.bug1.defense if m.bug1 else 0 }}" data-b1-speed="{{ m.bug1.speed if m.bug1 else 0 }}">
-                                        <span class="image"></span>
-                                        <span class="seed">{{ m.bug1.seed_number if m.bug1 else '' }}</span>
-                                        <span class="name">{% if m.bug1 %}{{ m.bug1.nickname }} / {{ m.bug1.common_name or m.bug1.scientific_name }}{% else %}TBD{% endif %}</span>
+                                                                        {%- set _s1 = (seed_map.get(m.bug1.id) if (m.bug1 and seed_map) else None) -%}
+                                                                        {%- set _s2 = (seed_map.get(m.bug2.id) if (m.bug2 and seed_map) else None) -%}
+                                                                        <div class="match-top team"
+                                                                             data-bug-id="{{ m.bug1.id if m.bug1 else '' }}"
+                                                                             data-nickname="{{ m.bug1.nickname if m.bug1 else '' }}"
+                                                                             data-species="{{ (m.bug1.common_name or m.bug1.scientific_name) if m.bug1 else '' }}"
+                                                                             data-seed="{{ _s1 or '' }}"
+                                                                             data-wins="{{ m.bug1.wins if m.bug1 else 0 }}"
+                                                                             data-losses="{{ m.bug1.losses if m.bug1 else 0 }}"
+                                                                             data-tier="{{ m.bug1.tier if m.bug1 else '' }}"
+                                                                             data-attack-type="{{ m.bug1.attack_type if m.bug1 else '' }}"
+                                                                             data-defense-type="{{ m.bug1.defense_type if m.bug1 else '' }}"
+                                                                             data-image="{{ url_for('main.uploaded_file', filename=m.bug1.image_path) if (m.bug1 and m.bug1.image_path) else '' }}"
+                                                                             data-attack="{{ m.bug1.attack if m.bug1 else 0 }}"
+                                                                             data-defense="{{ m.bug1.defense if m.bug1 else 0 }}"
+                                                                             data-speed="{{ m.bug1.speed if m.bug1 else 0 }}"
+                                                                             data-lethality="{{ m.bug1.lethality if m.bug1 else 0 }}"
+                                                                             data-grip="{{ m.bug1.grip if m.bug1 else 0 }}"
+                                                                             data-cunning="{{ m.bug1.cunning if m.bug1 else 0 }}">
+                                        <span class="seed">{{ _s1 or '?' }}</span>
+                                        <span class="name">{% if m.bug1 %}{{ m.bug1.nickname }}{% else %}TBD{% endif %}</span>
                                         <span class="score">{{ m.bug1_score if (m.bug1_score is defined and m.bug1_score is not none) else '' }}</span>
                                     </div>
-                                                                        <div class="match-bottom team" data-b2-nickname="{{ m.bug2.nickname if m.bug2 else '' }}" data-b2-species="{{ (m.bug2.common_name or m.bug2.scientific_name) if m.bug2 else '' }}" data-b2-seed="{{ m.bug2.seed_number if m.bug2 else '' }}" data-b2-wins="{{ m.bug2.wins if m.bug2 else 0 }}" data-b2-losses="{{ m.bug2.losses if m.bug2 else 0 }}" data-b2-attack="{{ m.bug2.attack if m.bug2 else 0 }}" data-b2-defense="{{ m.bug2.defense if m.bug2 else 0 }}" data-b2-speed="{{ m.bug2.speed if m.bug2 else 0 }}">
-                                        <span class="image"></span>
-                                        <span class="seed">{{ m.bug2.seed_number if m.bug2 else '' }}</span>
-                                        <span class="name">{% if m.bug2 %}{{ m.bug2.nickname }} / {{ m.bug2.common_name or m.bug2.scientific_name }}{% else %}TBD{% endif %}</span>
+                                                                        <div class="match-bottom team"
+                                                                             data-bug-id="{{ m.bug2.id if m.bug2 else '' }}"
+                                                                             data-nickname="{{ m.bug2.nickname if m.bug2 else '' }}"
+                                                                             data-species="{{ (m.bug2.common_name or m.bug2.scientific_name) if m.bug2 else '' }}"
+                                                                             data-seed="{{ _s2 or '' }}"
+                                                                             data-wins="{{ m.bug2.wins if m.bug2 else 0 }}"
+                                                                             data-losses="{{ m.bug2.losses if m.bug2 else 0 }}"
+                                                                             data-tier="{{ m.bug2.tier if m.bug2 else '' }}"
+                                                                             data-attack-type="{{ m.bug2.attack_type if m.bug2 else '' }}"
+                                                                             data-defense-type="{{ m.bug2.defense_type if m.bug2 else '' }}"
+                                                                             data-image="{{ url_for('main.uploaded_file', filename=m.bug2.image_path) if (m.bug2 and m.bug2.image_path) else '' }}"
+                                                                             data-attack="{{ m.bug2.attack if m.bug2 else 0 }}"
+                                                                             data-defense="{{ m.bug2.defense if m.bug2 else 0 }}"
+                                                                             data-speed="{{ m.bug2.speed if m.bug2 else 0 }}"
+                                                                             data-lethality="{{ m.bug2.lethality if m.bug2 else 0 }}"
+                                                                             data-grip="{{ m.bug2.grip if m.bug2 else 0 }}"
+                                                                             data-cunning="{{ m.bug2.cunning if m.bug2 else 0 }}">
+                                        <span class="seed">{{ _s2 or '?' }}</span>
+                                        <span class="name">{% if m.bug2 %}{{ m.bug2.nickname }}{% else %}TBD{% endif %}</span>
                                         <span class="score">{{ m.bug2_score if (m.bug2_score is defined and m.bug2_score is not none) else '' }}</span>
                                     </div>
                                     <div class="match-lines">
@@ -140,7 +172,7 @@
             </div>
         {%- elif battles is defined -%}
             <div class="theme theme-dark">
-                <div class="bracket disable-image">
+                <div class="bracket disable-image bracket-vars">
                     <div class="column one">
                         {%- for b in battles -%}
                             {%- set match_number = loop.index %}
@@ -189,37 +221,144 @@
         {%- endif -%}
 
         <style>
-        /* Simplified bracket CSS from user-provided snippet */
-        /* Allow the bracket to grow naturally so the page can scroll */
-        .theme { height: auto; width: 100%; position: relative; }
-        .bracket { padding: 40px; margin: 5px; display:flex; flex-direction:row; position:relative; align-items:flex-start; }
-        .column { display:flex; flex-direction:column; min-height:auto; justify-content:flex-start; align-content:flex-start; gap:28px; padding-right:8px; }
-        .match { position:relative; display:flex; flex-direction:column; min-width:260px; max-width:320px; height:88px; margin:22px 32px 22px 0; padding:10px; }
-        .bracket { column-gap: 36px; }
-        .match-header { font-size:0.85rem; color:#9aa6b2; margin-bottom:6px; }
-        .match .team { display:flex; align-items:center; width:100%; height:100%; border:1px solid #000; position:relative; }
-        .match .team span { padding-left:8px; }
-        .match .team span:last-child { padding-right:8px; }
-        .match .team .score { margin-left:auto; }
-        .match .team:first-child { margin-bottom:-1px; }
-        .match-lines { display:block; position:absolute; top:50%; bottom:0; margin-top:0px; right:-1px; }
-        .match-lines .line { background: #36404e; position:absolute; }
-        .match-lines .line.one { height:1px; width:12px; }
-        .match-lines .line.two { height:44px; width:1px; left:11px; }
-        .match-lines.alt { left:-12px; }
-        .match:nth-child(even) .match-lines .line.two { transform: translate(0, -100%); }
-        .column:first-child .match-lines.alt { display:none; }
-        .column:last-child .match-lines { display:none; }
-        .column:last-child .match-lines.alt { display:block; }
-        .disable-image .image, .disable-seed .seed, .disable-name .name, .disable-score .score { display:none !important; }
+        /* ── Tournament bracket — sideways-triangle stagger ────────────────
+           Each column shares the same total height, with matches distributed
+           via `justify-content: space-around`. That gives the canonical
+           bracket look where round 2 matches sit vertically between round 1
+           pairs, round 3 sits between round 2 pairs, etc.
+           Tunable knobs at the top. */
+        .bracket-vars {
+          --match-h: 92px;
+          --match-w: 260px;
+          --gap-y:   28px;            /* spacing between round-1 matches */
+          --col-gap: 60px;            /* spacing between rounds (horizontal) */
+        }
+        .theme { width: 100%; position: relative; overflow-x: auto; }
+        .bracket {
+          padding: 32px 20px;
+          display: flex;
+          flex-direction: row;
+          align-items: stretch;       /* columns stretch to share a height */
+          column-gap: var(--col-gap);
+          min-height: 480px;
+        }
+        .column {
+          display: flex;
+          flex-direction: column;
+          justify-content: space-around;   /* the magic — auto-stagger */
+          flex: 0 0 var(--match-w);
+        }
+        .match {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          width: var(--match-w);
+          padding: 8px;
+          background: #182026;
+          border: 1px solid #232c36;
+          border-radius: 4px;
+        }
+        .match-header { font-size: 0.78rem; color: #9aa6b2; margin-bottom: 4px; }
+        .match .team {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 4px 8px;
+          border: 1px solid #2c3742;
+          background: #1d2530;
+          color: #adbaca;
+          min-height: 30px;
+          font-size: 0.85rem;
+          cursor: pointer;
+        }
+        .match .team:first-child { border-bottom: none; border-top-left-radius: 3px; border-top-right-radius: 3px; }
+        .match .team:nth-child(2),
+        .match .match-bottom { border-bottom-left-radius: 3px; border-bottom-right-radius: 3px; }
+        .match .team .seed {
+          display: inline-block;
+          min-width: 22px;
+          text-align: center;
+          font-weight: 700;
+          font-size: 0.72rem;
+          color: #e3e8ef;
+          background: #2c3742;
+          border-radius: 3px;
+          padding: 1px 4px;
+        }
+        .match .team .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .match .team .score { margin-left: auto; color: #03d9ce; font-weight: 700; }
+
+        /* Connector lines: a short horizontal stub on the right of each
+           match, plus a vertical that joins paired matches into the next
+           round's match. Suppressed on the final column. */
+        .match::after, .match::before {
+          content: '';
+          position: absolute;
+          background: #36404e;
+        }
+        .match::after {        /* horizontal stub to the right */
+          right: calc(var(--col-gap) * -0.5 - 1px);
+          top: 50%;
+          width: calc(var(--col-gap) * 0.5);
+          height: 1px;
+        }
+        .match::before {       /* vertical stub joining pairs */
+          right: calc(var(--col-gap) * -0.5);
+          width: 1px;
+          top: 50%;
+          height: 50%;
+        }
+        .column .match:nth-child(2n) ::before { /* upward stub for the lower of each pair */
+          /* placeholder — uses .match-pair-down below for clarity */
+        }
+        /* For even-index matches in a column (the lower of each pair),
+           the vertical stub should point UP instead of down. */
+        .column .match:nth-child(2n)::before { top: auto; bottom: 50%; }
+        .column:last-child .match::after,
+        .column:last-child .match::before { display: none; }
+
+        .theme-dark { background: #0e1217; }
+        .theme-dark .winner-top .match-top,
+        .theme-dark .winner-bottom .match-bottom {
+          background: #232c36;
+          color: #e3e8ef;
+          border-color: #36404e;
+          z-index: 1;
+        }
+        .theme-dark .winner-top .match-top .score,
+        .theme-dark .winner-bottom .match-bottom .score { color: #03d9ce; }
+        .disable-image .image,
+        .disable-seed .seed,
+        .disable-name .name,
+        .disable-score .score { display: none !important; }
         .match.clickable { cursor: pointer; }
-        /* Dark theme accents */
-        .theme-dark { background: #0e1217; border-color: #040607; }
-        .theme-dark .match-lines .line { background: #36404e; }
-        .theme-dark .team { background: #182026; border-color: #232c36; color: #6b798c; }
-        .theme-dark .winner-top .match-top, .theme-dark .winner-bottom .match-bottom { background:#232c36; color:#e3e8ef; border-color:#36404e; z-index:1; }
-        .theme-dark .winner-top .match-top .score, .theme-dark .winner-bottom .match-bottom .score { color:#03d9ce; }
+
+        /* ── Rich hover card ──────────────────────────────────────────── */
+        .bug-hover-card {
+          position: fixed;
+          z-index: 1080;
+          pointer-events: none;
+          background: #0e1217;
+          border: 1px solid #36404e;
+          color: #e3e8ef;
+          padding: 10px;
+          border-radius: 6px;
+          width: 280px;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+          opacity: 0;
+          transform: translateY(-4px);
+          transition: opacity 0.12s, transform 0.12s;
+        }
+        .bug-hover-card.show { opacity: 1; transform: translateY(0); }
+        .bug-hover-card img { width: 100%; height: 140px; object-fit: cover; border-radius: 4px; margin-bottom: 6px; }
+        .bug-hover-card .nick { font-weight: 700; }
+        .bug-hover-card .meta { font-size: 0.78rem; color: #9aa6b2; margin-bottom: 4px; }
+        .bug-hover-card .badge-row { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0; }
+        .bug-hover-card .radar { width: 100%; height: 130px; }
         </style>
+
+        <div class="bracket-vars" style="display:none;"></div>
+        <div id="bugHoverCard" class="bug-hover-card" role="tooltip"></div>
 
         <!-- Modal for match preview / result -->
         <div class="modal fade" id="matchPreviewModal" tabindex="-1" aria-hidden="true">
@@ -327,6 +466,169 @@
                 m.classList.add('clickable');
                 m.addEventListener('click', showMatch);
             });
+        })();
+        </script>
+
+        {# ── Hover-card preview on tournament team rows ───────────────── #}
+        <script>
+        (function () {
+          const card = document.getElementById('bugHoverCard');
+          if (!card) return;
+
+          const ATTACK_TYPE_BADGES = {
+            piercing: '⚔️ Piercing',   crushing: '💥 Crushing',  slashing: '🔪 Slashing',
+            venom:    '☠️ Venom',     chemical: '⚗️ Chemical',  grappling: '🤼 Grappling',
+            sonic:    '🔊 Sonic',     electric: '⚡ Electric',   neutral:  '⚪ Neutral'
+          };
+          const DEFENSE_TYPE_BADGES = {
+            hard_shell: '🛡️ Armored',  segmented_armor: '🔗 Segmented',  evasive: '💨 Elusive',
+            hairy_spiny:'🦔 Spiny',     toxic_skin: '☢️ Toxic',           thick_hide: '🦏 Thick Hide',
+            unarmored: '🫀 Resilient',  regenerative: '💚 Regenerative',  bioluminescent: '✨ Bio'
+          };
+          const TIER_COLORS = {
+            uber: '#b94242', ou: '#d8a32d', uu: '#3060c0',
+            ru: '#3a8aa0', nu: '#6c757d', zu: '#3a3a3a'
+          };
+
+          function clear(el) { el.replaceChildren(); }
+
+          function renderRadar(canvas, vals) {
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width = canvas.clientWidth || 260;
+            const h = canvas.height = canvas.clientHeight || 130;
+            const cx = w / 2, cy = h / 2;
+            const r = Math.min(cx, cy) - 18;
+            const labels = ['ATK','DEF','SPD','LTH','GRP','CUN'];
+            const points = vals.map((v, i) => {
+              const angle = (-Math.PI / 2) + i * (Math.PI * 2 / 6);
+              const dist = Math.max(0, Math.min(100, v)) / 100 * r;
+              return [cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist];
+            });
+            // grid
+            ctx.strokeStyle = 'rgba(143,255,58,0.18)';
+            ctx.lineWidth = 1;
+            for (let g = 1; g <= 4; g++) {
+              ctx.beginPath();
+              for (let i = 0; i < 6; i++) {
+                const angle = (-Math.PI / 2) + i * (Math.PI * 2 / 6);
+                const x = cx + Math.cos(angle) * (r * g / 4);
+                const y = cy + Math.sin(angle) * (r * g / 4);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+              }
+              ctx.closePath();
+              ctx.stroke();
+            }
+            // shape
+            ctx.beginPath();
+            points.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(143,255,58,0.25)';
+            ctx.strokeStyle = '#8fff3a';
+            ctx.lineWidth = 2;
+            ctx.fill();
+            ctx.stroke();
+            // labels
+            ctx.fillStyle = '#b8d4a8';
+            ctx.font = '10px system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            for (let i = 0; i < 6; i++) {
+              const angle = (-Math.PI / 2) + i * (Math.PI * 2 / 6);
+              const lx = cx + Math.cos(angle) * (r + 10);
+              const ly = cy + Math.sin(angle) * (r + 10) + 3;
+              ctx.fillText(labels[i], lx, ly);
+            }
+          }
+
+          function buildCard(team) {
+            clear(card);
+            const ds = team.dataset;
+            if (!ds.nickname) {
+              const tbd = document.createElement('div');
+              tbd.className = 'meta';
+              tbd.textContent = 'TBD — waiting on previous round';
+              card.appendChild(tbd);
+              return;
+            }
+            if (ds.image) {
+              const img = document.createElement('img');
+              img.src = ds.image;
+              img.alt = ds.nickname;
+              card.appendChild(img);
+            }
+            const nick = document.createElement('div');
+            nick.className = 'nick';
+            const seedSpan = document.createElement('span');
+            seedSpan.style.cssText = 'margin-right:6px;color:#9aa6b2;font-weight:600;';
+            seedSpan.textContent = ds.seed ? ('#' + ds.seed) : '';
+            nick.appendChild(seedSpan);
+            nick.appendChild(document.createTextNode(ds.nickname));
+            card.appendChild(nick);
+
+            if (ds.species) {
+              const meta = document.createElement('div');
+              meta.className = 'meta';
+              meta.style.fontStyle = 'italic';
+              meta.textContent = ds.species;
+              card.appendChild(meta);
+            }
+
+            const recordMeta = document.createElement('div');
+            recordMeta.className = 'meta';
+            recordMeta.textContent = (ds.wins || '0') + 'W · ' + (ds.losses || '0') + 'L';
+            card.appendChild(recordMeta);
+
+            // Tier + typing badges
+            const row = document.createElement('div');
+            row.className = 'badge-row';
+            if (ds.tier) {
+              const tb = document.createElement('span');
+              tb.style.cssText = 'background:' + (TIER_COLORS[ds.tier] || '#666') + ';color:#fff;padding:2px 6px;border-radius:3px;font-size:0.7rem;font-weight:700;';
+              tb.textContent = ds.tier.toUpperCase();
+              row.appendChild(tb);
+            }
+            if (ds.attackType && ATTACK_TYPE_BADGES[ds.attackType]) {
+              const ab = document.createElement('span');
+              ab.style.cssText = 'background:#b94242;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.7rem;';
+              ab.textContent = ATTACK_TYPE_BADGES[ds.attackType];
+              row.appendChild(ab);
+            }
+            if (ds.defenseType && DEFENSE_TYPE_BADGES[ds.defenseType]) {
+              const db = document.createElement('span');
+              db.style.cssText = 'background:#3060c0;color:#fff;padding:2px 6px;border-radius:3px;font-size:0.7rem;';
+              db.textContent = DEFENSE_TYPE_BADGES[ds.defenseType];
+              row.appendChild(db);
+            }
+            card.appendChild(row);
+
+            // Stat radar
+            const canvas = document.createElement('canvas');
+            canvas.className = 'radar';
+            card.appendChild(canvas);
+            // Defer the draw until after the card is in the DOM with size.
+            requestAnimationFrame(() => renderRadar(canvas, [
+              +ds.attack || 0, +ds.defense || 0, +ds.speed || 0,
+              +ds.lethality || 0, +ds.grip || 0, +ds.cunning || 0,
+            ]));
+          }
+
+          function positionCard(evt) {
+            const cardW = 280, cardH = card.offsetHeight || 280;
+            let x = evt.clientX + 18, y = evt.clientY + 18;
+            if (x + cardW > window.innerWidth)  x = evt.clientX - cardW - 18;
+            if (y + cardH > window.innerHeight) y = evt.clientY - cardH - 18;
+            card.style.left = Math.max(8, x) + 'px';
+            card.style.top  = Math.max(8, y) + 'px';
+          }
+
+          document.querySelectorAll('.match .team').forEach(team => {
+            team.addEventListener('mouseenter', evt => {
+              buildCard(team);
+              positionCard(evt);
+              card.classList.add('show');
+            });
+            team.addEventListener('mousemove', positionCard);
+            team.addEventListener('mouseleave', () => card.classList.remove('show'));
+          });
         })();
         </script>
 

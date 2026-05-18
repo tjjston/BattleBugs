@@ -330,6 +330,40 @@ class Bug(db.Model):
         return f'<Bug {self.nickname}>'
 
     @property
+    def archetype_slug(self) -> str | None:
+        """Extract the combat-archetype slug from stats_reasoning JSON.
+
+        Cheap to call from templates — parses the JSON once per access and
+        catches malformed blobs silently.
+        """
+        if not self.stats_reasoning:
+            return None
+        import json as _j
+        try:
+            r = _j.loads(self.stats_reasoning)
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(r, dict):
+            return None
+        slug = r.get('archetype_slug')
+        return slug if isinstance(slug, str) and slug else None
+
+    @property
+    def archetype_name(self) -> str | None:
+        """Human-readable archetype name for templates."""
+        if not self.stats_reasoning:
+            return None
+        import json as _j
+        try:
+            r = _j.loads(self.stats_reasoning)
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(r, dict):
+            return None
+        name = r.get('archetype_name')
+        return name if isinstance(name, str) and name else None
+
+    @property
     def combat_badges(self):
         """Computed display badges — no DB queries."""
         badges = []

@@ -10,8 +10,10 @@ Guardrails
 ----------
 - Each archetype's "shape" is a set of relative weights summing to 1.0.
 - Applied at the tier's mid-point budget, each stat gets a base value.
-- The LLM is allowed to deviate each stat by ±8 from base — enough to express
-  individual variation but not enough to change the archetype's identity.
+- The LLM is allowed to deviate each stat by ±15 from base — wide enough
+  for real specimen-to-specimen variation (so a small mantis genuinely
+  differs from a large one), narrow enough that the archetype identity
+  still reads (a "Heavy Tank" is still tanky after deviation).
 - After deviation, totals are clamped back into the tier band so the bug
   stays in its assigned tier.
 
@@ -249,7 +251,7 @@ def apply(archetype_slug: str, tier: str, deviations: Optional[dict] = None) -> 
     """Compute final stats from archetype + tier + LLM per-stat deviation.
 
     `deviations` is a dict like {'attack': +5, 'speed': -3, ...}. Any
-    deviation outside ±8 is clamped to ±8. After applying, totals are
+    deviation outside ±15 is clamped to ±15. After applying, totals are
     rebalanced to land inside the tier band.
     """
     arch = _BY_SLUG.get(archetype_slug)
@@ -272,7 +274,7 @@ def apply(archetype_slug: str, tier: str, deviations: Optional[dict] = None) -> 
                 d = int(d)
             except (TypeError, ValueError):
                 continue
-            d = max(-8, min(8, d))
+            d = max(-15, min(15, d))
             stats[k] = max(1, min(100, stats[k] + d))
 
     # Rebalance to the tier band — if total is outside, scale uniformly.
