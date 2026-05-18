@@ -62,3 +62,5 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+# Claude Code runtime scratch (session locks, ephemeral state)
+.claude/
