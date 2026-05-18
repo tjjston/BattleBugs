@@ -208,6 +208,42 @@ ARCHETYPES: list[Archetype] = [
               typical_attack_types=('electric', 'sonic', 'chemical'),
               typical_defense_types=('bioluminescent', 'regenerative'),
               exemplars=('Bombardier beetle', 'Firefly', 'Cicada', 'Click beetle')),
+
+    # 17. Predatory larva: voracious, mandibles-first, limited mobility.
+    Archetype('voracious_grub', 'Voracious Grub',
+              'Tiny, slow, all mandibles. Eats prey several times its size.',
+              weights=(0.22, 0.13, 0.10, 0.20, 0.20, 0.15),
+              typical_attack_types=('piercing', 'grappling'),
+              typical_defense_types=('unarmored', 'hairy_spiny'),
+              exemplars=('Ladybug larva', 'Antlion larva', 'Lacewing larva',
+                         'Dragonfly nymph (terrestrial form)', 'Tiger beetle larva')),
+
+    # 18. Pollinator: built for flight + nectar, defensive sting only.
+    Archetype('pollinator', 'Pollinator',
+              'Lives for the flowers. Stings only when cornered.',
+              weights=(0.10, 0.13, 0.27, 0.18, 0.10, 0.22),
+              typical_attack_types=('venom',),
+              typical_defense_types=('evasive', 'hairy_spiny'),
+              exemplars=('Honey bee', 'Mason bee', 'Hover fly', 'Butterfly',
+                         'Bumblebee worker')),
+
+    # 19. Scavenger: detritus eater, no built for combat but tireless.
+    Archetype('scavenger', 'Scavenger',
+              'Avoids fights. Outlives whatever started them.',
+              weights=(0.11, 0.12, 0.22, 0.12, 0.13, 0.30),
+              typical_attack_types=('neutral', 'piercing'),
+              typical_defense_types=('evasive', 'unarmored'),
+              exemplars=('Housefly', 'Blow fly', 'Carpenter ant', 'Dermestid beetle',
+                         'Roly-poly / pill bug')),
+
+    # 20. Parasitoid: tiny wasps and tachinids — surgical oviposition strike.
+    Archetype('parasitoid', 'Parasitoid',
+              'Patient flight. One precise strike, then walks away.',
+              weights=(0.13, 0.10, 0.20, 0.25, 0.15, 0.17),
+              typical_attack_types=('piercing', 'venom'),
+              typical_defense_types=('evasive',),
+              exemplars=('Ichneumon wasp', 'Braconid wasp', 'Tachinid fly',
+                         'Cuckoo wasp', 'Chalcid wasp')),
 ]
 
 
