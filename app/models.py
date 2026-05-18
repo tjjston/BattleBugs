@@ -261,7 +261,8 @@ class Bug(db.Model):
     attack_type = db.Column(db.String(50))   # e.g., piercing, crushing, slashing, venom, chemical, grappling
     defense_type = db.Column(db.String(50))  # e.g., hard_shell, segmented_armor, evasive, hairy_spiny, toxic_skin, thick_hide
     size_class = db.Column(db.String(20))    # tiny, small, medium, large, massive
-    
+    life_stage = db.Column(db.String(20))    # egg, larva, nymph, pupa, subadult, adult
+
     xfactor = db.Column(db.Float, default=0.0)  # -5.0 to +5.0 hidden modifier
     xfactor_reason = db.Column(db.Text)
     

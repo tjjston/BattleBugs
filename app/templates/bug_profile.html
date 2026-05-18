@@ -13,7 +13,16 @@
                     {{ bug.name }}
                     {% if bug.is_retired %}<span class="badge bg-warning text-dark ms-1" title="Retired champion">🏆 Retired</span>{% endif %}
                 </h3>
-                <p class="text-muted">{{ bug.species or 'Unknown Species' }}</p>
+                <p class="text-muted mb-1">{{ bug.species or 'Unknown Species' }}</p>
+                {% if bug.life_stage and bug.life_stage != 'adult' %}
+                {%- set _stage_icons = {'egg':'🥚','larva':'🐛','nymph':'🦗','pupa':'🛏️','subadult':'🐞'} -%}
+                <p class="mb-2">
+                  <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle"
+                        title="Captured at a pre-adult life stage. Combat profile reflects this stage, not the adult form.">
+                    {{ _stage_icons.get(bug.life_stage, '🔄') }} {{ bug.life_stage.capitalize() }} stage
+                  </span>
+                </p>
+                {% endif %}
 
                 {# ── Retirement banner ──────────────────────────── #}
                 {% if bug.is_retired %}

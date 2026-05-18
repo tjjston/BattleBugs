@@ -602,6 +602,12 @@ Don't pick UU+ for a bug unless it has at least ONE of: (a) size + physical mass
 - attack_type: piercing | crushing | slashing | venom | chemical | grappling | sonic | electric | neutral
 - defense_type: hard_shell | segmented_armor | evasive | hairy_spiny | toxic_skin | thick_hide | unarmored | regenerative | bioluminescent
 - size_category: tiny (0-5mm) | small (6-20mm) | medium (21-50mm) | large (51-150mm) | massive (151mm+)
+- life_stage: egg | larva | nymph | pupa | subadult | adult — read this from the photo. Larvae and nymphs are NOT the same fighter as the adult of the same species:
+  - **Ladybug larva** is voracious_grub (predatory, mandibles-first), not the cryptic_mimic or pollinator the adult ladybug might fit.
+  - **Antlion larva** is a pit-trap apex predator; the adult is a fragile dragonfly-mimic with almost no combat capability.
+  - **Dragonfly nymph** (aquatic) is a top fish-eating predator; the adult is aerial_speedster.
+  - **Mosquito larva** is plankton (ZU); the adult is a vector with mid speed/cunning.
+  When in doubt, default life_stage to "adult". The voracious_grub archetype is the natural fit for predatory larvae; pupa and egg stages are essentially immobile and should be ZU.
 
 **Process — follow in order:**
 1. Identify the bug's combat identity from its anatomy + behavior. Match to ONE archetype slug from the list above.
@@ -620,7 +626,7 @@ Don't pick UU+ for a bug unless it has at least ONE of: (a) size + physical mass
    specimen variance. Routine specimens deviate 0-5; a specimen with at
    least one named cue can go up to ±15. If you can't name a cue, deviate
    0-3 and explain that this is a typical example.
-5. Pick attack_type, defense_type, size_category, special_ability based on real biology.
+5. Pick attack_type, defense_type, size_category, life_stage, special_ability based on real biology and what the photo shows.
 
 Respond with valid JSON only — no prose, no markdown fences — in EXACTLY this shape:
 {{
@@ -633,6 +639,7 @@ Respond with valid JSON only — no prose, no markdown fences — in EXACTLY thi
   "attack_type":      "<one of the attack_type values>",
   "defense_type":     "<one of the defense_type values>",
   "size_category":    "tiny|small|medium|large|massive",
+  "life_stage":       "egg|larva|nymph|pupa|subadult|adult",
   "special_ability":  "Concrete ability name grounded in real biology",
   "confidence":       0.0-1.0,
   "reasoning": {{
@@ -884,6 +891,18 @@ Respond with valid JSON only — no prose, no markdown fences — in EXACTLY thi
             if sc == 'giant':
                 sc = 'massive'
             bug.size_class = sc
+
+        # Life stage — defaults to adult when the LLM omits it (older prompts)
+        raw_stage = stats.get('life_stage') or stats.get('lifestage') or stats.get('stage')
+        if raw_stage:
+            ls = raw_stage.lower().strip()
+            if ls in ('egg', 'larva', 'larval', 'nymph', 'pupa', 'pupal', 'subadult', 'adult'):
+                # Normalize alternate spellings
+                if ls == 'larval':
+                    ls = 'larva'
+                if ls == 'pupal':
+                    ls = 'pupa'
+                bug.life_stage = ls
 
         # Defense-in-depth: enforce size-anchored caps on PHYSICAL stats
         # (attack, defense, grip) even if the LLM ignored the rubric. Mass
