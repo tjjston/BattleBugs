@@ -192,26 +192,38 @@ class TierSystem:
     @staticmethod
     def assign_tier(bug):
         """
-        Assign tier based on power rating and performance
-        
-        Args:
-            bug: Bug object
-            
-        Returns:
-            str: Tier code ('uber', 'ou', 'uu', etc.)
+        Assign tier based on power rating, with a "danger floor" so that
+        class-leading lethality or cunning can elevate small but extreme
+        bugs (brown recluse, black widow, funnel-web) above where their
+        raw stat total would put them. Reflects real-world combat threat:
+        a 280-total bug with lethality 95 (necrotic venom) is a higher-
+        stakes fighter than a 380-total well-rounded mediocre one.
         """
         power = TierSystem.calculate_power_rating(bug)
-        
-        # Base tier on power rating
+
+        tier_by_power = 'zu'
         for tier_code, tier_info in TIER_DEFINITIONS.items():
             min_power = tier_info.get('min_power', 0)
             max_power = tier_info.get('max_power', 999)
-            
             if min_power <= power <= max_power:
-                return tier_code
-        
-        # Fallback
-        return 'zu'
+                tier_by_power = tier_code
+                break
+
+        lethality = getattr(bug, 'lethality', 0) or 0
+        cunning = getattr(bug, 'cunning', 0) or 0
+        if lethality >= 95 and cunning >= 75:
+            danger_floor = 'uber'   # multi-dimensional class-leading: funnel-web, deathstalker
+        elif lethality >= 90:
+            danger_floor = 'ou'     # class-leading lethality alone: brown recluse, Brazilian wandering
+        elif lethality >= 80:
+            danger_floor = 'uu'     # high lethality: black widow, bombardier beetle
+        elif lethality >= 65 or cunning >= 80:
+            danger_floor = 'ru'     # notable lethality or strong cunning
+        else:
+            danger_floor = 'zu'
+
+        tier_order = ['zu', 'nu', 'ru', 'uu', 'ou', 'uber']
+        return max(tier_by_power, danger_floor, key=tier_order.index)
     
     @staticmethod
     def can_battle(bug1, bug2, allow_tier_difference=None, tournament_tier_restriction=None):
@@ -494,12 +506,12 @@ The archetype determines the SHAPE of the stats (which are high, which low). The
 - cunning: tactical adaptation — feints, terrain use, ambush timing, behavioral flexibility
 
 **Total-stat budget by tier (sum of all six):**
-Tier is set by TOTAL COMBAT FOOTPRINT — what the bug can actually do in a fight — NOT by body size alone. Small bugs with extreme weaponry (venom, chemical artillery, web traps) can sit in high tiers despite low physical stats.
+Tier is set by TOTAL COMBAT FOOTPRINT — what the bug can actually do in a fight — NOT by body size alone. Small bugs with extreme weaponry (venom, chemical artillery, web traps) can sit in high tiers despite low physical stats. The post-process tier assignment promotes any bug whose lethality is class-leading even when its stat sum is modest, so don't be afraid to assign high lethality (90+) to a small but truly deadly species.
 
-- uber (legendary): 540-600 — apex arthropods. Examples: Asian giant hornet (size + venom + aggression), giant desert centipede, large emperor scorpion, large praying mantis, goliath beetle, Sydney funnel-web spider (small body but extreme venom + aggression), deathstalker scorpion.
-- ou (strong): 480-539 — top-tier hunters. Examples: tarantula, large dragonfly, wolf spider, large stag beetle, tarantula hawk wasp (paralyzing sting), Brazilian wandering spider.
-- uu (average): 400-479 — capable. Examples: large ground beetle, paper wasp, large grasshopper, mid-size mantis, orb weaver, **black widow (small body, α-latrotoxin earns the rating)**, jumping spider (Portia genus — cognitive predator), velvet ant (extreme sting).
-- ru (below average): 320-399 — moderate. Examples: common bumblebee, large housefly, garden spider, June beetle, **bombardier beetle (small but chemical jet)**, brown recluse (small but necrotic venom), tiger beetle (small but exceptional speed + jaws).
+- uber (legendary): 540-600 — RARE, exceptional combat threats. Two ways to qualify: **(A) apex physical predator** with size + weaponry, OR **(B) class-leading lethality plus at least one supporting trait** (aggression, persistence, speed, armor, multi-bite behavior). A single deadly bite from a fragile reclusive spider does NOT qualify alone — Uber requires multi-dimensional threat. Examples: Asian giant hornet, giant desert centipede (Scolopendra gigantea), large emperor scorpion, large praying mantis, goliath beetle (path A); Sydney funnel-web spider (extreme venom + aggression + repeated biting), Brazilian wandering spider (venom + size + aggression + speed), deathstalker scorpion (class-leading venom + armor + persistence) (path B).
+- ou (strong): 480-539 — top-tier hunters OR single-dimension class-leading killers. Examples: tarantula, large dragonfly, wolf spider, large stag beetle, tarantula hawk wasp (paralyzing sting), **brown recluse (small + fragile but necrotic venom is exceptional)**, **black widow (small body, α-latrotoxin is among the most potent arachnid venoms)**, Indian red scorpion.
+- uu (average): 400-479 — capable. Examples: large ground beetle, paper wasp, large grasshopper, mid-size mantis, orb weaver, jumping spider (Portia genus — cognitive predator), velvet ant (extreme sting pain but not lethal), bombardier beetle (chemical artillery), yellow sac spider, hobo spider.
+- ru (below average): 320-399 — moderate. Examples: common bumblebee, large housefly, garden spider, June beetle, tiger beetle (small but exceptional speed + jaws), pseudoscorpion, common honeybee worker.
 - nu (weak): 240-319 — small soft/short-lived bugs with no signature weaponry. Examples: ladybug, common ant worker, small moth, fruit fly, lacewing, small leafhopper, pill bug, stink bug (mild chemical only).
 - zu (very weak): 0-239 — fragile or microscopic. Examples: aphid, springtail, mite, soft larva, gnat, newly-hatched anything.
 
@@ -518,10 +530,13 @@ LETHALITY, SPEED, and CUNNING are biology-driven and NOT size-capped:
 - Cunning: a Portia jumping spider (6mm) solves problems no larger bug can; a giant moth might be cunning 15.
 
 Worked examples:
-- **Ladybug (~6-10mm, no venom, no signature defense):** NU. Physical caps bind (atk/def/grip all ≤60). Nothing earns high lethality/cunning/speed either. Totals around 240-280.
-- **Black widow (~8-13mm, α-latrotoxin, web hunter):** UU. Physical caps bind (atk 35, def 25, grip 50 — she's fragile), but lethality 85, cunning 70, speed 50 are biology-earned. Total ~315 → still NU/RU if low physical drags her down, OR UU if the LLM correctly assigns the venom-driven combat footprint. The tier reflects the THREAT, not the body.
-- **Bombardier beetle (~10mm, chemical jet, hard shell for its size):** RU. Defense capped at 60 (still respectable for size), lethality 75 (chemistry), speed 35.
-- **Goliath beetle (~110mm, no venom, massive shell, crushing jaws):** OU. No physical caps. Defense 85, attack 80, but lethality only 40 (no biological weapon beyond size).
+- **Ladybug (~6-10mm, no venom, no signature defense):** NU. Physical caps bind (atk/def/grip all ≤60). Nothing earns lethality/cunning above the mid-range. Total ~240-280, no danger floor triggers.
+- **Brown recluse (~8mm, necrotic venom, fragile, reclusive):** OU via danger floor. Physical caps bind (atk 25, def 30, grip 40), speed low (~30 — she's slow), cunning moderate (~55 — sit-and-wait). But **lethality 95** (necrotic venom is class-leading). Stat sum ~275 = NU by total, but `lethality ≥ 90` floors the tier at OU. The tier reflects the **threat**, not the body or the total.
+- **Black widow (~10mm, α-latrotoxin, web hunter):** OU via danger floor. Physical caps bind (atk 30, def 25, grip 50). Lethality 90+, cunning 70. Sum ~285 = NU by total, but floor pulls to OU.
+- **Sydney funnel-web (~20mm, extreme venom + aggression + repeated bites):** UBER via danger floor. Lethality 99 AND cunning 80 → multi-dimensional threat triggers Uber floor even if stat sum is mid-UU.
+- **Bombardier beetle (~10mm, chemical jet, hard shell for its size):** UU. Physical caps bind on defense (60). Lethality 80 (chemistry) triggers UU floor.
+- **Goliath beetle (~110mm, no venom, massive shell, crushing jaws):** OU/Uber by total. No physical caps. Defense 85, attack 80, but lethality only ~40 (no biological weapon beyond mass). Tier from stat SUM, not danger floor.
+- **Tiger beetle (~12mm, extreme speed, sharp jaws, no venom):** RU. Physical caps bind. Speed 95 (biology-earned, uncapped), lethality ~50. Total ~340 = RU by sum, no danger floor.
 
 Don't pick UU+ for a bug unless it has at least ONE of: (a) size + physical mass to dominate, (b) potent venom / chemical / electrical weaponry, (c) ecosystem-apex behavior (web complexity, prey specialization), (d) demonstrable cognitive sophistication. Pretty colors, hard-looking shell, or photogenic pose do NOT qualify.
 
